@@ -22,7 +22,7 @@ type RopeEngine = {
 };
 
 const startMatch = async (page: import('@playwright/test').Page) => {
-  await page.goto('/demo?seed=4242');
+  await page.goto('/demo?seed=4242&mapSize=1');
   await page.getByTestId('btn-play').click();
   await expect(page.getByTestId('arena').locator('canvas')).toBeVisible();
   await page.waitForFunction(() => Boolean((window as never as { __WORMAGE__?: unknown }).__WORMAGE__));
