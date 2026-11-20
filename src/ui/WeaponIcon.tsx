@@ -10,12 +10,12 @@ export type WeaponIconId = WeaponId | 'rope';
 export function WeaponIcon({ id, className = 'weapon-glyph' }: { id: WeaponIconId; className?: string }) {
   return (
     <svg className={className} viewBox="0 0 32 32" aria-hidden="true" focusable="false">
-      {ART[id]}
+      {ART[id] ?? null}
     </svg>
   );
 }
 
-const ART: Record<WeaponIconId, ReactNode> = {
+const ART: Partial<Record<WeaponIconId, ReactNode>> = {
   bazooka: (
     <g transform="rotate(-38 16 16)">
       <rect x="3" y="13" width="23" height="7" rx="3" fill="#4b5b50" stroke="#0c1412" strokeWidth="1.2" />

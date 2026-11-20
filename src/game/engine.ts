@@ -15,6 +15,7 @@ import {
   WIND_ACCEL,
   WIND_FACTOR,
   WORM,
+  WORLD_W,
   worldClamp,
 } from './config';
 import { Terrain, mulberry32 } from './terrain';
@@ -84,13 +85,16 @@ export class GameEngine {
   private revengeFocusByTeam: Record<number, { x: number; y: number } | null> = {};
   private revengeTurnsByTeam: Record<number, number> = {};
   private readonly rng: () => number;
+  loot: Array<{ id: number; x: number; y: number; kind: 'ammo' | 'mine' | 'secret'; armed: boolean; fuse: number; ammoGrant: number }> = [];
+  private lootId = 0;
   private readonly lastWormByTeam: Record<number, string> = {};
 
   constructor(config: MatchConfig) {
     this.config = config;
-    this.terrain = new Terrain(config.seed);
+    this.terrain = new Terrain(config.seed, config.map);
     this.rng = mulberry32(config.seed ^ 0x9e3779b9);
     this.timeLeft = config.turnSeconds;
+    this.spawnLoot();
 
     this.teams = TEAMS.map((team, teamIndex) => {
       const worms: Worm[] = [];
@@ -128,6 +132,8 @@ export class GameEngine {
           grenade: WEAPONS.grenade.ammo ?? 0,
           shotgun: WEAPONS.shotgun.ammo ?? 0,
           dynamite: WEAPONS.dynamite.ammo ?? 0,
+          medkit: WEAPONS.medkit.ammo ?? 0,
+          shield: WEAPONS.shield.ammo ?? 0,
         },
       };
     });
@@ -202,7 +208,7 @@ export class GameEngine {
     this.aiRopeDeadline = null;
     this.aiThinking = team.isAi;
     const maxWind = WIND_ACCEL[this.config.wind];
-    this.wind = first ? 0 : Math.round((this.rng() * 2 - 1) * maxWind);
+    this.wind = first ? 0 : (Math.round((this.rng() * 2 - 1) * maxWind) || 0);
     this.events.push({ type: 'turn', teamId: team.id, wormId: next.id });
   }
 
@@ -414,6 +420,17 @@ export class GameEngine {
     const weapon = WEAPONS[this.weapon];
     if (weapon.ammo !== null && team.ammo[this.weapon] <= 0) return;
 
+    if (weapon.kind === 'utility') {
+      if (weapon.ammo !== null) team.ammo[this.weapon] -= 1;
+      this.hasFired = true;
+      this.charging = false;
+      if (weapon.heal) worm.hp = Math.min(worm.maxHp, worm.hp + weapon.heal);
+      if (weapon.shield) worm.hp = Math.min(worm.maxHp + (weapon.shield ?? 0), worm.hp + (weapon.shield ?? 0));
+      this.events.push({ type: 'fire', x: worm.x, y: worm.y - 14, angle: worm.aimAngle, weapon: this.weapon });
+      this.finishTurn();
+      return;
+    }
+
     const power = Math.max(0.12, this.power);
     const angle = worm.aimAngle;
     const speed = weapon.speedMin + (weapon.speedMax - weapon.speedMin) * power;
@@ -469,6 +486,76 @@ export class GameEngine {
     this.finish(this.otherTeam(this.activeTeam), 'surrender');
   }
 
+  private spawnLoot(): void {
+    const rng = this.rng;
+    const ground = (x: number) => this.terrain.groundY(x, 120, WATER_Y - 120) ?? 470;
+    for (let i = 0; i < 6; i += 1) {
+      const x = 200 + rng() * (WORLD_W - 400);
+      this.loot.push({ id: ++this.lootId, x, y: ground(x) - 12, kind: 'ammo', armed: false, fuse: 0, ammoGrant: 1 });
+    }
+    for (let i = 0; i < 4; i += 1) {
+      const x = 200 + rng() * (WORLD_W - 400);
+      this.loot.push({ id: ++this.lootId, x, y: ground(x) - 12, kind: 'mine', armed: false, fuse: 1.5, ammoGrant: 0 });
+    }
+    for (let i = 0; i < 3; i += 1) {
+      const x = 200 + rng() * (WORLD_W - 400);
+      this.loot.push({ id: ++this.lootId, x, y: ground(x) - 12, kind: 'secret', armed: false, fuse: 0, ammoGrant: 2 });
+    }
+  }
+
+  private updateLoot(dt: number): void {
+    const teamOf = (w: { teamId: number }) => this.teams[w.teamId];
+    for (const item of this.loot) {
+      if (item.kind === 'mine') {
+        // arm when a worm is within proximity
+        if (!item.armed) {
+          for (const t of this.teams) for (const w of t.worms) {
+            if (!w.alive) continue;
+            const dx = w.x - item.x; const dy = w.y - item.y;
+            if (Math.hypot(dx, dy) <= 80) item.armed = true;
+          }
+        }
+        if (item.armed) {
+          item.fuse -= dt;
+          if (item.fuse <= 0) {
+            // explode
+            for (const t of this.teams) for (const w of t.worms) {
+              if (!w.alive) continue;
+              const d = Math.hypot(w.x - item.x, w.y - item.y);
+              if (d <= 60) {
+                w.hp = Math.max(0, w.hp - 40);
+                if (w.hp <= 0) w.alive = false;
+              }
+            }
+            this.terrain.carve(item.x, item.y, 40);
+            item.kind = 'ammo'; // mark consumed (will be removed)
+            item.x = -10000;
+          }
+        }
+      }
+    }
+    // pickup
+    for (const t of this.teams) for (const w of t.worms) {
+      if (!w.alive) continue;
+      for (const item of this.loot) {
+        if (item.x < 0) continue;
+        if (item.kind === 'mine') continue;
+        const d = Math.hypot(w.x - item.x, w.y - item.y);
+        if (d <= 28) {
+          if (item.kind === 'ammo') {
+            const ammo = teamOf(w).ammo;
+            ammo.bazooka = ammo.bazooka + item.ammoGrant;
+          } else if (item.kind === 'secret') {
+            w.hp = Math.min(w.maxHp, w.hp + 20);
+          }
+          item.x = -10000; // consumed
+        }
+      }
+    }
+    // remove consumed
+    this.loot = this.loot.filter((l) => l.x >= 0);
+  }
+
   private finishTurn(): void {
     if (this.phase === 'gameover') return;
     this.moveDir = 0;
@@ -480,6 +567,15 @@ export class GameEngine {
     this.clearRopes();
     this.activeTeam = this.otherTeam(this.activeTeam);
     this.turn += 1;
+    if (this.config.mode === 'sudden-death' && this.config.turnSeconds > 0) {
+      // damage all alive worms per turn after threshold (threshold stored in config? use 6 turns)
+      if (this.turn >= 6) {
+        for (const t of this.teams) for (const w of t.worms) {
+          if (w.alive) { w.hp = Math.max(0, w.hp - 5); if (w.hp <= 0) w.alive = false; }
+        }
+        this.checkWipeout();
+      }
+    }
     this.beginTurn();
   }
 
@@ -521,6 +617,15 @@ export class GameEngine {
   }
 
   private checkWipeout(): void {
+    if (this.config.mode === 'assassinate') {
+      for (const team of this.teams) {
+        const leader = team.worms[0];
+        if (leader && !leader.alive) {
+          this.finish(this.otherTeam(team.id), 'wipeout');
+          return;
+        }
+      }
+    }
     for (const team of this.teams) {
       if (!team.worms.some((w) => w.alive)) {
         this.finish(this.otherTeam(team.id), 'wipeout');
@@ -1060,6 +1165,7 @@ export class GameEngine {
     if (this.teams[this.activeTeam].isAi) this.updateAi(dt);
 
     for (const t of this.teams) for (const w of t.worms) this.stepWorm(w, dt);
+    this.updateLoot(dt);
 
     // Only aim once the CPU stops: the animation is the tell that it is about to fire.
     if (this.aiAiming && this.aiPlan) this.steerAiAim(this.aiPlan.angle, this.aiPlan.power, dt);
