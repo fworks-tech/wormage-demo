@@ -86,6 +86,8 @@ export class GameEngine {
   private revengeTurnsByTeam: Record<number, number> = {};
   private readonly rng: () => number;
   loot: Array<{ id: number; x: number; y: number; kind: 'ammo' | 'mine' | 'secret'; armed: boolean; fuse: number; ammoGrant: number }> = [];
+  mobs: Array<{ id: number; x: number; y: number; hp: number; maxHp: number; damage: number; speed: number; radius: number; alive: boolean }> = [];
+  private mobId = 0;
   private lootId = 0;
   private readonly lastWormByTeam: Record<number, string> = {};
 
@@ -95,6 +97,7 @@ export class GameEngine {
     this.rng = mulberry32(config.seed ^ 0x9e3779b9);
     this.timeLeft = config.turnSeconds;
     this.spawnLoot();
+    this.spawnMobs();
 
     this.teams = TEAMS.map((team, teamIndex) => {
       const worms: Worm[] = [];
@@ -556,6 +559,42 @@ export class GameEngine {
     this.loot = this.loot.filter((l) => l.x >= 0);
   }
 
+  private spawnMobs(): void {
+    const rng = this.rng;
+    const ground = (x: number) => this.terrain.groundY(x, 120, WATER_Y - 120) ?? 470;
+    for (let i = 0; i < 3; i += 1) {
+      const x = 300 + rng() * (WORLD_W - 600);
+      this.mobs.push({ id: ++this.mobId, x, y: ground(x) - 12, hp: 60, maxHp: 60, damage: 15, speed: 80, radius: 18, alive: true });
+    }
+  }
+
+  private hostilePhase(): void {
+    for (const mob of this.mobs) {
+      if (!mob.alive) continue;
+      // find nearest alive worm
+      let best: { w: any; d: number } | null = null;
+      for (const t of this.teams) for (const w of t.worms) {
+        if (!w.alive) continue;
+        const d = Math.hypot(w.x - mob.x, w.y - mob.y);
+        if (!best || d < best.d) best = { w, d };
+      }
+      if (!best) continue;
+      const dx = best.w.x - mob.x;
+      const dy = best.w.y - mob.y;
+      const dist = Math.hypot(dx, dy) || 1;
+      const step = Math.min(mob.speed * 0.5, dist);
+      mob.x += (dx / dist) * step;
+      // keep on ground
+      const g = this.terrain.groundY(mob.x, mob.y - 40, 80);
+      if (g !== null) mob.y = g - mob.radius;
+      if (dist <= 40) {
+        best.w.hp = Math.max(0, best.w.hp - mob.damage);
+        if (best.w.hp <= 0) best.w.alive = false;
+      }
+    }
+    this.checkWipeout();
+  }
+
   private finishTurn(): void {
     if (this.phase === 'gameover') return;
     this.moveDir = 0;
@@ -567,6 +606,7 @@ export class GameEngine {
     this.clearRopes();
     this.activeTeam = this.otherTeam(this.activeTeam);
     this.turn += 1;
+    if (this.turn % (this.config.wormsPerTeam * 2) === 0) this.hostilePhase();
     if (this.config.mode === 'sudden-death' && this.config.turnSeconds > 0) {
       // damage all alive worms per turn after threshold (threshold stored in config? use 6 turns)
       if (this.turn >= 6) {
@@ -637,6 +677,14 @@ export class GameEngine {
   private explode(x: number, y: number, weapon: WeaponId, sourceTeam: number | null): void {
     const def = WEAPONS[weapon];
     this.terrain.carve(x, y, def.terrainRadius);
+    for (const mob of this.mobs) {
+      if (!mob.alive) continue;
+      const d = Math.hypot(mob.x - x, mob.y - y);
+      if (d <= def.radius) {
+        mob.hp = Math.max(0, mob.hp - def.damage);
+        if (mob.hp <= 0) { mob.alive = false; this.loot.push({ id: ++this.lootId, x: mob.x, y: mob.y - 12, kind: 'ammo', armed: false, fuse: 0, ammoGrant: 1 }); }
+      }
+    }
     this.events.push({ type: 'explosion', x, y, radius: def.radius });
     for (const team of this.teams) {
       for (const worm of team.worms) {
@@ -1009,13 +1057,14 @@ export class GameEngine {
       this.aiPlan = planAiTurn({
         terrain: this.terrain,
         worm: { id: worm.id, teamId: worm.teamId, x: worm.x, y: worm.y, hp: worm.hp },
-        worms,
+        worms: [...worms, ...this.mobs.filter(m=>m.alive).map(m=>({id:'mob-'+m.id,teamId:-1,x:m.x,y:m.y,hp:m.hp}))],
         ammo: { ...this.teams[this.activeTeam].ammo },
         wind: this.wind,
         timeLeft: this.timeLeft,
         difficulty: DIFFICULTY[this.config.difficulty],
         rng: this.rng,
         revengeFocus: this.revengeFocusByTeam[this.activeTeam] ?? null,
+        mines: this.loot.filter(l=>l.kind==='mine' && l.x>=0).map(l=>({x:l.x,y:l.y})),
       });
       this.aiLastX = worm.x;
       this.aiStall = 0;
@@ -1230,6 +1279,8 @@ export class GameEngine {
       retreatLeft: this.retreatActive ? this.retreatTimer : 0,
       activeOnGround: active?.onGround ?? true,
       ropeAttached: Boolean(active?.rope),
+      loot: this.loot.filter(l=>l.x>=0).map(l=>({x:l.x,y:l.y,kind:l.kind})),
+      mobs: this.mobs.filter(m=>m.alive).map(m=>({x:m.x,y:m.y,hp:m.hp})),
       fuseLeft: this.projectiles.reduce<number | null>((soonest, p) => {
         if (p.fuse === null) return soonest;
         const left = Math.max(0, p.fuse - p.age);

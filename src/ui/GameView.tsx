@@ -112,10 +112,10 @@ export function GameView({
       wind: settings.wind,
       difficulty: settings.difficulty,
       seed: seedRef.current,
-      wormsPerTeam: 3,
-      map: 'island',
-      mode: 'deathmatch',
-      loadout: 'default',
+      wormsPerTeam: settings.wormsPerTeam ?? 3,
+      map: settings.map ?? 'island',
+      mode: settings.mode ?? 'deathmatch',
+      loadout: settings.loadout ?? 'default',
     });
     engineRef.current = engine;
     // E2E instrumentation: lets Playwright observe the authoritative simulation
