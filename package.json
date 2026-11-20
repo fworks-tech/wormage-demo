@@ -13,7 +13,8 @@
     "test": "vitest run",
     "test:affected": "node scripts/affected.mjs --base origin/main --run",
     "test:e2e": "playwright test",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "validate:content": "vitest run tests/unit/content.test.ts"
   },
   "dependencies": {
     "@tanstack/react-query": "^5.62.7",

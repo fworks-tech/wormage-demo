@@ -50,6 +50,7 @@ const FULL_DIRS = ['.github/', 'scripts/'];
 const RULES = [
   // config.ts also feeds the HUD, menu, result screen and stored settings.
   { files: ['src/game/sky.ts'], unit: ['tests/unit/sky.test.ts'], e2e: ['tests/menu.spec.ts'] },
+  { dirs: ['src/content/'], unit: ['tests/unit/content.test.ts'], e2e: [] },
   { files: ['src/game/config.ts'], unit: GAME_UNIT, e2e: UI_E2E },
   { dirs: ['src/game/'], unit: GAME_UNIT, e2e: GAME_E2E },
   {
