@@ -65,6 +65,7 @@ export interface AiTurnInput {
   rng: () => number;
   /** Recent hurt position on our team; null when no revenge is active. */
   revengeFocus?: { x: number; y: number } | null;
+  mines?: { x: number; y: number }[];
 }
 
 interface SimResult {
@@ -226,14 +227,14 @@ export function planAiShot(
  * enemies is weighed against damage to allies and the shooter.
  */
 export function planAiTurn(input: AiTurnInput): AiTurnPlan | null {
-  const { terrain, worm, worms, ammo, wind, timeLeft, difficulty, rng, revengeFocus = null } = input;
+  const { terrain, worm, worms, ammo, wind, timeLeft, difficulty, rng, revengeFocus = null, mines = [] } = input;
   const enemies = worms.filter((w) => w.teamId !== worm.teamId);
   if (enemies.length === 0) return null;
 
   // Do not spend the whole turn walking: leave time to aim and fire.
   const moveBudget = Math.min(5, Math.max(0, timeLeft - 2)) * WORM.walkSpeed;
   // The rope extends the AI's climb beyond a jump.
-  const positions = firingPositions(terrain, worm, moveBudget, ROPE.range);
+  const positions = firingPositions(terrain, worm, moveBudget, ROPE.range).filter((p) => !mines.some((m) => Math.hypot(m.x - p.x, m.y - p.y) < 90));
 
   let best: (Candidate & { weapon: WeaponId; fireX: number; fireY: number }) | null = null;
 
@@ -241,10 +242,25 @@ export function planAiTurn(input: AiTurnInput): AiTurnPlan | null {
     const def = WEAPONS[weapon];
     if (def.ammo !== null && ammo[weapon] <= 0) continue;
     for (const pos of positions) {
-      const candidate =
+      let candidate: Candidate | null = null;
+    if (def.kind === 'utility') {
+      // Utility only makes sense in place; heal if wounded, shield if healthy-ish.
+      const needHeal = (worm.hp ?? WORM.maxHp) < WORM.maxHp * 0.5 && (def.heal ?? 0) > 0;
+      const needShield = (def.shield ?? 0) > 0;
+      if (needHeal || needShield) {
+        candidate = {
+          score: needHeal ? 60 : 30,
+          angle: (enemies[0]?.x ?? pos.x) < pos.x ? mirrorAngle(-0.5) : -0.5,
+          power: 0.5,
+          retreatX: pos.x,
+        };
+      }
+    } else {
+      candidate =
         def.kind === 'drop'
           ? planDrop(terrain, weapon, pos, worm, worms, enemies, revengeFocus)
           : planProjectile(terrain, weapon, pos, worm, worms, enemies, wind, revengeFocus);
+    }
       if (!candidate) continue;
       // Prefer a short walk when two plans do the same damage.
       candidate.score -= (Math.abs(pos.x - worm.x) / WORM.walkSpeed) * 0.4;

@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { RETREAT_SECONDS, WEAPONS, WEAPON_ORDER, windLabel, windTier } from '../game/config';
 import type { GameSnapshot, WeaponId } from '../game/types';
 import { WeaponIcon } from './WeaponIcon';
@@ -49,6 +49,8 @@ export function Hud({
   const holdAimUp = useRef(false);
   const holdAimDown = useRef(false);
   const firePointer = useRef<number | null>(null);
+  const [showMinimap, setShowMinimap] = useState(false);
+  const minimapRef = useRef<HTMLCanvasElement | null>(null);
 
   const playerTurn = snapshot.activeTeam === 0 && snapshot.phase === 'aim' && !paused;
   const canSteer = snapshot.activeTeam === 0 && !paused && (snapshot.phase === 'aim' || snapshot.retreatLeft > 0);
@@ -95,6 +97,34 @@ export function Hud({
     onAimStop();
     onReel(0);
   };
+
+  useEffect(() => {
+    if (!showMinimap) return;
+    const c = minimapRef.current;
+    if (!c) return;
+    const ctx = c.getContext('2d');
+    if (!ctx) return;
+    const w = c.width, h = c.height;
+    ctx.fillStyle = '#0b1a20';
+    ctx.fillRect(0, w*0, 0, 0);
+    ctx.clearRect(0,0,w,h);
+    ctx.fillStyle = '#0b1a20';
+    ctx.fillRect(0,0,w,h);
+    const sx = w / 3840, sy = h / 2160;
+    for (const t of snapshot.teams) for (const worm of t.worms) {
+      if (!worm.alive) continue;
+      ctx.fillStyle = t.id === 0 ? '#f05d8f' : '#4ad6d0';
+      ctx.fillRect(worm.x*sx-2, worm.y*sy-2, 4, 4);
+    }
+    for (const l of snapshot.loot) {
+      ctx.fillStyle = l.kind === 'mine' ? '#ff6b5b' : '#ffd166';
+      ctx.fillRect(l.x*sx-1.5, l.y*sy-1.5, 3, 3);
+    }
+    for (const m of snapshot.mobs) {
+      ctx.fillStyle = '#9b59b6';
+      ctx.fillRect(m.x*sx-2.5, m.y*sy-2.5, 5, 5);
+    }
+  }, [snapshot, showMinimap]);
 
   return (
     <div className="hud">
@@ -387,6 +417,12 @@ export function Hud({
         </div>
       </div>
 
+      <div className="minimap-wrap">
+        <button type="button" className="ghost-btn" onClick={() => setShowMinimap((v) => !v)} data-testid="btn-minimap">
+          {showMinimap ? 'Hide map' : 'Map'}
+        </button>
+        {showMinimap && <canvas ref={minimapRef} width={160} height={90} data-testid="minimap" style={{ border: '1px solid #444' }} />}
+      </div>
       <div className="sr-only" aria-live="polite">
         {snapshot.phase === 'aim'
           ? `${snapshot.teams[snapshot.activeTeam]?.name} turn, ${snapshot.activeWormName}, ${Math.ceil(

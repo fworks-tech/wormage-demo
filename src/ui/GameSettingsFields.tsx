@@ -1,5 +1,5 @@
 import { DIFFICULTY, TURN_SECONDS } from '../game/config';
-import type { Difficulty, GameSettings, WindSetting } from '../game/types';
+import type { Difficulty, GameSettings, LoadoutId, MapId, ModeId, WindSetting } from '../game/types';
 
 interface GameSettingsFieldsProps {
   settings: GameSettings;
@@ -65,6 +65,57 @@ export function GameSettingsFields({ settings, onChange }: GameSettingsFieldsPro
             <option key={key} value={key}>
               {DIFFICULTY[key].label}
             </option>
+          ))}
+        </select>
+      </div>
+
+      <div className="option-row">
+        <label htmlFor="map">
+          <span>Map</span>
+          <small>Terrain silhouette.</small>
+        </label>
+        <select
+          id="map"
+          value={settings.map ?? 'island'}
+          onChange={(e) => update('map', e.target.value as MapId)}
+          data-testid="select-map"
+        >
+          {(['island','mesa','canyon','desert','arctic'] as MapId[]).map((k) => (
+            <option key={k} value={k}>{k}</option>
+          ))}
+        </select>
+      </div>
+
+      <div className="option-row">
+        <label htmlFor="mode">
+          <span>Mode</span>
+          <small>Win condition.</small>
+        </label>
+        <select
+          id="mode"
+          value={settings.mode ?? 'deathmatch'}
+          onChange={(e) => update('mode', e.target.value as ModeId)}
+          data-testid="select-mode"
+        >
+          {(['deathmatch','assassinate','sudden-death','fort'] as ModeId[]).map((k) => (
+            <option key={k} value={k}>{k}</option>
+          ))}
+        </select>
+      </div>
+
+      <div className="option-row">
+        <label htmlFor="loadout">
+          <span>Loadout</span>
+          <small>Starting ammo.</small>
+        </label>
+        <select
+          id="loadout"
+          value={settings.loadout ?? 'default'}
+          onChange={(e) => update('loadout', e.target.value as LoadoutId)}
+          data-testid="select-loadout"
+        >
+          {(['default','heavy','scout'] as LoadoutId[]).map((k) => (
+            <option key={k} value={k}>{k}</option>
           ))}
         </select>
       </div>

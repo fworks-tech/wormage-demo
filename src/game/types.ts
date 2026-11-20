@@ -34,6 +34,10 @@ export interface GameSettings {
   wind: WindSetting;
   difficulty: Difficulty;
   sound: boolean;
+  map?: MapId;
+  mode?: ModeId;
+  loadout?: LoadoutId;
+  wormsPerTeam?: number;
 }
 
 export interface MatchConfig {
@@ -189,4 +193,6 @@ export interface GameSnapshot {
   ropeAttached: boolean;
   /** Shortest lit fuse among projectiles in flight, or null. */
   fuseLeft: number | null;
+  loot: { x: number; y: number; kind: 'ammo' | 'mine' | 'secret' }[];
+  mobs: { x: number; y: number; hp: number }[];
 }

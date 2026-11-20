@@ -16,6 +16,7 @@ import {
 import { useRegisterMatch } from './api/queries';
 import type { GameSettings } from './game/types';
 import type { Bindings } from './state/bindings';
+import { completeStage } from './state/stages';
 import type { Screen, SessionResult } from './types';
 
 function newClientId(): string {
@@ -65,6 +66,9 @@ export default function App() {
     (finished: SessionResult) => {
       setResult(finished);
       saveLastResult(finished);
+      const currentStage = localStorage.getItem('wormage.currentStage');
+      if (currentStage && finished.winnerTeam === 0) completeStage(currentStage);
+      localStorage.removeItem('wormage.currentStage');
       setScreen('result');
       submitResult(finished);
     },

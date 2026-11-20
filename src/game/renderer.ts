@@ -1,5 +1,5 @@
 import { Application, Container, Graphics, Sprite, Text, Texture, Ticker } from 'pixi.js';
-import { AIM, WATER_Y, WEAPONS, WORM, WORLD_H, WORLD_W, windLabel } from './config';
+import { AIM, BASE_H, BASE_W, WATER_Y, WEAPONS, WORM, WORLD_H, WORLD_W, windLabel } from './config';
 import { aimPoint } from './aim';
 import type { GameEngine } from './engine';
 import type { GameEvent, GameSnapshot, WeaponId, Worm } from './types';
@@ -218,6 +218,8 @@ export class ArenaRenderer {
   private readonly world = new Container();
   private readonly terrainLayer = new Container();
   private readonly wormLayer = new Container();
+  private readonly mobLayer = new Container();
+  private readonly mobGfx = new Graphics();
   private readonly projectileLayer = new Container();
   private readonly fxLayer = new Container();
   private readonly aimLayer = new Container();
@@ -238,8 +240,8 @@ export class ArenaRenderer {
   private time = 0;
   private shake = 0;
   private baseScale = 1;
-  private offsetX = 0;
-  private offsetY = 0;
+  private cameraX = 0;
+  private cameraY = 0;
   private lastSnapshot: GameSnapshot | null = null;
 
   private constructor(app: Application, engine: GameEngine) {
@@ -247,9 +249,9 @@ export class ArenaRenderer {
     this.engine = engine;
 
     app.stage.addChild(this.root);
+    app.stage.addChild(this.overlay);
     this.root.addChild(this.world);
-    this.world.addChild(this.terrainLayer, this.projectileLayer, this.wormLayer, this.fxLayer, this.aimLayer);
-    this.root.addChild(this.overlay);
+    this.world.addChild(this.terrainLayer, this.projectileLayer, this.mobLayer, this.wormLayer, this.fxLayer, this.aimLayer);
 
     const sky = this.buildSky();
     this.terrainLayer.addChild(sky);
@@ -264,6 +266,7 @@ export class ArenaRenderer {
     };
 
     this.fxLayer.addChild(this.fx);
+    this.mobLayer.addChild(this.mobGfx);
     this.aimLayer.addChild(this.aim);
     this.aimLayer.addChild(this.rope);
 
@@ -313,23 +316,27 @@ export class ArenaRenderer {
   }
 
   private buildVignette(): void {
+    this.overlay.removeChildren();
+    this.clouds.length = 0;
+    const W = this.app.screen.width;
+    const H = this.app.screen.height;
     const canvas = document.createElement('canvas');
-    canvas.width = WORLD_W;
-    canvas.height = WORLD_H;
+    canvas.width = W;
+    canvas.height = H;
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
     const grad = ctx.createRadialGradient(
-      WORLD_W / 2,
-      WORLD_H / 2,
-      WORLD_H * 0.35,
-      WORLD_W / 2,
-      WORLD_H / 2,
-      WORLD_H * 0.92,
+      W / 2,
+      H / 2,
+      H * 0.35,
+      W / 2,
+      H / 2,
+      H * 0.92,
     );
     grad.addColorStop(0, 'rgba(0,0,0,0)');
     grad.addColorStop(1, 'rgba(2,6,8,0.55)');
     ctx.fillStyle = grad;
-    ctx.fillRect(0, 0, WORLD_W, WORLD_H);
+    ctx.fillRect(0, 0, W, H);
     const sprite = new Sprite(Texture.from(canvas));
     sprite.alpha = 0.9;
     this.overlay.addChild(sprite);
@@ -340,7 +347,7 @@ export class ArenaRenderer {
       cloud
         .ellipse(0, 0, w * 0.5, 13 + i * 1.6)
         .fill({ color: i % 2 ? 0x2c4650 : 0x1d333c, alpha: 0.5 });
-      cloud.position.set(140 + i * 230, 110 + (i % 3) * 46);
+      cloud.position.set((140 + i * 230) % Math.max(1, W), 110 + (i % 3) * 46);
       cloud.alpha = 0.55;
       this.clouds.push(cloud);
       this.overlay.addChild(cloud);
@@ -349,12 +356,10 @@ export class ArenaRenderer {
 
   private resize(): void {
     const { width, height } = this.app.screen;
-    const scale = Math.min(width / WORLD_W, height / WORLD_H);
-    this.baseScale = scale;
-    this.offsetX = (width - WORLD_W * scale) / 2;
-    this.offsetY = (height - WORLD_H * scale) / 2;
-    this.root.scale.set(scale);
-    this.root.position.set(this.offsetX, this.offsetY);
+    const scale = Math.min(width / BASE_W, height / BASE_H);
+    this.baseScale = Math.max(0.25, Math.min(1, scale));
+    this.root.scale.set(this.baseScale);
+    this.buildVignette();
   }
 
   toWorld(clientX: number, clientY: number): { x: number; y: number } {
@@ -364,8 +369,8 @@ export class ArenaRenderer {
     const localX = (clientX - rect.left) * scaleX;
     const localY = (clientY - rect.top) * scaleY;
     return {
-      x: (localX - this.offsetX) / this.baseScale,
-      y: (localY - this.offsetY) / this.baseScale,
+      x: (localX - this.root.position.x) / this.baseScale,
+      y: (localY - this.root.position.y) / this.baseScale,
     };
   }
 
@@ -538,6 +543,26 @@ export class ArenaRenderer {
     const snapshot = this.engine.snapshot();
     this.lastSnapshot = snapshot;
 
+    // Camera follow with dead-zone, clamped to world bounds.
+    const { width, height } = this.app.screen;
+    const viewW = width / this.baseScale;
+    const viewH = height / this.baseScale;
+    let targetX = 0; let targetY = 0;
+    const projs = this.engine.projectilesInFlight;
+    if (projs.length) {
+      targetX = projs.reduce((a, p) => a + p.x, 0) / projs.length;
+      targetY = projs.reduce((a, p) => a + p.y, 0) / projs.length;
+    } else {
+      const w = this.engine.activeWorm;
+      if (w) { targetX = w.x; targetY = w.y; }
+    }
+    const desiredX = Math.max(0, Math.min(WORLD_W - viewW, targetX - viewW / 2));
+    const desiredY = Math.max(0, Math.min(WORLD_H - viewH, targetY - viewH / 2));
+    const dz = 60;
+    if (Math.abs(desiredX - this.cameraX) > dz) this.cameraX += (desiredX - this.cameraX) * 0.12;
+    if (Math.abs(desiredY - this.cameraY) > dz) this.cameraY += (desiredY - this.cameraY) * 0.12;
+    this.root.position.set(-this.cameraX * this.baseScale, -this.cameraY * this.baseScale);
+
     for (const team of this.engine.teams) {
       for (const worm of team.worms) {
         const view = this.wormViews.get(worm.id);
@@ -547,6 +572,18 @@ export class ArenaRenderer {
         const heldWeapon = worm.id === snapshot.activeWormId ? snapshot.weapon : 'bazooka';
         view.sync(worm, team.color, active, canAct, paused ? 0 : dt, heldWeapon);
       }
+    }
+
+    // Hostile mobs (engine state only until now).
+    this.mobGfx.clear();
+    for (const mob of this.engine.mobs) {
+      if (!mob.alive) continue;
+      this.mobGfx.circle(mob.x, mob.y, mob.radius).fill(0x9b59b6);
+      this.mobGfx.circle(mob.x - 4, mob.y - 4, 2).fill(0xfdf6e6);
+      this.mobGfx.circle(mob.x + 4, mob.y - 4, 2).fill(0x12181a);
+      const bw = 28;
+      this.mobGfx.rect(mob.x - bw / 2, mob.y - mob.radius - 9, bw, 3).fill(0x101a1c);
+      this.mobGfx.rect(mob.x - bw / 2, mob.y - mob.radius - 9, bw * (mob.hp / mob.maxHp), 3).fill(0xff6b5b);
     }
 
     // projectiles
@@ -770,9 +807,10 @@ export class ArenaRenderer {
 
   private animateClouds(dt: number, paused: boolean): void {
     if (paused) return;
+    const W = this.app.screen.width;
     for (const cloud of this.clouds) {
       cloud.x += dt * (6 + cloud.y * 0.01);
-      if (cloud.x > WORLD_W + 160) cloud.x = -160;
+      if (cloud.x > W + 160) cloud.x = -160;
     }
   }
 

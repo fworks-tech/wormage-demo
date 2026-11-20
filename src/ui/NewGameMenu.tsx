@@ -4,9 +4,10 @@ import type { Bindings } from '../state/bindings';
 import { ControlsDialog } from './ControlsDialog';
 import { MenuBackdrop } from './MenuBackdrop';
 import { SettingsDialog } from './SettingsDialog';
+import { StageSelect } from './StageSelect';
 import { useDialogFocus } from './useDialogFocus';
 
-type MenuPanel = 'settings' | 'controls' | null;
+type MenuPanel = 'settings' | 'controls' | 'stages' | null;
 
 interface NewGameMenuProps {
   onStart: () => void;
@@ -47,6 +48,8 @@ export function NewGameMenu({ onStart, settings, onSaveSettings, bindings, onSav
       >
         {panel === 'settings' ? (
           <SettingsDialog settings={settings} onSave={onSaveSettings} onClose={() => setPanel(null)} />
+        ) : panel === 'stages' ? (
+          <StageSelect settings={settings} onSaveSettings={onSaveSettings} onStart={onStart} onClose={() => setPanel(null)} />
         ) : panel === 'controls' ? (
           <ControlsDialog bindings={bindings} onSave={onSaveBindings} onClose={() => setPanel(null)} />
         ) : (
@@ -75,6 +78,14 @@ export function NewGameMenu({ onStart, settings, onSaveSettings, bindings, onSav
                 autoFocus={lastPanel.current === 'settings'}
               >
                 Settings
+              </button>
+              <button
+                type="button"
+                className="ghost-btn"
+                onClick={() => setPanel('stages')}
+                data-testid="btn-stages"
+              >
+                Stages
               </button>
               {hasRoutes && (
                 <a className="ghost-btn" href="/project" data-testid="btn-project">

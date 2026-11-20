@@ -2,8 +2,12 @@ import { configKey } from './types';
 import type { Difficulty, GameSettings, WeaponId, WindSetting } from './types';
 import { WEAPONS as CONTENT_WEAPONS, WEAPON_ORDER as CONTENT_WEAPON_ORDER } from '../content/weapons';
 
-export const WORLD_W = 1280;
-export const WORLD_H = 720;
+export const BASE_W = 1280;
+export const BASE_H = 720;
+const scaleParam = typeof window !== 'undefined' ? new URLSearchParams(window.location.search).get('mapSize') : null;
+export const WORLD_SCALE = scaleParam === '1' ? 1 : 3;
+export const WORLD_W = BASE_W * WORLD_SCALE;
+export const WORLD_H = BASE_H * WORLD_SCALE;
 export const WATER_Y = 668;
 
 export const GRAVITY = 780;
@@ -108,6 +112,10 @@ export const DEFAULT_SETTINGS: GameSettings = {
   wind: 'light',
   difficulty: 'veteran',
   sound: true,
+  map: 'island',
+  mode: 'deathmatch',
+  loadout: 'default',
+  wormsPerTeam: 3,
 };
 
 export function sanitizeSettings(input: Partial<GameSettings> | null | undefined): GameSettings {
@@ -123,6 +131,10 @@ export function sanitizeSettings(input: Partial<GameSettings> | null | undefined
         ? merged.difficulty
         : 'veteran',
     sound: Boolean(merged.sound),
+    map: (['island','mesa','canyon','desert','arctic'] as const).includes(merged.map as any) ? merged.map : 'island',
+    mode: (['deathmatch','assassinate','sudden-death','fort'] as const).includes(merged.mode as any) ? merged.mode : 'deathmatch',
+    loadout: (['default','heavy','scout'] as const).includes(merged.loadout as any) ? merged.loadout : 'default',
+    wormsPerTeam: typeof merged.wormsPerTeam === 'number' ? Math.min(8, Math.max(1, Math.round(merged.wormsPerTeam))) : 3,
   };
 }
 

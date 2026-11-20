@@ -29,6 +29,7 @@ const UI_E2E = [
   'tests/pwa.spec.ts',
   'tests/rope.spec.ts',
   'tests/settings.spec.ts',
+  'tests/stages.spec.ts',
 ];
 
 const FULL_FILES = [
