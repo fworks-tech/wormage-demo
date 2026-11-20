@@ -14,6 +14,9 @@ export interface MatchRecord {
   turnSeconds: number;
   wind: WindSetting;
   difficulty: Difficulty;
+  map?: string;
+  mode?: string;
+  loadout?: string;
   kills: number;
   createdAt: string;
 }
@@ -29,6 +32,9 @@ export interface NewMatchInput {
   turnSeconds: number;
   wind: WindSetting;
   difficulty: Difficulty;
+  map?: string;
+  mode?: string;
+  loadout?: string;
   kills: number;
 }
 

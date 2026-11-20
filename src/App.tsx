@@ -56,6 +56,9 @@ export default function App() {
         turnSeconds: finished.config.turnSeconds,
         wind: finished.config.wind,
         difficulty: finished.config.difficulty,
+        map: finished.config.map,
+        mode: finished.config.mode,
+        loadout: finished.config.loadout,
         kills: finished.kills,
       });
     },

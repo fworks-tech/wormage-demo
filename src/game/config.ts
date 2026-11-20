@@ -163,6 +163,6 @@ export function configLabel(settings: Pick<GameSettings, 'turnSeconds' | 'wind' 
   return `${settings.turnSeconds}s · ${settings.wind} wind · ${DIFFICULTY[settings.difficulty].label}`;
 }
 
-export function configKeyFrom(settings: Pick<GameSettings, 'turnSeconds' | 'wind' | 'difficulty'>): string {
+export function configKeyFrom(settings: Pick<GameSettings, 'turnSeconds' | 'wind' | 'difficulty' | 'map' | 'mode' | 'loadout'>): string {
   return configKey(settings);
 }

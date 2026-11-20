@@ -146,6 +146,9 @@ export function GameView({
           wind: settings.wind,
           difficulty: settings.difficulty,
           seed: seedRef.current,
+          map: settings.map ?? 'island',
+          mode: settings.mode ?? 'deathmatch',
+          loadout: settings.loadout ?? 'default',
         },
         recordedAt: new Date().toISOString(),
       };
