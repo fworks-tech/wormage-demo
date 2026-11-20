@@ -116,7 +116,7 @@ export function simulateShot(
     if (bodies.some((b) => Math.hypot(b.x - x, b.y - 13 - y) < 14 + WORM.radius * 0.4)) {
       return { x, y, valid: y < WATER_Y - 12 };
     }
-    if (x < 0 || x > 1280 || y > WATER_Y) return { x, y, valid: false };
+    if (x < 0 || x > WORLD_W || y > WATER_Y) return { x, y, valid: false };
     if (terrain.isSolid(x, y)) {
       if (!bounces) return { x, y, valid: y < WATER_Y - 12 };
       if (terrain.isSolid(x - vx * dt, y)) {

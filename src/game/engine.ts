@@ -964,8 +964,8 @@ export class GameEngine {
         p.x = nx;
         p.y = ny;
 
-        if (p.x < -60 || p.x > 1340 || p.y > WATER_Y) {
-          this.events.push({ type: 'splash', x: Math.max(0, Math.min(1280, p.x)), y: WATER_Y });
+        if (p.x < -60 || p.x > WORLD_W + 60 || p.y > WATER_Y) {
+          this.events.push({ type: 'splash', x: Math.max(0, Math.min(WORLD_W, p.x)), y: WATER_Y });
           consumed = true;
           break;
         }
