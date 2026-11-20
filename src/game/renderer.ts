@@ -249,9 +249,9 @@ export class ArenaRenderer {
     this.engine = engine;
 
     app.stage.addChild(this.root);
+    app.stage.addChild(this.overlay);
     this.root.addChild(this.world);
     this.world.addChild(this.terrainLayer, this.projectileLayer, this.mobLayer, this.wormLayer, this.fxLayer, this.aimLayer);
-    this.root.addChild(this.overlay);
 
     const sky = this.buildSky();
     this.terrainLayer.addChild(sky);
@@ -316,23 +316,27 @@ export class ArenaRenderer {
   }
 
   private buildVignette(): void {
+    this.overlay.removeChildren();
+    this.clouds.length = 0;
+    const W = this.app.screen.width;
+    const H = this.app.screen.height;
     const canvas = document.createElement('canvas');
-    canvas.width = WORLD_W;
-    canvas.height = WORLD_H;
+    canvas.width = W;
+    canvas.height = H;
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
     const grad = ctx.createRadialGradient(
-      WORLD_W / 2,
-      WORLD_H / 2,
-      WORLD_H * 0.35,
-      WORLD_W / 2,
-      WORLD_H / 2,
-      WORLD_H * 0.92,
+      W / 2,
+      H / 2,
+      H * 0.35,
+      W / 2,
+      H / 2,
+      H * 0.92,
     );
     grad.addColorStop(0, 'rgba(0,0,0,0)');
     grad.addColorStop(1, 'rgba(2,6,8,0.55)');
     ctx.fillStyle = grad;
-    ctx.fillRect(0, 0, WORLD_W, WORLD_H);
+    ctx.fillRect(0, 0, W, H);
     const sprite = new Sprite(Texture.from(canvas));
     sprite.alpha = 0.9;
     this.overlay.addChild(sprite);
@@ -343,7 +347,7 @@ export class ArenaRenderer {
       cloud
         .ellipse(0, 0, w * 0.5, 13 + i * 1.6)
         .fill({ color: i % 2 ? 0x2c4650 : 0x1d333c, alpha: 0.5 });
-      cloud.position.set(140 + i * 230, 110 + (i % 3) * 46);
+      cloud.position.set((140 + i * 230) % Math.max(1, W), 110 + (i % 3) * 46);
       cloud.alpha = 0.55;
       this.clouds.push(cloud);
       this.overlay.addChild(cloud);
@@ -355,6 +359,7 @@ export class ArenaRenderer {
     const scale = Math.min(width / BASE_W, height / BASE_H);
     this.baseScale = Math.max(0.25, Math.min(1, scale));
     this.root.scale.set(this.baseScale);
+    this.buildVignette();
   }
 
   toWorld(clientX: number, clientY: number): { x: number; y: number } {
@@ -802,9 +807,10 @@ export class ArenaRenderer {
 
   private animateClouds(dt: number, paused: boolean): void {
     if (paused) return;
+    const W = this.app.screen.width;
     for (const cloud of this.clouds) {
       cloud.x += dt * (6 + cloud.y * 0.01);
-      if (cloud.x > WORLD_W + 160) cloud.x = -160;
+      if (cloud.x > W + 160) cloud.x = -160;
     }
   }
 

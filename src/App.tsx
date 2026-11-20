@@ -66,7 +66,9 @@ export default function App() {
     (finished: SessionResult) => {
       setResult(finished);
       saveLastResult(finished);
-      if (finished.winnerTeam === 0) { const cs = localStorage.getItem('wormage.currentStage'); if (cs) completeStage(cs); }
+      const currentStage = localStorage.getItem('wormage.currentStage');
+      if (currentStage && finished.winnerTeam === 0) completeStage(currentStage);
+      localStorage.removeItem('wormage.currentStage');
       setScreen('result');
       submitResult(finished);
     },
