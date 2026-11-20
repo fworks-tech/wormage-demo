@@ -43,7 +43,7 @@ test('a shot stops on the first worm in its path', () => {
   expect(blocked.valid).toBe(true);
 });
 
-const ammo = { bazooka: Infinity, grenade: 3, shotgun: 4, dynamite: 2 } as const;
+const ammo = { bazooka: Infinity, grenade: 3, shotgun: 4, dynamite: 2, medkit: 2, shield: 1 } as const;
 
 const plan = (wormX: number, enemyX: number) => {
   const worm = { id: 'a', teamId: 0, x: wormX, y: 500 };

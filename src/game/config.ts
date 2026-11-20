@@ -1,5 +1,6 @@
 import { configKey } from './types';
-import type { Difficulty, GameSettings, WeaponDef, WeaponId, WindSetting } from './types';
+import type { Difficulty, GameSettings, WeaponId, WindSetting } from './types';
+import { WEAPONS as CONTENT_WEAPONS, WEAPON_ORDER as CONTENT_WEAPON_ORDER } from '../content/weapons';
 
 export const WORLD_W = 1280;
 export const WORLD_H = 720;
@@ -83,82 +84,8 @@ export const RETREAT_SECONDS = 3;
 /** Free-flight span the dotted aim preview samples for weapons with no fuse or life. */
 export const PREVIEW_SECONDS = 3;
 
-export const WEAPONS: Record<WeaponId, WeaponDef> = {
-  bazooka: {
-    id: 'bazooka',
-    kind: 'projectile',
-    name: 'Bazooka',
-    ammo: null,
-    damage: 42,
-    radius: 48,
-    terrainRadius: 42,
-    speedMin: 260,
-    speedMax: 830,
-    gravityScale: 1,
-    windScale: 1,
-    fuse: null,
-    bounces: false,
-    life: null,
-    color: 0xffd166,
-    blurb: 'Reliable arc, unlimited rockets. Mind the wind.',
-  },
-  grenade: {
-    id: 'grenade',
-    kind: 'projectile',
-    name: 'Grenade',
-    ammo: 3,
-    damage: 52,
-    radius: 54,
-    terrainRadius: 46,
-    speedMin: 240,
-    speedMax: 760,
-    gravityScale: 1,
-    windScale: 0.8,
-    fuse: 3,
-    bounces: true,
-    life: null,
-    color: 0x9ee37d,
-    blurb: 'Bounces off dirt, detonates after three seconds.',
-  },
-  shotgun: {
-    id: 'shotgun',
-    kind: 'projectile',
-    name: 'Shotgun',
-    ammo: 4,
-    damage: 24,
-    radius: 12,
-    terrainRadius: 9,
-    speedMin: 1500,
-    speedMax: 1500,
-    gravityScale: 0.08,
-    windScale: 0,
-    fuse: null,
-    bounces: false,
-    life: 0.34,
-    color: 0xf2b8a2,
-    blurb: 'Flat and fast. No arc, no excuses.',
-  },
-  dynamite: {
-    id: 'dynamite',
-    kind: 'drop',
-    name: 'Dynamite',
-    ammo: 2,
-    damage: 78,
-    radius: 78,
-    terrainRadius: 66,
-    speedMin: 0,
-    speedMax: 0,
-    gravityScale: 1,
-    windScale: 0,
-    fuse: 2.2,
-    bounces: false,
-    life: null,
-    color: 0xff6b5b,
-    blurb: 'Drops at your feet. Run. Two second fuse.',
-  },
-};
-
-export const WEAPON_ORDER: WeaponId[] = ['bazooka', 'grenade', 'shotgun', 'dynamite'];
+export const WEAPONS = CONTENT_WEAPONS;
+export const WEAPON_ORDER = CONTENT_WEAPON_ORDER as WeaponId[];
 
 export const TEAMS = [
   { name: 'Ironclad', color: 0xf05d8f, accent: '#f05d8f', isAi: false },

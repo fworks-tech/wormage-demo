@@ -1,4 +1,7 @@
-export type WeaponId = 'bazooka' | 'grenade' | 'shotgun' | 'dynamite';
+export type WeaponId = 'bazooka' | 'grenade' | 'shotgun' | 'dynamite' | 'medkit' | 'shield';
+export type MapId = 'island' | 'mesa' | 'canyon' | 'desert' | 'arctic';
+export type ModeId = 'deathmatch' | 'assassinate' | 'sudden-death' | 'fort';
+export type LoadoutId = 'default' | 'heavy' | 'scout';
 export type Difficulty = 'rookie' | 'veteran' | 'elite';
 export type WindSetting = 'off' | 'light' | 'strong';
 export type EndReason = 'time' | 'wipeout' | 'surrender';
@@ -39,17 +42,20 @@ export interface MatchConfig {
   difficulty: Difficulty;
   seed: number;
   wormsPerTeam: number;
+  map?: MapId;
+  mode?: ModeId;
+  loadout?: LoadoutId;
 }
 
 /** Stable identifier for a ruleset. Used to compare like-for-like on the board. */
-export function configKey(config: Pick<MatchConfig, 'turnSeconds' | 'wind' | 'difficulty'>): string {
-  return `${config.turnSeconds}s-${config.wind}-${config.difficulty}`;
+export function configKey(config: Pick<MatchConfig, 'turnSeconds' | 'wind' | 'difficulty' | 'map' | 'mode' | 'loadout'>): string {
+  return `${config.turnSeconds}s-${config.wind}-${config.difficulty}-${config.map ?? 'island'}-${config.mode ?? 'deathmatch'}-${config.loadout ?? 'default'}`;
 }
 
 export interface WeaponDef {
   id: WeaponId;
   /** `drop` weapons are placed at the worm's feet and have no aim reticle. */
-  kind: 'projectile' | 'drop';
+  kind: 'projectile' | 'drop' | 'hitscan' | 'utility';
   name: string;
   ammo: number | null;
   damage: number;
@@ -64,6 +70,8 @@ export interface WeaponDef {
   life: number | null;
   color: number;
   blurb: string;
+  heal?: number;
+  shield?: number;
 }
 
 /** A hanging rope. `angle` is measured from straight down; the pivot is the chest. */

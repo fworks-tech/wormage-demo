@@ -31,7 +31,7 @@ interface FloatText {
 }
 
 /** Per-weapon trail look; indexed by `Projectile.weapon`. */
-const PROJECTILE_TRAILS: Record<WeaponId, { color: number; size: number; life: number }> = {
+const PROJECTILE_TRAILS: Partial<Record<WeaponId, { color: number; size: number; life: number }>> = {
   bazooka: { color: 0xffa34d, size: 2.8, life: 0.42 },
   grenade: { color: 0xb8d77e, size: 1.9, life: 0.32 },
   shotgun: { color: 0xf2d8b4, size: 1.2, life: 0.12 },
@@ -193,6 +193,11 @@ class WormView {
         g.roundRect(2, -1.4, 18, 2.8, 1).fill(0xd9c9a8);
         g.moveTo(12, -5).lineTo(13, -8).lineTo(15, -9).stroke({ width: 1.2, color: 0xe8ad68 });
         g.circle(15, -9, 1.6).fill({ color: 0xffd166, alpha: 0.95 });
+        break;
+      case 'medkit':
+      case 'shield':
+        // Utility items render as a small box; no barrel.
+        g.roundRect(-6, -6, 12, 12, 3).fill(weapon === 'medkit' ? 0x7bd389 : 0x7aa2f7);
         break;
       default:
         // A new WeaponId must be drawn here, not silently become dynamite.
@@ -561,7 +566,7 @@ export class ArenaRenderer {
         g.scale.set(blink);
       }
       if (Math.random() < 0.55) {
-        const trail = PROJECTILE_TRAILS[p.weapon];
+        const trail = PROJECTILE_TRAILS[p.weapon] ?? PROJECTILE_TRAILS.bazooka!;
         this.particles.push({
           x: p.x,
           y: p.y,

@@ -65,21 +65,28 @@ export class Terrain {
   onCarve: ((x: number, y: number, radius: number) => void) | null = null;
   private readonly surfaceAt: (x: number) => number;
 
-  constructor(seed: number) {
+  constructor(seed: number, theme: string = 'island') {
     this.seed = seed >>> 0;
     const rng = mulberry32(this.seed);
     const [big, medium, small] = NOISE_POINTS.map((points) => smoothNoise(rng, points));
 
+    // Theme tweaks the surface amplitude and base height.
+    const themeBoost: Record<string, number> = { mesa: 0.4, canyon: 1.3, desert: 0.7, arctic: 0.5, island: 1 };
+    const boost = themeBoost[theme] ?? 1;
+    const baseHeight = theme === 'mesa' ? 480 : theme === 'canyon' ? 420 : 452;
+
     this.surfaceAt = (x: number): number => {
       const t = x / WORLD_W;
       const rise = Math.sin(t * Math.PI) * 42;
+      const canyonNotch = theme === 'canyon' ? Math.sin(t * Math.PI * 3) * 60 : 0;
       return (
-        452 +
-        big(t) * 110 +
-        medium(t) * 46 +
+        baseHeight +
+        big(t) * 110 * boost +
+        medium(t) * 46 * boost +
         small(t) * 14 -
         rise +
-        Math.abs(x - WORLD_W / 2) * 0.03
+        Math.abs(x - WORLD_W / 2) * 0.03 +
+        canyonNotch
       );
     };
 
@@ -98,6 +105,25 @@ export class Terrain {
           const dx = (x - s.x) / s.rx;
           const dy = (y - s.y) / s.ry;
           if (dx * dx + dy * dy <= 1) this.mask[cy * COLS + cx] = 1;
+        }
+      }
+    }
+
+    // Subsolo: carve caves below the surface.
+    const caveRng = mulberry32(this.seed ^ 0x9e3779b9);
+    const caveCount = Math.floor(6 + caveRng() * 8);
+    for (let i = 0; i < caveCount; i += 1) {
+      const cx = Math.floor(caveRng() * COLS);
+      const cy = Math.floor((0.75 + caveRng() * 0.2) * ROWS);
+      const r = 3 + Math.floor(caveRng() * 4);
+      const r2 = r * r;
+      for (let dy = -r; dy <= r; dy += 1) {
+        for (let dx = -r; dx <= r; dx += 1) {
+          if (dx * dx + dy * dy > r2) continue;
+          const x = cx + dx;
+          const y = cy + dy;
+          if (x < 0 || y < 0 || x >= COLS || y >= ROWS) continue;
+          this.mask[y * COLS + x] = 0;
         }
       }
     }
