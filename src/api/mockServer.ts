@@ -1,3 +1,4 @@
+import { configKey } from '../game/types';
 import type { Difficulty, WindSetting } from '../game/types';
 import type {
   LeaderboardRow,
@@ -58,8 +59,22 @@ const CONFIGS: Array<{ turnSeconds: number; wind: WindSetting; difficulty: Diffi
   { turnSeconds: 60, wind: 'light', difficulty: 'veteran' },
 ];
 
-export function keyOf(turnSeconds: number, wind: WindSetting, difficulty: Difficulty): string {
-  return `${turnSeconds}s-${wind}-${difficulty}`;
+export function keyOf(
+  turnSeconds: number,
+  wind: WindSetting,
+  difficulty: Difficulty,
+  map?: string,
+  mode?: string,
+  loadout?: string,
+): string {
+  return configKey({
+    turnSeconds,
+    wind,
+    difficulty,
+    map: (map ?? 'island') as never,
+    mode: (mode ?? 'deathmatch') as never,
+    loadout: (loadout ?? 'default') as never,
+  });
 }
 
 function makeFixtures(): MatchRecord[] {
@@ -196,7 +211,7 @@ export function registerMatch(input: NewMatchInput): { record: MatchRecord; crea
     score: Math.round(input.score),
     durationSeconds: Math.round(input.durationSeconds),
     endReason: input.endReason,
-    configKey: keyOf(input.turnSeconds, input.wind, input.difficulty),
+    configKey: keyOf(input.turnSeconds, input.wind, input.difficulty, input.map, input.mode, input.loadout),
     turnSeconds: input.turnSeconds,
     wind: input.wind,
     difficulty: input.difficulty,

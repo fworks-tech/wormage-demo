@@ -5,6 +5,9 @@ export interface SessionConfig {
   wind: 'off' | 'light' | 'strong';
   difficulty: 'rookie' | 'veteran' | 'elite';
   seed: number;
+  map?: 'island' | 'mesa' | 'canyon' | 'desert' | 'arctic';
+  mode?: 'deathmatch' | 'assassinate' | 'sudden-death' | 'fort';
+  loadout?: 'default' | 'heavy' | 'scout';
 }
 
 export interface SessionResult {
