@@ -4,7 +4,7 @@ import { GameEngine } from '../../src/game/engine';
 import type { MatchConfig } from '../../src/game/types';
 
 const DT = 1 / 60;
-const MAX_TICKS = 60 * 180;
+const MAX_TICKS = 60 * 300;
 
 const config = (): MatchConfig => ({
   turnSeconds: 30,

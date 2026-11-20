@@ -1,4 +1,5 @@
 import {
+  AI,
   AIM,
   BOUNCE,
   GRAVITY,
@@ -37,6 +38,8 @@ export interface AiWorm {
   teamId: number;
   x: number;
   y: number;
+  /** Current HP; optional for callers that don't carry it. */
+  hp?: number;
 }
 
 export interface AiTurnPlan {
@@ -60,6 +63,8 @@ export interface AiTurnInput {
   timeLeft: number;
   difficulty: { angleError: number; powerError: number };
   rng: () => number;
+  /** Recent hurt position on our team; null when no revenge is active. */
+  revengeFocus?: { x: number; y: number } | null;
 }
 
 interface SimResult {
@@ -221,7 +226,7 @@ export function planAiShot(
  * enemies is weighed against damage to allies and the shooter.
  */
 export function planAiTurn(input: AiTurnInput): AiTurnPlan | null {
-  const { terrain, worm, worms, ammo, wind, timeLeft, difficulty, rng } = input;
+  const { terrain, worm, worms, ammo, wind, timeLeft, difficulty, rng, revengeFocus = null } = input;
   const enemies = worms.filter((w) => w.teamId !== worm.teamId);
   if (enemies.length === 0) return null;
 
@@ -238,8 +243,8 @@ export function planAiTurn(input: AiTurnInput): AiTurnPlan | null {
     for (const pos of positions) {
       const candidate =
         def.kind === 'drop'
-          ? planDrop(terrain, weapon, pos, worm, worms, enemies)
-          : planProjectile(terrain, weapon, pos, worm, worms, enemies, wind);
+          ? planDrop(terrain, weapon, pos, worm, worms, enemies, revengeFocus)
+          : planProjectile(terrain, weapon, pos, worm, worms, enemies, wind, revengeFocus);
       if (!candidate) continue;
       // Prefer a short walk when two plans do the same damage.
       candidate.score -= (Math.abs(pos.x - worm.x) / WORM.walkSpeed) * 0.4;
@@ -356,6 +361,7 @@ function planProjectile(
   worms: AiWorm[],
   enemies: AiWorm[],
   wind: number,
+  revengeFocus: { x: number; y: number } | null = null,
 ): Candidate | null {
   const def = WEAPONS[weapon];
   const target = enemies.reduce((nearest, enemy) => {
@@ -379,9 +385,29 @@ function planProjectile(
       const muzzleY = pos.y - 14 + Math.sin(angle) * 18;
       const result = simulateShot(terrain, muzzleX, muzzleY, angle, power, weapon, wind, def.fuse, def.bounces, bodies);
       if (!result.valid) continue;
-      const score = damageScore(result.x, result.y, weapon, worm, worms);
+      const coll = collateral(result.x, result.y, weapon, worm, worms);
+      // Friendly-fire veto: skip shots that would hurt allies/self beyond tolerance.
+      if (AI.friendlyFireVeto && coll.ally > AI.friendlyFireTolerance) continue;
+      const score = damageScore(result.x, result.y, weapon, worm, worms, revengeFocus);
       if (!best || score > best.score) {
         best = { score, angle, power, retreatX };
+      }
+    }
+  }
+  // Fallback: if every candidate was vetoed, take the least harmful shot.
+  if (!best) {
+    for (const offset of offsets) {
+      const angle = clampAngle(base + mirror * offset);
+      const powers = weapon === 'shotgun' ? [1] : range(0.4, 1, 0.06);
+      for (const power of powers) {
+        const muzzleX = pos.x + Math.cos(angle) * 18;
+        const muzzleY = pos.y - 14 + Math.sin(angle) * 18;
+        const result = simulateShot(terrain, muzzleX, muzzleY, angle, power, weapon, wind, def.fuse, def.bounces, bodies);
+        if (!result.valid) continue;
+        const score = damageScore(result.x, result.y, weapon, worm, worms, revengeFocus);
+        if (!best || score > best.score) {
+          best = { score, angle, power, retreatX };
+        }
       }
     }
   }
@@ -395,6 +421,7 @@ function planDrop(
   worm: AiWorm,
   worms: AiWorm[],
   enemies: AiWorm[],
+  revengeFocus: { x: number; y: number } | null = null,
 ): Candidate | null {
   const def = WEAPONS[weapon];
   const blast = { x: pos.x, y: pos.y - 8 };
@@ -402,12 +429,14 @@ function planDrop(
   const retreatX = chooseRetreat(terrain, pos, enemies, blast, safety, def.fuse ?? RETREAT_SECONDS);
   // Never plant a drop without a way out of its own blast.
   if (retreatX === null) return null;
+  const coll = collateral(blast.x, blast.y, weapon, worm, worms);
+  if (AI.friendlyFireVeto && coll.ally > AI.friendlyFireTolerance) return null;
   const target = enemies.reduce((nearest, enemy) => {
     const d = Math.hypot(enemy.x - pos.x, enemy.y - pos.y);
     return d < nearest.d ? { enemy, d } : nearest;
   }, { enemy: enemies[0], d: Infinity }).enemy;
   return {
-    score: damageScore(blast.x, blast.y, weapon, worm, worms),
+    score: damageScore(blast.x, blast.y, weapon, worm, worms, revengeFocus),
     // Drops ignore the angle in flight, but the worm and its weapon should face the enemy.
     angle: target.x < pos.x ? mirrorAngle(-0.5) : -0.5,
     power: 0.5,
@@ -415,13 +444,64 @@ function planDrop(
   };
 }
 
+/** Ally/self damage a shot would deal (for friendly-fire veto). */
+function collateral(x: number, y: number, weapon: WeaponId, shooter: AiWorm, worms: AiWorm[]): { ally: number; self: number } {
+  const def = WEAPONS[weapon];
+  const reach = def.radius + WORM.radius;
+  let ally = 0;
+  let self = 0;
+  for (const w of worms) {
+    const distance = Math.hypot(w.x - x, w.y - 13 - y);
+    const amount =
+      weapon === 'shotgun'
+        ? distance < 14 + WORM.radius * 0.4
+          ? def.damage
+          : 0
+        : distance <= reach
+          ? def.damage * Math.max(0.22, 1 - distance / reach)
+          : 0;
+    if (amount <= 0) continue;
+    if (w.id === shooter.id) self += amount;
+    else if (w.teamId === shooter.teamId) ally += amount;
+  }
+  return { ally, self };
+}
+
 /** Damage to enemies minus a penalty for friendly and self damage. */
-function damageScore(x: number, y: number, weapon: WeaponId, shooter: AiWorm, worms: AiWorm[]): number {
+function damageScore(
+  x: number,
+  y: number,
+  weapon: WeaponId,
+  shooter: AiWorm,
+  worms: AiWorm[],
+  revengeFocus: { x: number; y: number } | null = null,
+): number {
   const def = WEAPONS[weapon];
   const reach = def.radius + WORM.radius;
   let enemy = 0;
   let ally = 0;
   let self = 0;
+
+  const enemies = worms.filter((w) => w.teamId !== shooter.teamId);
+  // Focus fire: prefer the lowest-HP enemy when HP is known.
+  let focusTarget: AiWorm | null = null;
+  if (enemies.some((w) => typeof w.hp === 'number')) {
+    focusTarget = enemies.reduce<AiWorm | null>((acc, w) => {
+      if (acc === null) return w;
+      return (w.hp ?? Infinity) < (acc.hp ?? Infinity) ? w : acc;
+    }, null);
+  } else {
+    // Fallback: nearest enemy to impact.
+    let nearestDist = Infinity;
+    for (const w of enemies) {
+      const d = Math.hypot(w.x - x, w.y - 13 - y);
+      if (d < nearestDist) { nearestDist = d; focusTarget = w; }
+    }
+  }
+  let nearestEnemy: AiWorm | null = focusTarget;
+  let nearestDist = focusTarget ? Math.hypot(focusTarget.x - x, focusTarget.y - 13 - y) : Infinity;
+
+  const allies = worms.filter((w) => w.teamId === shooter.teamId);
 
   for (const w of worms) {
     const distance = Math.hypot(w.x - x, w.y - 13 - y);
@@ -439,7 +519,30 @@ function damageScore(x: number, y: number, weapon: WeaponId, shooter: AiWorm, wo
     else ally += amount;
   }
 
-  return enemy - ally * 0.9 - self * 0.85;
+  let score = enemy - ally * 0.9 - self * 0.85;
+
+  // Focus fire bonus: reward landing on the nearest enemy (concentrate damage).
+  if (nearestEnemy && nearestDist <= reach) score += AI.focusFireBonus;
+
+  // Threat bonus: reward hitting an enemy that can reach our worms.
+  if (allies.length > 0) {
+    for (const w of enemies) {
+      const toAlly = Math.min(...allies.map((a) => Math.hypot(w.x - a.x, w.y - a.y)));
+      if (toAlly <= AI.threatRadius && Math.hypot(w.x - x, w.y - 13 - y) <= reach) {
+        score += AI.threatBonus;
+        break;
+      }
+    }
+  }
+
+  // Revenge bonus: bias toward the position where an ally was hurt.
+  if (revengeFocus) {
+    const d = Math.hypot(x - revengeFocus.x, y - revengeFocus.y);
+    const r = 260;
+    if (d <= r) score += AI.revengeBonus * (1 - d / r);
+  }
+
+  return score;
 }
 
 /**
