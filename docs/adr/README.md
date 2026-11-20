@@ -11,6 +11,7 @@ Status values: **Proposed** (under discussion), **Accepted** (the direction), **
 | [0003](0003-server-authoritative-online.md) | Server-authoritative online play | Accepted |
 | [0004](0004-data-driven-content.md) | Weapons, maps and modes as data | Accepted |
 | [0005](0005-fixed-timestep-simulation.md) | Fixed 60 Hz simulation step | Accepted |
+| [0006](0006-dynamodb-single-table.md) | DynamoDB single-table design for matches and leaderboard | Accepted |
 
 ## Template
 

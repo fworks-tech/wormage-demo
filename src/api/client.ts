@@ -10,7 +10,7 @@ import {
 } from './mockServer';
 import type { NewMatchInput } from './types';
 
-type Mode = 'network' | 'local';
+type Mode = 'network' | 'local' | 'live';
 let mode: Mode = 'local';
 
 const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -66,8 +66,11 @@ const localAdapter: AxiosAdapter = async (config) => {
 
 const wired = axios.create({ timeout: 12_000 });
 const local = axios.create({ timeout: 12_000, adapter: localAdapter });
+const liveBase = (import.meta.env.VITE_API_BASE_URL as string | undefined)?.replace(/\/$/, '') ?? '';
+const live = axios.create({ timeout: 12_000, baseURL: liveBase });
 
 function client() {
+  if (mode === 'live') return live;
   return mode === 'network' ? wired : local;
 }
 
@@ -81,6 +84,10 @@ export const api = {
  * where service workers are not available in the sandboxed preview.
  */
 export async function initApiLayer(): Promise<Mode> {
+  if (import.meta.env.VITE_API_MODE === 'live' || import.meta.env.VITE_LIVE_API === 'true') {
+    mode = 'live';
+    return mode;
+  }
   if (import.meta.env.MODE === 'single' || import.meta.env.VITE_LOCAL_API === 'true') {
     mode = 'local';
     return mode;
