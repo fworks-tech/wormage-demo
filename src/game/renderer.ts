@@ -578,12 +578,27 @@ export class ArenaRenderer {
     this.mobGfx.clear();
     for (const mob of this.engine.mobs) {
       if (!mob.alive) continue;
-      this.mobGfx.circle(mob.x, mob.y, mob.radius).fill(0x9b59b6);
-      this.mobGfx.circle(mob.x - 4, mob.y - 4, 2).fill(0xfdf6e6);
-      this.mobGfx.circle(mob.x + 4, mob.y - 4, 2).fill(0x12181a);
+      const x = mob.x;
+      const y = mob.y;
+      const r = mob.radius;
+      const feet = y + r;
+      // Worm-like silhouette with a darker, sickly skin and red eyes.
+      const skin = 0x3a2f3a;
+      this.mobGfx.ellipse(x, feet, 13, 4).fill({ color: 0x000000, alpha: 0.3 });
+      this.mobGfx.roundRect(x - 11, feet - 31, 22, 31, 10).fill(skin);
+      this.mobGfx.stroke({ width: 2, color: 0x15201f, alpha: 0.85 });
+      this.mobGfx.ellipse(x - 3.5, feet - 28, 4.8, 1.6).fill({ color: 0xffffff, alpha: 0.12 });
+      this.mobGfx.rect(x - 11.5, feet - 30, 23, 5).fill({ color: 0x101a1c, alpha: 0.55 });
+      // Red eyes (zombie look).
+      this.mobGfx.circle(x - 4.4, feet - 22, 4.4).fill(0xfdf6e6);
+      this.mobGfx.circle(x + 4.4, feet - 22, 4.4).fill(0xfdf6e6);
+      this.mobGfx.circle(x - 4.4, feet - 22, 2.2).fill(0xff3b3b);
+      this.mobGfx.circle(x + 4.4, feet - 22, 2.2).fill(0xff3b3b);
+      this.mobGfx.circle(x - 5.1, feet - 23, 0.75).fill(0xff9b9b);
+      this.mobGfx.circle(x + 3.7, feet - 23, 0.75).fill(0xff9b9b);
       const bw = 28;
-      this.mobGfx.rect(mob.x - bw / 2, mob.y - mob.radius - 9, bw, 3).fill(0x101a1c);
-      this.mobGfx.rect(mob.x - bw / 2, mob.y - mob.radius - 9, bw * (mob.hp / mob.maxHp), 3).fill(0xff6b5b);
+      this.mobGfx.rect(x - bw / 2, y - r - 9, bw, 3).fill(0x101a1c);
+      this.mobGfx.rect(x - bw / 2, y - r - 9, bw * (mob.hp / mob.maxHp), 3).fill(0xff6b5b);
     }
 
     // projectiles
