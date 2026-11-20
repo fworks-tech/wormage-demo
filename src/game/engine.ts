@@ -584,8 +584,8 @@ export class GameEngine {
       const dist = Math.hypot(dx, dy) || 1;
       const step = Math.min(mob.speed * 0.5, dist);
       mob.x += (dx / dist) * step;
-      // keep on ground
-      const g = this.terrain.groundY(mob.x, mob.y - 40, 80);
+      // keep on ground (scan the full column so mobs track hills instead of floating)
+      const g = this.terrain.groundY(mob.x, 120, WATER_Y - 120);
       if (g !== null) mob.y = g - mob.radius;
       if (dist <= 40) {
         best.w.hp = Math.max(0, best.w.hp - mob.damage);
