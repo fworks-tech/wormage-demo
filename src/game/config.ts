@@ -23,6 +23,20 @@ export const AI = {
   ropeWindowSeconds: 4,
   /** Maximum CPU reticle rotation speed, in radians per second. */
   aimRadiansPerSecond: 8.5,
+  /** Whether to veto candidate shots that would hurt allies/self beyond tolerance. */
+  friendlyFireVeto: true,
+  /** Veto candidate shots that deal more than this much damage to allies/self. */
+  friendlyFireTolerance: 8,
+  /** Extra score for landing a hit on the lowest-HP enemy (focus fire). */
+  focusFireBonus: 0,
+  /** Extra score for hitting an enemy that can reach our worms. */
+  threatBonus: 22,
+  /** Distance (px) within which an enemy counts as a threat to our worms. */
+  threatRadius: 320,
+  /** Flat aggression bonus while revenge is active. */
+  revengeBonus: 0,
+  /** Turns before revenge state clears. */
+  revengeDecayTurns: 2,
 } as const;
 
 export const WORM = {

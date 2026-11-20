@@ -81,6 +81,8 @@ export class GameEngine {
   private aiJumpDeadline: number | null = null;
   private aiRopeDeadline: number | null = null;
   private projectileId = 0;
+  private revengeFocusByTeam: Record<number, { x: number; y: number } | null> = {};
+  private revengeTurnsByTeam: Record<number, number> = {};
   private readonly rng: () => number;
   private readonly lastWormByTeam: Record<number, string> = {};
 
@@ -178,6 +180,10 @@ export class GameEngine {
     }
     this.activeWormId = next.id;
     this.lastWormByTeam[team.id] = next.id;
+    // Decay revenge state for the acting team.
+    const turns = (this.revengeTurnsByTeam[team.id] ?? 0) - 1;
+    this.revengeTurnsByTeam[team.id] = Math.max(0, turns);
+    if (turns <= 0) this.revengeFocusByTeam[team.id] = null;
     this.timeLeft = this.config.turnSeconds;
     this.phase = 'aim';
     this.power = 0;
@@ -506,6 +512,11 @@ export class GameEngine {
       this.events.push({ type: 'death', x: worm.x, y: worm.y, color: this.teams[worm.teamId].color });
       if (sourceTeam !== null && sourceTeam !== worm.teamId) this.kills[sourceTeam] += 1;
       this.checkWipeout();
+    }
+    // Revenge: an ally was hurt by an enemy.
+    if (sourceTeam !== null && sourceTeam !== worm.teamId) {
+      this.revengeFocusByTeam[worm.teamId] = { x: worm.x, y: worm.y };
+      this.revengeTurnsByTeam[worm.teamId] = AI.revengeDecayTurns;
     }
   }
 
@@ -888,17 +899,18 @@ export class GameEngine {
       if (this.aiTimer > 0) return;
 
       const worms = this.teams.flatMap((team) =>
-        team.worms.filter((w) => w.alive).map((w) => ({ id: w.id, teamId: w.teamId, x: w.x, y: w.y })),
+        team.worms.filter((w) => w.alive).map((w) => ({ id: w.id, teamId: w.teamId, x: w.x, y: w.y, hp: w.hp })),
       );
       this.aiPlan = planAiTurn({
         terrain: this.terrain,
-        worm: { id: worm.id, teamId: worm.teamId, x: worm.x, y: worm.y },
+        worm: { id: worm.id, teamId: worm.teamId, x: worm.x, y: worm.y, hp: worm.hp },
         worms,
         ammo: { ...this.teams[this.activeTeam].ammo },
         wind: this.wind,
         timeLeft: this.timeLeft,
         difficulty: DIFFICULTY[this.config.difficulty],
         rng: this.rng,
+        revengeFocus: this.revengeFocusByTeam[this.activeTeam] ?? null,
       });
       this.aiLastX = worm.x;
       this.aiStall = 0;
