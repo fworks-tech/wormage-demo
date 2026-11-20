@@ -218,6 +218,8 @@ export class ArenaRenderer {
   private readonly world = new Container();
   private readonly terrainLayer = new Container();
   private readonly wormLayer = new Container();
+  private readonly mobLayer = new Container();
+  private readonly mobGfx = new Graphics();
   private readonly projectileLayer = new Container();
   private readonly fxLayer = new Container();
   private readonly aimLayer = new Container();
@@ -248,7 +250,7 @@ export class ArenaRenderer {
 
     app.stage.addChild(this.root);
     this.root.addChild(this.world);
-    this.world.addChild(this.terrainLayer, this.projectileLayer, this.wormLayer, this.fxLayer, this.aimLayer);
+    this.world.addChild(this.terrainLayer, this.projectileLayer, this.mobLayer, this.wormLayer, this.fxLayer, this.aimLayer);
     this.root.addChild(this.overlay);
 
     const sky = this.buildSky();
@@ -264,6 +266,7 @@ export class ArenaRenderer {
     };
 
     this.fxLayer.addChild(this.fx);
+    this.mobLayer.addChild(this.mobGfx);
     this.aimLayer.addChild(this.aim);
     this.aimLayer.addChild(this.rope);
 
@@ -564,6 +567,18 @@ export class ArenaRenderer {
         const heldWeapon = worm.id === snapshot.activeWormId ? snapshot.weapon : 'bazooka';
         view.sync(worm, team.color, active, canAct, paused ? 0 : dt, heldWeapon);
       }
+    }
+
+    // Hostile mobs (engine state only until now).
+    this.mobGfx.clear();
+    for (const mob of this.engine.mobs) {
+      if (!mob.alive) continue;
+      this.mobGfx.circle(mob.x, mob.y, mob.radius).fill(0x9b59b6);
+      this.mobGfx.circle(mob.x - 4, mob.y - 4, 2).fill(0xfdf6e6);
+      this.mobGfx.circle(mob.x + 4, mob.y - 4, 2).fill(0x12181a);
+      const bw = 28;
+      this.mobGfx.rect(mob.x - bw / 2, mob.y - mob.radius - 9, bw, 3).fill(0x101a1c);
+      this.mobGfx.rect(mob.x - bw / 2, mob.y - mob.radius - 9, bw * (mob.hp / mob.maxHp), 3).fill(0xff6b5b);
     }
 
     // projectiles

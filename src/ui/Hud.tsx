@@ -120,6 +120,10 @@ export function Hud({
       ctx.fillStyle = l.kind === 'mine' ? '#ff6b5b' : '#ffd166';
       ctx.fillRect(l.x*sx-1.5, l.y*sy-1.5, 3, 3);
     }
+    for (const m of snapshot.mobs) {
+      ctx.fillStyle = '#9b59b6';
+      ctx.fillRect(m.x*sx-2.5, m.y*sy-2.5, 5, 5);
+    }
   }, [snapshot, showMinimap]);
 
   return (
