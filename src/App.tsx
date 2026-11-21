@@ -100,6 +100,11 @@ export default function App() {
     [settings, startMatch],
   );
 
+  const handleNextStageClick = useCallback(() => {
+    const next = result?.stageId ? nextStage(result.stageId) : null;
+    if (next) handleNextStage(next);
+  }, [result, handleNextStage]);
+
   const handleSaveSettings = useCallback((next: GameSettings) => {
     setSettings(next);
     saveSettings(next);
@@ -162,10 +167,7 @@ export default function App() {
           onMenu={() => window.location.assign('/project')}
           nextStage={result.stageId ? nextStage(result.stageId) : null}
           isStage={Boolean(result.stageId)}
-          onNextStage={() => {
-            const ns = result.stageId ? nextStage(result.stageId) : null;
-            if (ns) handleNextStage(ns);
-          }}
+          onNextStage={handleNextStageClick}
         />
       )}
     </div>
