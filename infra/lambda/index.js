@@ -31,14 +31,14 @@ async function health() {
   return json(200, { ok: true, service: 'wormage', time: new Date().toISOString() });
 }
 
-async function getLeaderboard(event) {
+async function getLeaderboard(event, ddbClient = ddb) {
   const q = qs(event);
   const page = Math.max(1, Number(q.page) || 1);
   const pageSize = Math.max(1, Math.min(50, Number(q.pageSize) || 8));
   const configKey = q.configKey;
   if (!configKey) return json(400, { message: 'configKey is required' });
 
-  const result = await ddb.send(new QueryCommand({
+  const result = await ddbClient.send(new QueryCommand({
     TableName: TABLE,
     IndexName: 'LeaderboardIndex',
     KeyConditionExpression: 'gsi1pk = :pk',
@@ -73,14 +73,14 @@ async function getLeaderboard(event) {
   return json(200, { items: rows.slice(start, start + pageSize), page, pageSize, total, totalPages });
 }
 
-async function getMatches(event) {
+async function getMatches(event, ddbClient = ddb) {
   const q = qs(event);
   const playerId = q.playerId || '';
   const page = Math.max(1, Number(q.page) || 1);
   const pageSize = Math.max(1, Math.min(50, Number(q.pageSize) || 8));
   if (!playerId) return json(400, { message: 'playerId is required' });
 
-  const result = await ddb.send(new QueryCommand({
+  const result = await ddbClient.send(new QueryCommand({
     TableName: TABLE,
     IndexName: 'PlayerIndex',
     KeyConditionExpression: 'playerId = :p',
@@ -115,16 +115,36 @@ function keyOf(turnSeconds, wind, difficulty, map, mode, loadout) {
   return `${turnSeconds}-${wind}-${difficulty}-${map || 'island'}-${mode || 'deathmatch'}-${loadout || 'default'}`;
 }
 
-async function postMatch(event) {
+function toRecord(m) {
+  return {
+    id: m.id,
+    clientMatchId: m.clientMatchId,
+    matchId: m.matchId,
+    playerId: m.playerId,
+    playerName: m.playerName,
+    teamName: m.teamName,
+    score: m.score,
+    durationSeconds: m.durationSeconds,
+    endReason: m.endReason,
+    configKey: m.configKey,
+    turnSeconds: m.turnSeconds,
+    wind: m.wind,
+    difficulty: m.difficulty,
+    kills: m.kills,
+    createdAt: m.createdAt,
+  };
+}
+
+async function postMatch(event, ddbClient = ddb) {
   const body = parseBody(event);
   if (!body.clientMatchId) return json(400, { message: 'clientMatchId is required' });
 
-  const existing = await ddb.send(new GetCommand({
+  const existing = await ddbClient.send(new GetCommand({
     TableName: TABLE,
     Key: { pk: `CLIENT#${body.clientMatchId}`, sk: 'META' },
   }));
   if (existing.Item) {
-    return json(200, existing.Item.record);
+    return json(200, toRecord(existing.Item));
   }
 
   const now = new Date().toISOString();
@@ -157,36 +177,20 @@ async function postMatch(event) {
   // PlayerIndex is a GSI keyed by playerId; store playerId as top-level attribute for GSI key.
   item.playerId = body.playerId;
 
-  await ddb.send(new PutCommand({
+  let created = true;
+  await ddbClient.send(new PutCommand({
     TableName: TABLE,
     Item: item,
     ConditionExpression: 'attribute_not_exists(pk)',
-  })).catch(() => {});
+  })).catch(() => { created = false; });
 
   // Re-read to return the canonical (idempotent) record.
-  const after = await ddb.send(new GetCommand({
+  const after = await ddbClient.send(new GetCommand({
     TableName: TABLE,
     Key: { pk: `CLIENT#${body.clientMatchId}`, sk: 'META' },
   }));
   const stored = after.Item || item;
-  const out = {
-    id: stored.id,
-    clientMatchId: stored.clientMatchId,
-    matchId: stored.matchId,
-    playerId: stored.playerId,
-    playerName: stored.playerName,
-    teamName: stored.teamName,
-    score: stored.score,
-    durationSeconds: stored.durationSeconds,
-    endReason: stored.endReason,
-    configKey: stored.configKey,
-    turnSeconds: stored.turnSeconds,
-    wind: stored.wind,
-    difficulty: stored.difficulty,
-    kills: stored.kills,
-    createdAt: stored.createdAt,
-  };
-  return json(existing.Item ? 200 : 201, out);
+  return json(created ? 201 : 200, toRecord(stored));
 }
 
 exports.handler = async (event) => {
@@ -203,3 +207,10 @@ exports.handler = async (event) => {
     return json(500, { message: 'Internal error' });
   }
 };
+
+
+exports.health = health;
+exports.getLeaderboard = getLeaderboard;
+exports.getMatches = getMatches;
+exports.postMatch = postMatch;
+exports.keyOf = keyOf;
