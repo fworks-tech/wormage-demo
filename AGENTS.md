@@ -4,7 +4,7 @@ Operating guide for automated agents working in this repository. Humans should r
 
 ## Project
 
-Wormage is a turn-based artillery duel in the browser: React 18 + strict TypeScript around a self-contained PixiJS 8 simulation, built with Vite 6. TanStack Query, Axios and MSW 2 power the mocked ranking/history API; Playwright covers the UI. It is a static SPA — there is no server, database or authentication yet.
+Wormage is a turn-based artillery duel in the browser: React 18 + strict TypeScript around a self-contained PixiJS 8 simulation, built with Vite 6. TanStack Query, Axios and MSW 2 power the mocked ranking/history API; Playwright covers the UI. M0–M4a shipped (AWS backend live, hotseat, 2–4 teams); M4b online play, M5 campaign and M6 multiplatform remain.
 
 Live build: <https://wormage.flabs.tech>. Vercel auto-deploys `main`.
 
@@ -105,4 +105,4 @@ Playwright uses the installed Chrome (`channel: 'chrome'`); do not download brow
 
 ## Current gaps (as of this file)
 
-- Ranking and history still run on MSW fixtures; AWS arrives in M3 (#16).
+- Ranking/history can run against the live API (`VITE_API_MODE=live`); M4b online matches (#155–#161), M5 campaign (#162–#168) and M6 multiplatform (#169–#173) remain. Backlog: connected subsurface passages (#175).

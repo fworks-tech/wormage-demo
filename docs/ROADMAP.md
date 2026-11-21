@@ -17,7 +17,7 @@ The GitHub milestones are the source of truth for scope and status. This page mi
 
 ### M0 — Rename + ship
 
-In progress. Rename, runtime namespace, turn-end bug, single weapon physics source, documentation truth pass, CI, MIT license, Vercel deployment, tests in typecheck, the demo notice and project story, and these decision records.
+Shipped (all 27 issues closed). Rename, runtime namespace, turn-end bug, single weapon physics source, documentation truth pass, CI, MIT license, Vercel deployment, tests in typecheck, the demo notice and project story, and these decision records.
 
 ### M1 — Reproducible core
 

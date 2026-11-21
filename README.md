@@ -1,6 +1,6 @@
 # Wormage
 
-A turn-based artillery duel in the browser: two teams of three worms, one destructible island, wind that ruins your best shot. The first playable version of Wormage, built on a production-grade front-end stack — **React + strict TypeScript + PixiJS + TanStack Query + Axios + MSW + Playwright**.
+A turn-based artillery duel in the browser: two to four teams of three worms, one destructible island, wind that ruins your best shot. The first playable version of Wormage, built on a production-grade front-end stack — **React + strict TypeScript + PixiJS + TanStack Query + Axios + MSW + Playwright**.
 
 > **Demo build.** This is the first playable version of Wormage. Campaign, progression and online play are on the [roadmap](docs/ROADMAP.md).
 

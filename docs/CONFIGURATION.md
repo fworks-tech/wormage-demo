@@ -82,7 +82,7 @@ Damage falloff: `max(0.22, 1 - distance / (radius + 11))`. A worm on the edge st
 
 - Turn timer: 20–90 s in 5 s steps (`TURN_SECONDS`), default 45.
 - After firing, the shooter may walk for up to 3 s (`RETREAT_SECONDS`) before the turn passes.
-- Teams: 3 worms each, 100 HP.
+- Teams: 2–4 per match, 3 worms each, 100 HP. Palette: Ironclad, Rustbelt, Verdant, Amber (editable names, dice generator).
 - Scoring: `kills × 100 + surviving HP + 150 win bonus + max(0, 420 - elapsed)`.
 - End reasons: `wipeout`, `surrender` (the result screen also understands `time` for fixture data).
 

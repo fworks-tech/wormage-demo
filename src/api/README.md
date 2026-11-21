@@ -11,10 +11,11 @@
 
 `initApiLayer()` (called from `main.tsx` before React mounts):
 
+- **live:** `VITE_API_MODE=live` or `VITE_LIVE_API=true` (plus `VITE_API_BASE_URL`) → requests hit the AWS backend (`api.wormage.flabs.tech`).
 - **default:** start the MSW worker → requests use the normal XHR adapter and are intercepted at the network layer.
 - **`--mode single` or `VITE_LOCAL_API=true` or SW failure:** use the Axios adapter, which calls the same `mockServer` functions synchronously in the page.
 
-Both transports share request validation and state, so the demo, the tests and the deployed build behave identically (aside from real network timing).
+All paths share request validation and state, so the demo, the tests and the deployed build behave identically (aside from real network timing).
 
 ## Contracts
 
