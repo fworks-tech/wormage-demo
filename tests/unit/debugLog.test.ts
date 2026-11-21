@@ -65,15 +65,18 @@ describe('debug logging', () => {
 
   test('uploads one request per chunk and advertises the real chunk count', async () => {
     const engine = new GameEngine(config());
-    engine.debugLog = Array.from({ length: 501 }, (_, i) => entry(engine, i));
+    engine.debugLog = Array.from({ length: 2000 }, (_, i) => ({
+      ...entry(engine, i),
+      data: { blob: 'x'.repeat(200) },
+    }));
     engine.debugSnapshots = [{ reason: 'only', snapshot: engine.snapshot() }];
 
     await flushDebugLog(engine);
 
-    expect(post).toHaveBeenCalledTimes(2);
-    const payloads = post.mock.calls.map((call) => call[1] as { chunk: number; totalChunks: number; flushId: string });
-    expect(payloads.map((p) => p.chunk)).toEqual([1, 2]);
-    expect(payloads.every((p) => p.totalChunks === 2)).toBe(true);
+    expect(post.mock.calls.length).toBeGreaterThan(1);
+    const payloads = post.mock.calls.map((call) => call[1] as { chunk: number; totalChunks: number; flushId: string; entries: unknown[] });
+    expect(payloads.map((p) => p.chunk)).toEqual(payloads.map((_, i) => i + 1));
+    expect(payloads.every((p) => p.totalChunks === payloads.length)).toBe(true);
     expect(new Set(payloads.map((p) => p.flushId)).size).toBe(1);
     expect(engine.debugLog).toHaveLength(0);
     expect(engine.debugSnapshots).toHaveLength(0);

@@ -116,7 +116,8 @@ Reset with **Reset demo data** in Options, or `localStorage.removeItem('wormage.
 ## Debug logging
 
 - Engine state: `GameEngine.debugLog` (bounded to 5000 entries) and `debugSnapshots` (bounded to 200).
-- Client flush: `src/api/debugLog.ts` posts to `POST /api/debug-logs` with a 7-day `expiresAt`, chunked (500 entries / 20 snapshots per request) and serialized per engine so overlapping timers cannot duplicate or drop buffered entries.
+- Client flush: `src/api/debugLog.ts` posts to `POST /api/debug-logs` with a 7-day `expiresAt`, chunked by a 200 KB byte budget (500 entries / 20 snapshots upper bounds) and serialized per engine so overlapping timers cannot duplicate or drop buffered entries.
+- Server cap: `DEBUG_LOG_MAX_PAYLOAD_BYTES` (default 256 KB); oversized requests return 413.
 - S3 layout: `debug-logs/<env>/<yyyy>/<mm>/<dd>/<sessionId>/<flushId>-<chunk>.json`, so periodic and final flushes never overwrite each other.
 - Backend: `infra/lib/wormage-stack.ts` provisions the S3 bucket, SSM parameters and Lambda route.
 - SSM parameters:

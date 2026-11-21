@@ -247,7 +247,7 @@ async function postDebugLog(event, s3Client = s3) {
   const bucket = process.env.DEBUG_LOG_BUCKET;
   if (!bucket) return json(500, { message: 'debug log bucket is not configured' });
 
-  const maxBytes = Number(process.env.DEBUG_LOG_MAX_PAYLOAD_BYTES || 1000000);
+  const maxBytes = Number(process.env.DEBUG_LOG_MAX_PAYLOAD_BYTES || 256000);
   const size = Buffer.byteLength(JSON.stringify(body), 'utf8');
   if (size > maxBytes) return json(413, { message: 'payload too large' });
 

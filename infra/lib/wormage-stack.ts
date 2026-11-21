@@ -75,7 +75,7 @@ export class WormageStack extends cdk.Stack {
     });
     const debugLogsMaxPayloadBytes = new ssm.StringParameter(this, 'DebugLogsMaxPayloadBytes', {
       parameterName: '/wormage/debug-logs/max-payload-bytes',
-      stringValue: '1000000',
+      stringValue: '256000',
     });
     const debugLogsPrefix = new ssm.StringParameter(this, 'DebugLogsPrefix', {
       parameterName: '/wormage/debug-logs/prefix',
