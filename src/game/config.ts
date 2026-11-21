@@ -23,7 +23,7 @@ export const WIND_ACCEL: Record<WindSetting, number> = {
 /** AI movement heuristics. */
 export const AI = {
   /** How long a blocked AI walk may keep jumping before it shoots from where it stands. */
-  jumpWindowSeconds: 6,
+  jumpWindowSeconds: 2,
   /** How long the AI may try to climb a ledge with the rope before it gives up. */
   ropeWindowSeconds: 4,
   /** Maximum CPU reticle rotation speed, in radians per second. */

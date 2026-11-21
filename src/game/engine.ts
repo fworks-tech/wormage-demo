@@ -83,6 +83,8 @@ export class GameEngine {
   private aiLastX = -1;
   private aiJumpDeadline: number | null = null;
   private aiRopeDeadline: number | null = null;
+  private aiJumpCount = 0;
+  private aiRopeCount = 0;
   private projectileId = 0;
   private revengeFocusByTeam: Record<number, { x: number; y: number } | null> = {};
   private revengeTurnsByTeam: Record<number, number> = {};
@@ -242,6 +244,8 @@ export class GameEngine {
     this.aiLastX = -1;
     this.aiJumpDeadline = null;
     this.aiRopeDeadline = null;
+    this.aiJumpCount = 0;
+    this.aiRopeCount = 0;
     this.aiThinking = team.isAi;
     const maxWind = WIND_ACCEL[this.config.wind];
     this.wind = first ? 0 : (Math.round((this.rng() * 2 - 1) * maxWind) || 0);
@@ -1126,6 +1130,8 @@ export class GameEngine {
       });
       this.aiLastX = worm.x;
       this.aiStall = 0;
+      this.aiJumpCount = 0;
+      this.aiRopeCount = 0;
 
       if (!this.aiPlan) {
         this.aiThinking = false;
@@ -1144,7 +1150,7 @@ export class GameEngine {
 
     // A high spot is worth an early rope cast from a distance; walking into the
     // wall first only leaves the worm without a shallow anchor angle.
-    if (!planInReach && worm.onGround && Math.abs(distance) <= ROPE.range * 0.95) {
+    if (!planInReach && worm.onGround && Math.abs(distance) <= ROPE.range * 0.95 && this.aiRopeCount < 2) {
       if (this.aiRopeDeadline === null) {
         this.aiRopeDeadline = this.timeLeft - AI.ropeWindowSeconds;
       }
@@ -1159,6 +1165,7 @@ export class GameEngine {
           this.aimAt(ropePlan.angle, this.power);
           this.toggleRope();
           if (worm.rope) {
+            this.aiRopeCount += 1;
             this.aiStall = 0;
             this.aiLastX = worm.x;
             return;
@@ -1180,7 +1187,7 @@ export class GameEngine {
       // A blocked AI walk climbs with the rope when the ledge is too high,
       // otherwise jumps for a bounded window, then shoots from here.
       if (this.aiStall >= 1.5 && worm.onGround) {
-        if (!planInReach) {
+        if (!planInReach && this.aiRopeCount < 2) {
           if (this.aiRopeDeadline === null) {
             this.aiRopeDeadline = this.timeLeft - AI.ropeWindowSeconds;
           }
@@ -1201,11 +1208,12 @@ export class GameEngine {
               }
             }
           }
-        } else if (this.aiJumpDeadline === null || this.timeLeft > this.aiJumpDeadline) {
+        } else if (this.aiJumpCount < 2 && (this.aiJumpDeadline === null || this.timeLeft > this.aiJumpDeadline)) {
           if (this.aiJumpDeadline === null) {
             this.aiJumpDeadline = this.timeLeft - AI.jumpWindowSeconds;
           }
           this.aiJump(this.moveDir);
+          this.aiJumpCount += 1;
           this.aiStall = 0;
           this.aiLastX = worm.x;
           return;
