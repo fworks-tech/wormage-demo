@@ -148,6 +148,9 @@ export class GameEngine {
           fallDistance: 0,
           airborne: false,
           rope: null,
+          launched: false,
+          rotation: 0,
+          spin: 0,
         });
       }
       const isAi = teamIndex === 0 ? false : teamIndex === 1 ? !(config.hotseat ?? false) : true;
@@ -602,6 +605,21 @@ export class GameEngine {
       this.events.push({ type: 'fire', x: muzzleX, y: muzzleY, angle, weapon: this.weapon });
       if (this.weapon === 'shotgun') {
         this.events.push({ type: 'shotgun', x: muzzleX, y: muzzleY, angle });
+        // Second shell with a slight spread (two-shot, like Worms).
+        const spread = 0.08;
+        const speed2 = speed;
+        this.projectiles.push({
+          id: (this.projectileId += 1),
+          weapon: this.weapon,
+          teamId: team.id,
+          x: muzzleX,
+          y: muzzleY,
+          vx: Math.cos(angle + spread) * speed2,
+          vy: Math.sin(angle + spread) * speed2,
+          age: 0,
+          fuse: weapon.fuse,
+          trailTimer: 0,
+        });
       }
     }
   }
@@ -837,12 +855,23 @@ export class GameEngine {
     worm.hp = Math.max(0, worm.hp - amount);
     this.events.push({ type: 'hurt', x: worm.x, y: worm.y - 26, amount: Math.round(amount) });
     this.logDebug('combat.hurt', 'Worm hurt', { wormId: worm.id, teamId: worm.teamId, amount: Math.round(amount), sourceTeam, x: worm.x, y: worm.y }, 'system');
+    // Ragdoll impulse: throw the worm along the blast vector (replaces the old
+    // <=14 px teleport). impulseScale tunes per-source feel (shotgun < mine < explosion).
     const dx = worm.x - sourceX;
-    worm.x = worldClamp(worm.x + Math.sign(dx) * Math.min(14, amount * 0.18), 12, WORLD_W - 12);
-    worm.vy = Math.min(worm.vy, -Math.min(260, amount * 2.2));
+    const dy = (worm.y - 13) - sourceY;
+    const dist = Math.hypot(dx, dy) || 1;
+    const bx = dx / dist;
+    const by = dy / dist;
+    const impulse = Math.min(WORM.knockbackMax, (amount / 100) * WORM.knockbackScale * impulseScale);
+    worm.vx += bx * impulse;
+    worm.vy += by * impulse;
+    // Launch state: disables air-steering, enables bounce, drives spin.
+    worm.rope = null;
     worm.onGround = false;
     worm.airborne = true;
+    worm.launched = true;
     worm.fallDistance = 0;
+    worm.spin = bx * WORM.spinScale;
     if (worm.hp <= 0) {
       worm.alive = false;
       worm.rope = null;
@@ -1002,15 +1031,23 @@ export class GameEngine {
     }
 
     // Holding a direction in the air steers the jump, so a vertical hop can
-    // still clear a ledge sideways.
+    // still clear a ledge sideways. Disabled while launched (ragdoll) so the
+    // explosion impulse is not fought.
     if (
       isActive &&
       !worm.onGround &&
+      !worm.launched &&
       (this.phase === 'aim' || this.retreatActive) &&
       this.moveDir !== 0 &&
       !this.charging
     ) {
       worm.vx = this.moveDir * WORM.jumpPush;
+    }
+
+    // Ragdoll spin integration while airborne.
+    if (!worm.onGround) {
+      worm.rotation += worm.spin * dt;
+      worm.spin *= 0.985;
     }
 
     if (!worm.onGround) {
@@ -1022,7 +1059,11 @@ export class GameEngine {
         if (worm.vx !== 0) {
           const nextX = worldClamp(worm.x + dx / steps, 12, WORLD_W - 12);
           if (nextX === 12 || nextX === WORLD_W - 12 || this.terrain.isSolid(nextX, worm.y - 12)) {
-            worm.vx = 0;
+            if (worm.launched && Math.abs(worm.vx) > WORM.landingStopSpeed) {
+              worm.vx = -worm.vx * WORM.wallRestitution;
+            } else {
+              worm.vx = 0;
+            }
           } else {
             worm.x = nextX;
           }
@@ -1032,11 +1073,24 @@ export class GameEngine {
         if (hit) {
           const landing = this.terrain.groundY(worm.x, nextY - Math.abs(dy / steps) - 6, 18);
           worm.y = landing ?? Math.floor(nextY / 4) * 4;
-          worm.vy = 0;
-          worm.vx = 0;
-          worm.onGround = true;
-          worm.airborne = false;
-          this.applyFallDamage(worm);
+          const impactSpeed = Math.hypot(worm.vx, worm.vy);
+          if (worm.launched && impactSpeed > WORM.landingStopSpeed) {
+            // Tumble: reflect and keep flying.
+            worm.vy = -worm.vy * WORM.restitution;
+            worm.vx *= 0.55;
+            worm.onGround = false;
+            worm.airborne = true;
+            // keep launched true
+          } else {
+            worm.vy = 0;
+            worm.vx = 0;
+            worm.onGround = true;
+            worm.airborne = false;
+            worm.launched = false;
+            worm.spin = 0;
+            worm.rotation = 0;
+            this.applyFallDamage(worm);
+          }
           break;
         }
         const stepDelta = dy / steps;
@@ -1127,7 +1181,7 @@ export class GameEngine {
               );
         if (victim) {
           if (p.weapon === 'shotgun') {
-            this.hurt(victim, def.damage, p.x, p.y, p.teamId);
+            this.hurt(victim, def.damage, p.x, p.y, p.teamId, 0.35);
             this.events.push({ type: 'impact', x: nx, y: ny });
             consumed = true;
             break;

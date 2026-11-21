@@ -12,6 +12,7 @@ const GAME_UNIT = [
   'tests/unit/ai.test.ts',
   'tests/unit/engine.test.ts',
   'tests/unit/mines.test.ts',
+  'tests/unit/ragdoll.test.ts',
   'tests/unit/debugLog.test.ts',
   'tests/unit/jump.test.ts',
   'tests/unit/parity.test.ts',

@@ -111,6 +111,12 @@ export interface Worm {
   fallDistance: number;
   airborne: boolean;
   rope: RopeState | null;
+  /** True while the worm is flying from an impulse (explosion/mine/shotgun). */
+  launched: boolean;
+  /** Visual rotation in radians (ragdoll spin). */
+  rotation: number;
+  /** Angular velocity in rad/s. */
+  spin: number;
 }
 
 export interface Team {
