@@ -74,6 +74,26 @@ export function useOnlineMatch(code: string | null, enabled = true) {
   });
 }
 
+export function useSubmitOnlineAction() {
+  return useMutation({
+    mutationFn: async ({ code, playerId, action, clientActionId }: { code: string; playerId: string; action: { type: string; [k: string]: unknown }; clientActionId?: string }) => {
+      const { data } = await api.post<{ code: string; match: import('./types').OnlineMatch }>(`/api/matches/online/${encodeURIComponent(code)}/action`, { playerId, action, clientActionId });
+      return data;
+    },
+    retry: 0,
+  });
+}
+
+export function useForfeitOnlineMatch() {
+  return useMutation({
+    mutationFn: async ({ code, playerId }: { code: string; playerId: string }) => {
+      const { data } = await api.post<{ code: string; match: import('./types').OnlineMatch }>(`/api/matches/online/${encodeURIComponent(code)}/forfeit`, { playerId });
+      return data;
+    },
+    retry: 0,
+  });
+}
+
 export function useCreateOnlineMatch() {
   return useMutation({
     mutationFn: async (input: CreateOnlineMatchInput) => {
