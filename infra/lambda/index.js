@@ -316,13 +316,17 @@ function generateOnlineCode() {
 }
 
 function toOnlineMatch(m) {
+  const seen = new Set();
+  const players = Array.isArray(m.players)
+    ? m.players.filter((p) => p && typeof p.playerId === 'string' && !seen.has(p.playerId) && seen.add(p.playerId))
+    : [];
   return {
     code: m.code,
     status: m.status,
     createdAt: m.createdAt,
     maxPlayers: m.maxPlayers,
     settings: m.settings || {},
-    players: Array.isArray(m.players) ? m.players : [],
+    players,
   };
 }
 
