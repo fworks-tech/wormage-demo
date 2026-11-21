@@ -995,10 +995,10 @@ html:fullscreen {
   gap: 12px;
 }
 
-/* Minimap toggle overlays the HUD so it does not push the bottom bar up. */
+/* Minimap toggle: bottom-right so it never overlaps the team panels at the top. */
 .minimap-wrap {
   position: absolute;
-  top: max(clamp(8px, 1.6vw, 18px), env(safe-area-inset-top));
+  bottom: max(clamp(8px, 1.6vw, 18px), env(safe-area-inset-bottom));
   right: max(clamp(8px, 1.6vw, 18px), env(safe-area-inset-right));
   pointer-events: auto;
   display: flex;
