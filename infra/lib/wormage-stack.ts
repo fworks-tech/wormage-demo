@@ -187,14 +187,14 @@ export class WormageStack extends cdk.Stack {
       alarmDescription: 'Lambda p99 duration above 8s',
     }).addAlarmAction(new cwActions.SnsAction(alarmTopic));
 
-    const tableThrottles = this.table.metricThrottledRequestsForOperations({ period: cdk.Duration.minutes(5) });
+    const tableThrottles = this.table.metricUserErrors({ period: cdk.Duration.minutes(5) });
     new cloudwatch.Alarm(this, 'DynamoThrottlesAlarm', {
       metric: tableThrottles,
       threshold: 1,
       evaluationPeriods: 1,
       datapointsToAlarm: 1,
       treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
-      alarmDescription: 'DynamoDB throttled requests',
+      alarmDescription: 'DynamoDB user errors (includes throttles)',
     }).addAlarmAction(new cwActions.SnsAction(alarmTopic));
 
     const api5xx = this.httpApi.metricServerError({ period: cdk.Duration.minutes(5) });
