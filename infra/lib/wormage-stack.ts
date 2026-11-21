@@ -130,7 +130,13 @@ export class WormageStack extends cdk.Stack {
     const integration = new HttpLambdaIntegration('WormageIntegration', this.handler);
     this.httpApi.addRoutes({
       path: '/{proxy+}',
-      methods: [apigwv2.HttpMethod.ANY],
+      methods: [
+        apigwv2.HttpMethod.GET,
+        apigwv2.HttpMethod.POST,
+        apigwv2.HttpMethod.PUT,
+        apigwv2.HttpMethod.PATCH,
+        apigwv2.HttpMethod.DELETE,
+      ],
       integration,
     });
     this.httpApi.addRoutes({

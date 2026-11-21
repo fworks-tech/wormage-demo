@@ -429,6 +429,10 @@ exports.handler = async (event) => {
   const method = (event.requestContext && event.requestContext.http && event.requestContext.http.method) || event.httpMethod || 'GET';
   const path = (event.rawPath || event.path || '/').replace(/\/+$/, '') || '/';
   try {
+    // CORS preflight: API Gateway forwards OPTIONS to this Lambda via the
+    // catch-all route, so answer 2xx here instead of falling through to 404
+    // (a 404 preflight breaks the browser's CORS check).
+    if (method === 'OPTIONS') return { statusCode: 204, headers: {}, body: '' };
     if (method === 'GET' && path === '/health') return await health();
     if (method === 'GET' && path === '/api/leaderboard') return await getLeaderboard(event);
     if (method === 'GET' && path === '/api/matches') return await getMatches(event);

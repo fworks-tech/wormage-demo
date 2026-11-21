@@ -142,6 +142,11 @@ test('handler routes health', async () => {
   assert.equal(r.statusCode, 200);
 });
 
+test('handler answers CORS preflight with 2xx', async () => {
+  const r = await L.handler(ev('OPTIONS', '/api/matches/online'));
+  assert.ok(r.statusCode >= 200 && r.statusCode < 300, `expected 2xx, got ${r.statusCode}`);
+});
+
 
 test('validateBody rejects missing clientMatchId', async () => {
   const r = L.validateBody({ playerId: 'p', playerName: 'P', teamName: 'T' });
