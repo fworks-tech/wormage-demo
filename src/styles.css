@@ -1761,7 +1761,7 @@ html:fullscreen {
 
   .weapon-card {
     flex: 1;
-    min-width: 0;
+    min-width: 44px;
     min-height: 44px;
     padding: 6px;
   }

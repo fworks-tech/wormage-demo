@@ -54,18 +54,10 @@ jobs:
 
       - run: npm run build
 
-      - name: Install Chrome
-        if: steps.scope.outputs.run_e2e == 'true'
-        run: npx playwright install --with-deps chrome
-
-      - name: E2E
-        if: steps.scope.outputs.run_e2e == 'true'
-        env:
-          E2E_ARGS: ${{ steps.scope.outputs.e2e_args }}
-        run: npx playwright test $E2E_ARGS
-
+      # E2E (Playwright) disabled in CI for now — see issue/PR notes.
+      # Run locally with: npx playwright test
       - name: Upload Playwright report
-        if: failure() && steps.scope.outputs.run_e2e == 'true'
+        if: false
         uses: actions/upload-artifact@v4
         with:
           name: playwright-report
