@@ -85,6 +85,15 @@ export class WormageStack extends cdk.Stack {
       integration,
     });
 
+    // Basic throttle on the default stage to protect POST /api/matches.
+    const cfnStage = this.httpApi.defaultStage?.node.defaultChild as apigwv2.CfnStage | undefined;
+    if (cfnStage) {
+      cfnStage.defaultRouteSettings = {
+        throttlingBurstLimit: 20,
+        throttlingRateLimit: 10,
+      };
+    }
+
     // Optional custom domain (issue #133). Enabled when a certificate ARN is provided.
     // Route 53 records are only created when a hosted zone is also provided; otherwise
     // the caller adds the DNS record (e.g. a CNAME in Vercel DNS) using the

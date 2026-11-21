@@ -136,8 +136,40 @@ function toRecord(m) {
   };
 }
 
+
+const ALLOWED_WIND = new Set(['off', 'light', 'strong']);
+const ALLOWED_DIFFICULTY = new Set(['rookie', 'veteran', 'elite']);
+const ALLOWED_MAP = new Set(['island', 'mesa', 'canyon', 'desert', 'arctic']);
+const ALLOWED_MODE = new Set(['deathmatch', 'assassinate', 'sudden-death', 'fort']);
+const ALLOWED_LOADOUT = new Set(['default', 'heavy', 'scout']);
+const ALLOWED_END = new Set(['time', 'wipeout', 'surrender']);
+
+function isStr(v, max) { return typeof v === 'string' && v.length > 0 && v.length <= (max || 64); }
+function isNum(v, min, max) { return typeof v === 'number' && Number.isFinite(v) && v >= min && v <= max; }
+
+function validateBody(body) {
+  if (!body || typeof body !== 'object' || Array.isArray(body)) return 'invalid body';
+  if (!isStr(body.clientMatchId)) return 'clientMatchId is required';
+  if (!isStr(body.playerId)) return 'playerId is required';
+  if (!isStr(body.playerName)) return 'playerName is required';
+  if (!isStr(body.teamName)) return 'teamName is required';
+  if (body.score !== undefined && !isNum(Number(body.score), 0, 1e9)) return 'score out of range';
+  if (body.durationSeconds !== undefined && !isNum(Number(body.durationSeconds), 0, 1e6)) return 'durationSeconds out of range';
+  if (body.kills !== undefined && !isNum(Number(body.kills), 0, 10000)) return 'kills out of range';
+  if (body.turnSeconds !== undefined && !isNum(Number(body.turnSeconds), 1, 600)) return 'turnSeconds out of range';
+  if (body.wind !== undefined && !ALLOWED_WIND.has(body.wind)) return 'invalid wind';
+  if (body.difficulty !== undefined && !ALLOWED_DIFFICULTY.has(body.difficulty)) return 'invalid difficulty';
+  if (body.map !== undefined && !ALLOWED_MAP.has(body.map)) return 'invalid map';
+  if (body.mode !== undefined && !ALLOWED_MODE.has(body.mode)) return 'invalid mode';
+  if (body.loadout !== undefined && !ALLOWED_LOADOUT.has(body.loadout)) return 'invalid loadout';
+  if (body.endReason !== undefined && !ALLOWED_END.has(body.endReason)) return 'invalid endReason';
+  return null;
+}
+
 async function postMatch(event, ddbClient = ddb) {
   const body = parseBody(event);
+  const err = validateBody(body);
+  if (err) return json(400, { message: err });
   if (!body.clientMatchId) return json(400, { message: 'clientMatchId is required' });
 
   const existing = await ddbClient.send(new GetCommand({
@@ -223,3 +255,4 @@ exports.getLeaderboard = getLeaderboard;
 exports.getMatches = getMatches;
 exports.postMatch = postMatch;
 exports.keyOf = keyOf;
+exports.validateBody = validateBody;
