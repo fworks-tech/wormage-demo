@@ -47,6 +47,7 @@ class WormView {
   private readonly label: Text;
   private readonly hpText: Text;
   private lastFacing = 1;
+  private lastLaunched = false;
   private lastWeapon: WeaponId | null = null;
   private lastHp = -1;
   private lastActive = false;
@@ -84,31 +85,57 @@ class WormView {
     this.drawWorm(color, 1);
   }
 
-  private drawWorm(color: number, facing: number): void {
+  private drawWorm(color: number, facing: number, launched = false): void {
     const g = this.body;
     g.clear();
-    // Ground shadow keeps the silhouette readable over both grass and dirt.
-    g.ellipse(0, 1, 13, 4).fill({ color: 0x000000, alpha: 0.3 });
-    // Rounded silhouette with a soft highlight for a more sculpted, toy-like read.
-    g.roundRect(-11, -30, 22, 31, 10).fill(color);
-    g.stroke({ width: 2, color: 0x15201f, alpha: 0.85 });
-    g.ellipse(-3.5, -27, 4.8, 1.6).fill({ color: 0xffffff, alpha: 0.28 });
-    g.ellipse(0, -11, 7.5, 9).fill({ color: 0xffe9c9, alpha: 0.3 });
-    // A team-colored belt makes identity survive even when team colors are similar.
-    g.roundRect(-10.5, -15, 21, 4, 2).fill({ color, alpha: 0.92 });
-    g.rect(-11.5, -29, 23, 5).fill({ color: 0x101a1c, alpha: 0.55 });
-    g.roundRect(-2.5, -15, 5, 4, 1.5).fill({ color: 0xf4ead7, alpha: 0.85 });
-    // Expressive eyes with small catchlights make the face readable at gameplay scale.
-    g.circle(-4.4, -21, 4.4).fill(0xfdf6e6);
-    g.circle(4.4, -21, 4.4).fill(0xfdf6e6);
-    g.circle(-4.4 + facing * 1.5, -21, 2).fill(0x12181a);
-    g.circle(4.4 + facing * 1.5, -21, 2).fill(0x12181a);
-    g.circle(-5.1 + facing * 1.5, -22, 0.75).fill(0xffffff);
-    g.circle(3.7 + facing * 1.5, -22, 0.75).fill(0xffffff);
-    g.moveTo(-2.5, -14).lineTo(0, -13).lineTo(2.5, -14).stroke({ width: 1.2, color: 0x35231d, alpha: 0.8 });
-    // Brow angle tracks facing to give the active worm a little attitude.
-    g.moveTo(-7.5, -26.5).lineTo(-2.5, -25).stroke({ width: 1.4, color: 0x12181a, alpha: 0.8 });
-    g.moveTo(7.5, -26.5).lineTo(2.5, -25).stroke({ width: 1.4, color: 0x12181a, alpha: 0.8 });
+    // Ground shadow.
+    g.ellipse(2, 2, 14, 4).fill({ color: 0x000000, alpha: 0.3 });
+
+    // L-shape body: base curves back on the ground, head/chest point up and forward.
+    // Built from overlapping ellipses for a smooth cylindrical read.
+    const segments: Array<{ x: number; y: number; rx: number; ry: number }> = launched
+      ? [
+          // Flailing: stretched out.
+          { x: -6, y: -4, rx: 7, ry: 5 },
+          { x: 0, y: -10, rx: 6, ry: 5 },
+          { x: 6, y: -16, rx: 6, ry: 5 },
+          { x: 10, y: -22, rx: 5, ry: 5 },
+        ]
+      : [
+          // Resting L-shape: base back, head forward/up.
+          { x: -4, y: -2, rx: 7, ry: 5 },
+          { x: 0, y: -9, rx: 6, ry: 5 },
+          { x: 4, y: -17, rx: 6, ry: 5 },
+          { x: 6, y: -24, rx: 5, ry: 5 },
+        ];
+
+    for (const seg of segments) {
+      g.ellipse(seg.x, seg.y, seg.rx, seg.ry).fill(color);
+      g.ellipse(seg.x, seg.y, seg.rx, seg.ry).stroke({ width: 1.5, color: 0x15201f, alpha: 0.7 });
+    }
+    // Soft highlight on top segments.
+    g.ellipse(2, -12, 4, 2).fill({ color: 0xffffff, alpha: 0.22 });
+    // Team-colored belt on the middle segment.
+    g.roundRect(-2, -12, 8, 3, 1.5).fill({ color, alpha: 0.92 });
+    // Tail coil on the ground.
+    g.ellipse(-9, -1, 5, 3).fill(color);
+    g.ellipse(-9, -1, 5, 3).stroke({ width: 1.2, color: 0x15201f, alpha: 0.7 });
+    // Head (bulbous front segment).
+    g.circle(6 + facing * 2, -26, 7).fill(color);
+    g.circle(6 + facing * 2, -26, 7).stroke({ width: 1.5, color: 0x15201f, alpha: 0.8 });
+    // Headband.
+    g.roundRect(0 + facing * 2, -31, 12, 4, 2).fill(0x101a1c);
+    // Large cartoon eyes, closely spaced, tiny pupils.
+    const eyeX = 4 + facing * 2;
+    g.circle(eyeX - 3, -27, 4.2).fill(0xfdf6e6);
+    g.circle(eyeX + 3, -27, 4.2).fill(0xfdf6e6);
+    g.circle(eyeX - 3 + facing * 1.2, -27, 1.4).fill(0x12181a);
+    g.circle(eyeX + 3 + facing * 1.2, -27, 1.4).fill(0x12181a);
+    // Catchlights.
+    g.circle(eyeX - 3.6 + facing * 1.2, -28, 0.6).fill(0xffffff);
+    g.circle(eyeX + 2.4 + facing * 1.2, -28, 0.6).fill(0xffffff);
+    // Small expressive mouth.
+    g.moveTo(eyeX - 2, -22).lineTo(eyeX, -21).lineTo(eyeX + 2, -22).stroke({ width: 1.2, color: 0x35231d, alpha: 0.8 });
     this.lastFacing = facing;
   }
 
@@ -119,7 +146,8 @@ class WormView {
     this.heldWeapon.rotation = worm.aimAngle;
     if (weapon !== null && weapon !== this.lastWeapon) this.drawHeldWeapon(weapon);
     this.bob += dt * 4;
-    if (worm.facing !== this.lastFacing) this.drawWorm(color, worm.facing);
+    if (worm.facing !== this.lastFacing || this.lastLaunched !== worm.launched) this.drawWorm(color, worm.facing, worm.launched);
+    this.lastLaunched = worm.launched;
     this.root.alpha = worm.alive ? 1 : 0;
     this.root.visible = worm.alive;
     this.heldWeapon.visible = worm.alive && !worm.rope && weapon !== null;
