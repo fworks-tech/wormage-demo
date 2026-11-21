@@ -94,3 +94,30 @@ export function savePlayer(player: PlayerIdentity): void {
     // ignore
   }
 }
+
+export interface OnlineSession {
+  code: string;
+  playerId: string;
+  playerName: string;
+  teamName: string;
+  lastActionId?: string;
+}
+
+const ONLINE_SESSION_KEY = 'wormage.onlineSession.v1';
+
+export function loadOnlineSession(): OnlineSession | null {
+  try {
+    const raw = sessionStorage.getItem(ONLINE_SESSION_KEY);
+    return raw ? (JSON.parse(raw) as OnlineSession) : null;
+  } catch {
+    return null;
+  }
+}
+
+export function saveOnlineSession(session: OnlineSession): void {
+  try { sessionStorage.setItem(ONLINE_SESSION_KEY, JSON.stringify(session)); } catch { /* ignore */ }
+}
+
+export function clearOnlineSession(): void {
+  try { sessionStorage.removeItem(ONLINE_SESSION_KEY); } catch { /* ignore */ }
+}

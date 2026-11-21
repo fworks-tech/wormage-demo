@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useCreateOnlineMatch, useJoinOnlineMatch, useOnlineMatch } from '../api/queries';
 import type { OnlineMatch } from '../api/types';
 import type { PlayerIdentity as Player } from '../state/storage';
+import { loadOnlineSession, saveOnlineSession, clearOnlineSession } from '../state/storage';
 
 interface Props {
   player: Player;
@@ -15,10 +16,29 @@ export function OnlineMatchDialog({ player, onClose }: Props) {
   const [codeInput, setCodeInput] = useState('');
   const [match, setMatch] = useState<OnlineMatch | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [resumeMsg, setResumeMsg] = useState<string | null>(null);
   const [now, setNow] = useState(() => Date.now());
   const create = useCreateOnlineMatch();
   const join = useJoinOnlineMatch();
   const polled = useOnlineMatch(match?.code ?? null, !!match?.code);
+
+  // Resume from stored session on mount.
+  useEffect(() => {
+    const session = loadOnlineSession();
+    if (!session) return;
+    (async () => {
+      try {
+        const res = await (async () => {
+          const { data } = await (await import('../api/client')).api.get<{ code: string; match: OnlineMatch }>(`/api/matches/online/${encodeURIComponent(session.code)}`);
+          return data;
+        })();
+        setMatch(res.match);
+      } catch {
+        clearOnlineSession();
+        setResumeMsg('Previous match is no longer available.');
+      }
+    })();
+  }, []);
   useEffect(() => {
     if (polled.data) setMatch(polled.data);
   }, [polled.data]);
@@ -37,6 +57,7 @@ export function OnlineMatchDialog({ player, onClose }: Props) {
         teamName: 'Ironclad',
       });
       setMatch(res.match);
+      saveOnlineSession({ code: res.match.code, playerId: player.id, playerName: player.name, teamName: 'Ironclad' });
       setView('create');
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Could not create match');
@@ -50,6 +71,7 @@ export function OnlineMatchDialog({ player, onClose }: Props) {
     try {
       const res = await join.mutateAsync({ code, input: { playerId: player.id, playerName: player.name, teamName: 'Ironclad' } });
       setMatch(res.match);
+      saveOnlineSession({ code: res.match.code, playerId: player.id, playerName: player.name, teamName: 'Ironclad' });
       setView('join');
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Could not join match');
@@ -69,6 +91,7 @@ export function OnlineMatchDialog({ player, onClose }: Props) {
 
       {view === 'home' && (
         <>
+          {resumeMsg && <p className="muted" style={{ color: '#f66' }}>{resumeMsg}</p>}
           <p className="muted">Create a match and share the code, or join one with a code.</p>
           <div className="overlay-actions overlay-actions-stacked">
             <button type="button" className="primary-btn" onClick={handleCreate} disabled={create.isPending} data-testid="btn-create-online">
@@ -112,7 +135,7 @@ export function OnlineMatchDialog({ player, onClose }: Props) {
             </button>
           )}
           <div className="overlay-actions">
-            <button type="button" className="ghost-btn" onClick={() => { setView('home'); setMatch(null); }} data-testid="btn-back-online">
+            <button type="button" className="ghost-btn" onClick={() => { if (match?.winnerTeam != null) clearOnlineSession(); setView('home'); setMatch(null); }} data-testid="btn-back-online">
               Back
             </button>
             <button type="button" className="ghost-btn" onClick={onClose} data-testid="btn-close-online">
