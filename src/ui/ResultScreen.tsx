@@ -66,17 +66,15 @@ export function ResultScreen({
           <span className="score-label">score</span>
         </div>
 
-        {hotseat && result.teamScores && (
+        {(hotseat || (result.config.teamCount ?? 2) > 2) && result.teamScores && result.teamScores.length > 1 && (
           <div className="score-block" data-testid="result-scores">
             <span className="score-value">
-              P1 {result.teamScores[0]} · P2 {result.teamScores[1]}
+              {result.teamScores.map((s, i) => `P${i + 1} ${s}`).join(' · ')}
             </span>
             <span className="score-label">
               {result.winnerTeam === null
                 ? 'draw'
-                : result.winnerTeam === 0
-                  ? 'Player 1 wins'
-                  : 'Player 2 wins'}
+                : `Player ${result.winnerTeam + 1} wins`}
             </span>
           </div>
         )}

@@ -50,7 +50,7 @@ export default function App() {
         clientMatchId: clientMatchId.current || newClientId(),
         playerId: player.id,
         playerName: player.name,
-        teamName: 'Ironclad',
+        teamName: settings.teamNames?.[0] ?? 'Ironclad',
         score: finished.score,
         durationSeconds: finished.durationSeconds,
         endReason: finished.endReason,
@@ -63,7 +63,7 @@ export default function App() {
         kills: finished.kills,
       });
     },
-    [player.id, player.name, register],
+    [player.id, player.name, register, settings],
   );
 
   const handleFinish = useCallback(

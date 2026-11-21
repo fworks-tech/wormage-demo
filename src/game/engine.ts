@@ -9,7 +9,7 @@ import {
   PROJECTILE_GRAVITY,
   RETREAT_SECONDS,
   ROPE,
-  TEAMS,
+  TEAM_PALETTE,
   WATER_Y,
   WEAPONS,
   WIND_ACCEL,
@@ -99,14 +99,24 @@ export class GameEngine {
     this.spawnLoot();
     this.spawnMobs();
 
-    this.teams = TEAMS.map((team, teamIndex) => {
+    const teamCount = Math.min(4, Math.max(2, config.teamCount ?? 2));
+    const margin = 120;
+    const usable = WORLD_W - margin * 2;
+    const bandW = usable / teamCount;
+    // Bands are ordered left-to-right by team index; worms inside a band march left-to-right.
+    this.teams = Array.from({ length: teamCount }, (_, teamIndex) => {
+      const palette = TEAM_PALETTE[teamIndex];
+      const bandStart = margin + teamIndex * bandW;
       const worms: Worm[] = [];
+      const spacing = Math.min(95, Math.max(40, (bandW - 40) / Math.max(1, config.wormsPerTeam - 1)));
+      const bandCenter = bandStart + bandW / 2;
+      const facing: 1 | -1 = bandCenter < WORLD_W / 2 ? 1 : -1;
       for (let i = 0; i < config.wormsPerTeam; i += 1) {
-        const x = teamIndex === 0 ? 120 + i * 95 : 1160 - i * 95;
+        const x = Math.round(bandStart + 40 + i * spacing);
         const y = this.terrain.groundY(x, 120, WATER_Y - 120) ?? 470;
         worms.push({
           id: `t${teamIndex}-w${i}`,
-          name: WORM_NAMES[teamIndex][i % WORM_NAMES[teamIndex].length],
+          name: WORM_NAMES[teamIndex % WORM_NAMES.length][i % WORM_NAMES[teamIndex % WORM_NAMES.length].length],
           teamId: teamIndex,
           x,
           y,
@@ -115,20 +125,22 @@ export class GameEngine {
           hp: WORM.maxHp,
           maxHp: WORM.maxHp,
           alive: true,
-          facing: teamIndex === 0 ? 1 : -1,
-          aimAngle: teamIndex === 0 ? -0.55 : mirrorAngle(-0.55),
+          facing,
+          aimAngle: facing === 1 ? -0.55 : mirrorAngle(-0.55),
           onGround: true,
           fallDistance: 0,
           airborne: false,
           rope: null,
         });
       }
+      const isAi = teamIndex === 0 ? false : teamIndex === 1 ? !(config.hotseat ?? false) : true;
+      const name = config.teamNames?.[teamIndex]?.trim() || palette.name;
       return {
         id: teamIndex,
-        name: team.name,
-        color: team.color,
-        accent: team.accent,
-        isAi: teamIndex === 0 ? false : !config.hotseat,
+        name,
+        color: palette.color,
+        accent: palette.accent,
+        isAi,
         worms,
         ammo: {
           bazooka: WEAPONS.bazooka.ammo ?? Infinity,
@@ -181,10 +193,28 @@ export class GameEngine {
   }
 
   private beginTurn(first = false): void {
+    // Skip eliminated teams (no alive worms).
+    if (!this.teams[this.activeTeam].worms.some((w) => w.alive)) {
+      if (this.teams.filter((t) => t.worms.some((w) => w.alive)).length <= 1) {
+        const alive = this.teams.filter((t) => t.worms.some((w) => w.alive));
+        this.finish(alive.length === 1 ? alive[0].id : null, 'wipeout');
+        return;
+      }
+      this.activeTeam = this.nextAliveTeam(this.activeTeam);
+      this.beginTurn(first);
+      return;
+    }
     const team = this.teams[this.activeTeam];
     const next = this.nextAliveWorm(team);
     if (!next) {
-      this.finish(this.otherTeam(this.activeTeam), 'wipeout');
+      // Team fully eliminated mid-cycle.
+      if (this.teams.filter((t) => t.worms.some((w) => w.alive)).length <= 1) {
+        const alive = this.teams.filter((t) => t.worms.some((w) => w.alive));
+        this.finish(alive.length === 1 ? alive[0].id : null, 'wipeout');
+        return;
+      }
+      this.activeTeam = this.nextAliveTeam(this.activeTeam);
+      this.beginTurn(first);
       return;
     }
     this.activeWormId = next.id;
@@ -224,8 +254,13 @@ export class GameEngine {
     return null;
   }
 
-  private otherTeam(teamId: number): number {
-    return teamId === 0 ? 1 : 0;
+  private nextAliveTeam(from: number): number {
+    const n = this.teams.length;
+    for (let i = 1; i <= n; i += 1) {
+      const idx = (from + i) % n;
+      if (this.teams[idx].worms.some((w) => w.alive)) return idx;
+    }
+    return from;
   }
 
   setMove(dir: -1 | 0 | 1): void {
@@ -486,7 +521,8 @@ export class GameEngine {
 
   surrender(): void {
     if (this.phase === 'gameover') return;
-    this.finish(this.otherTeam(this.activeTeam), 'surrender');
+    const survivors = this.teams.filter((t) => t.id !== this.activeTeam && t.worms.some((w) => w.alive));
+    this.finish(survivors.length === 1 ? survivors[0].id : null, 'surrender');
   }
 
   private spawnLoot(): void {
@@ -604,9 +640,9 @@ export class GameEngine {
     this.retreatTimer = 0;
     this.projectiles = [];
     this.clearRopes();
-    this.activeTeam = this.otherTeam(this.activeTeam);
+    this.activeTeam = this.nextAliveTeam(this.activeTeam);
     this.turn += 1;
-    if (this.turn % (this.config.wormsPerTeam * 2) === 0) this.hostilePhase();
+    if (this.turn % (this.config.wormsPerTeam * this.teams.length) === 0) this.hostilePhase();
     if (this.config.mode === 'sudden-death' && this.config.turnSeconds > 0) {
       // damage all alive worms per turn after threshold (threshold stored in config? use 6 turns)
       if (this.turn >= 6) {
@@ -661,16 +697,15 @@ export class GameEngine {
       for (const team of this.teams) {
         const leader = team.worms[0];
         if (leader && !leader.alive) {
-          this.finish(this.otherTeam(team.id), 'wipeout');
+          const survivors = this.teams.filter((t) => t.id !== team.id && t.worms.some((w) => w.alive));
+          this.finish(survivors.length === 1 ? survivors[0].id : null, 'wipeout');
           return;
         }
       }
     }
-    for (const team of this.teams) {
-      if (!team.worms.some((w) => w.alive)) {
-        this.finish(this.otherTeam(team.id), 'wipeout');
-        return;
-      }
+    const alive = this.teams.filter((t) => t.worms.some((w) => w.alive));
+    if (alive.length <= 1) {
+      this.finish(alive.length === 1 ? alive[0].id : null, 'wipeout');
     }
   }
 
@@ -987,7 +1022,10 @@ export class GameEngine {
   }
 
   private nearestEnemy(worm: Worm): Worm | null {
-    const targets = this.teams[this.otherTeam(worm.teamId)].worms.filter((w) => w.alive);
+    const targets = this.teams
+      .filter((t) => t.id !== worm.teamId)
+      .flatMap((t) => t.worms)
+      .filter((w) => w.alive);
     return (
       targets.sort(
         (a, b) => Math.hypot(a.x - worm.x, a.y - worm.y) - Math.hypot(b.x - worm.x, b.y - worm.y),

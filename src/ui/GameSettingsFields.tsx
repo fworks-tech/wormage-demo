@@ -1,4 +1,4 @@
-import { DIFFICULTY, TURN_SECONDS } from '../game/config';
+import { DIFFICULTY, TURN_SECONDS, TEAM_PALETTE, randomTeamName } from '../game/config';
 import type { Difficulty, GameSettings, LoadoutId, MapId, ModeId, WindSetting } from '../game/types';
 
 interface GameSettingsFieldsProps {
@@ -27,6 +27,70 @@ export function GameSettingsFields({ settings, onChange }: GameSettingsFieldsPro
           <option value="cpu">vs CPU</option>
           <option value="hotseat">2P local</option>
         </select>
+      </div>
+
+      <div className="option-row">
+        <label htmlFor="team-count">
+          <span>Teams</span>
+          <small>Number of factions in the match (2-4).</small>
+        </label>
+        <select
+          id="team-count"
+          value={settings.teamCount ?? 2}
+          onChange={(e) => {
+            const n = Number(e.target.value);
+            const names = (settings.teamNames ?? []).slice(0, n);
+            while (names.length < n) names.push(TEAM_PALETTE[names.length]?.name ?? randomTeamName());
+            update('teamCount', n);
+            update('teamNames', names);
+          }}
+          data-testid="select-team-count"
+        >
+          {[2, 3, 4].map((n) => (
+            <option key={n} value={n}>{n}</option>
+          ))}
+        </select>
+      </div>
+
+      <div className="option-row">
+        <label>
+          <span>Team names</span>
+          <small>Customise each faction. Dice rolls a random name.</small>
+        </label>
+        <div className="team-names" data-testid="team-names">
+          {Array.from({ length: settings.teamCount ?? 2 }, (_, i) => {
+            const name = (settings.teamNames ?? [])[i] ?? TEAM_PALETTE[i]?.name ?? '';
+            return (
+              <div key={i} className="team-name-row">
+                <input
+                  type="text"
+                  value={name}
+                  onChange={(e) => {
+                    const names = [...(settings.teamNames ?? [])];
+                    while (names.length <= i) names.push(TEAM_PALETTE[names.length]?.name ?? '');
+                    names[i] = e.target.value;
+                    update('teamNames', names);
+                  }}
+                  data-testid={`input-team-name-${i}`}
+                />
+                <button
+                  type="button"
+                  className="ghost-btn"
+                  onClick={() => {
+                    const names = [...(settings.teamNames ?? [])];
+                    while (names.length <= i) names.push(TEAM_PALETTE[names.length]?.name ?? '');
+                    names[i] = randomTeamName();
+                    update('teamNames', names);
+                  }}
+                  data-testid={`btn-roll-team-name-${i}`}
+                  aria-label="Roll random name"
+                >
+                  🎲
+                </button>
+              </div>
+            );
+          })}
+        </div>
       </div>
 
       <div className="option-row">

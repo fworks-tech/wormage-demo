@@ -39,6 +39,8 @@ export interface GameSettings {
   loadout?: LoadoutId;
   wormsPerTeam?: number;
   hotseat?: boolean;
+  teamCount?: number;
+  teamNames?: string[];
 }
 
 export interface MatchConfig {
@@ -51,6 +53,8 @@ export interface MatchConfig {
   mode?: ModeId;
   loadout?: LoadoutId;
   hotseat?: boolean;
+  teamCount?: number;
+  teamNames?: string[];
 }
 
 /** Stable identifier for a ruleset. Used to compare like-for-like on the board. */

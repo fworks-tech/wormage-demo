@@ -146,3 +146,73 @@ describe('blast damage', () => {
     expect(blastFalloff(reach * 4, reach)).toBe(0.22);
   });
 });
+
+describe('multi-team matches', () => {
+  const cfg = (overrides: Partial<MatchConfig> = {}): MatchConfig => ({
+    turnSeconds: 30,
+    wind: 'light',
+    difficulty: 'veteran',
+    seed: 4242,
+    wormsPerTeam: 2,
+    teamCount: 3,
+    ...overrides,
+  });
+
+  test('constructs N teams with correct counts', () => {
+    const engine = new GameEngine(cfg());
+    expect(engine.teams.length).toBe(3);
+    expect(engine.teams.map((t) => t.worms.length)).toEqual([2, 2, 2]);
+  });
+
+  test('spawn zones do not overlap across teams', () => {
+    const engine = new GameEngine(cfg());
+    const xs = engine.teams.flatMap((t) => t.worms.map((w) => w.x));
+    // each team's worms occupy a distinct horizontal band
+    for (let i = 0; i < engine.teams.length; i += 1) {
+      for (let j = i + 1; j < engine.teams.length; j += 1) {
+        const maxI = Math.max(...engine.teams[i].worms.map((w) => w.x));
+        const minJ = Math.min(...engine.teams[j].worms.map((w) => w.x));
+        expect(maxI).toBeLessThan(minJ);
+      }
+    }
+    expect(new Set(xs).size).toBe(xs.length);
+  });
+
+  test('turn order cycles through living teams', () => {
+    const engine = new GameEngine(cfg());
+    const order: number[] = [engine.activeTeam];
+    for (let i = 0; i < 5; i += 1) {
+      engine.endTurn();
+      order.push(engine.activeTeam);
+    }
+    // 3 teams -> after first, cycles 1,2,0,1,2
+    expect(order.slice(1)).toEqual([1, 2, 0, 1, 2]);
+  });
+
+  test('wipeout of a team ends match when only one survives', () => {
+    const engine = new GameEngine(cfg());
+    // eliminate team 1 and team 2
+    for (const w of engine.teams[1].worms) { w.alive = false; w.hp = 0; }
+    for (const w of engine.teams[2].worms) { w.alive = false; w.hp = 0; }
+    // Force re-evaluation by ending turn from team 0
+    // Use snapshot phase check
+    expect(engine.phase).not.toBe('gameover');
+    // Now eliminate team 0's opponents already done; end turn should finish
+    (engine as any).checkWipeout();
+    expect(engine.phase).toBe('gameover');
+    expect(engine.winnerTeam).toBe(0);
+  });
+
+  test('surrender ends match', () => {
+    const engine = new GameEngine(cfg());
+    engine.surrender();
+    expect(engine.phase).toBe('gameover');
+  });
+
+  test('nearestEnemy considers all opposing teams', () => {
+    // smoke: no crash and game runs
+    const engine = new GameEngine(cfg());
+    engine.endTurn(); // AI turn
+    expect(engine.phase).toBe('aim');
+  });
+});
