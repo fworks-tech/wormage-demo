@@ -19,13 +19,14 @@ npm run diff         # cdk diff
 npm run deploy       # cdk deploy
 ```
 
-## Scope (sub-issues)
+## Scope (sub-issues) — all shipped
 
 - #130 scaffold (this directory)
-- #131 API Gateway HTTP API + Lambda (Node 20)
+- #131 API Gateway HTTP API + Lambda (Node 22)
 - #132 DynamoDB single-table + leaderboard GSI
 - #133 custom domain `api.wormage.flabs.tech`
 - #134 `live` API mode in `src/api/client.ts`
 - #135 port leaderboard/matches endpoints, keep `clientMatchId` idempotency
 - #136 CORS for `wormage.flabs.tech`
 - #137 deploy workflow
+- #145 CDK resources, #151 full resources, #153 Node 22 bump, #154 validation/throttling

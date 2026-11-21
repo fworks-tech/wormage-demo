@@ -73,7 +73,7 @@ Destruction (`Terrain.carve`) zeroes the mask circle, then fires `onCarve`. The 
 - Damage falls off linearly with distance, floored at 22% of the weapon's base damage inside the blast radius.
 - Every worm in radius takes damage, including the shooter. Knockback is applied as a small horizontal shove plus upward velocity, which can push worms into water or off ledges.
 - Fall damage starts above 150 px and costs 0.16 HP per extra pixel.
-- A team loses when every worm is dead. Water kills instantly.
+- A team loses when every worm is dead; the match ends for the last surviving team. Water kills instantly.
 
 ### Turn state machine
 

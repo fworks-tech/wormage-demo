@@ -12,7 +12,7 @@
 
 ## Rules
 
-- **Validate on read.** `sanitizeSettings` clamps the turn timer to 20–90 s in 5 s steps and rejects unknown wind/difficulty values.
+- **Validate on read.** `sanitizeSettings` clamps the turn timer to 20–90 s in 5 s steps, rejects unknown wind/difficulty values and clamps `teamCount` to 2–4.
 - **Never store secrets or credentials.** Only local game data.
 - **Version the keys** (`v1`) so a future schema change can migrate or discard safely.
 - **Writes are best-effort.** `saveLastResult` failing must not break the result screen.

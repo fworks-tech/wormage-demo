@@ -4,7 +4,7 @@ This folder has **no React imports**. It can be unit-tested or moved to a worker
 
 | File | Responsibility |
 | --- | --- |
-| `config.ts` | every tunable number: world size, gravity, wind, weapons, teams, difficulty, defaults |
+| `config.ts` | every tunable number: world size, gravity, wind, weapons, teams (palette + name pool), difficulty, defaults |
 | `types.ts` | contracts shared by engine, renderer and UI (`GameSnapshot`, `WeaponDef`, `GameEvent`…) |
 | `terrain.ts` | seeded island generator, 4 px collision bitmask, destructible canvas, crater carving |
 | `engine.ts` | turn state machine, input actions, worm physics, projectiles, damage, scoring, AI scheduling |

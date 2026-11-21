@@ -1,6 +1,6 @@
 # Spec: Team-aware CPU AI (friendly fire, focus fire, threat, revenge)
 
-Status: draft
+Status: partially implemented (friendly-fire veto, focus/threat/revenge scoring, decay wired; defaults tuned)
 Scope: `src/game/config.ts`, `src/game/ai.ts`, `src/game/engine.ts`, `src/game/types.ts` (minimal)
 Default difficulty: veteran
 

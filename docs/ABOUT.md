@@ -21,7 +21,7 @@ The project is built in the open. The [roadmap](ROADMAP.md), the [decision recor
 
 ## What you can play today
 
-The live build is a **complete skirmish**, not a teaser: two teams of three worms, a destructible island, wind that bends every shot, four weapons, and an AI that solves the same ballistics you do.
+The live build is a **complete skirmish**, not a teaser: two to four teams of three worms, a destructible island, wind that bends every shot, four weapons, and an AI that solves the same ballistics you do.
 
 Around the match there is a real product surface: menus, options, a ranking board, match history, mobile controls and a seeded, browser-driven test suite.
 

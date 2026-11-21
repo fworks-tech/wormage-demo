@@ -6,7 +6,7 @@ React renders menus, dialogs and the in-match HUD. It never owns gameplay state.
 | --- | --- |
 | `MainMenu.tsx` | hero/briefing, tab navigation, last-result line, start match |
 | `OptionsPanel.tsx` | turn timer, wind, difficulty, sound, demo network scenarios |
-| `GameSettingsFields.tsx` | the four match-setting rows shared by Options and Settings |
+| `GameSettingsFields.tsx` | match settings shared by Options and Settings, including team count (2–4) and editable names with a dice roller |
 | `SettingsDialog.tsx` | match settings from the New Game and pause cards |
 | `ControlsDialog.tsx` | shortcut list, key capture with reserved-key feedback, duplicate swap, reset and save |
 | `useDialogFocus.ts` | moves focus into an open overlay, keeps it inside (Tab, Shift+Tab and stray focus) and returns it to the opener |
