@@ -14,6 +14,22 @@ export function GameSettingsFields({ settings, onChange }: GameSettingsFieldsPro
   return (
     <>
       <div className="option-row">
+        <label htmlFor="players">
+          <span>Players</span>
+          <small>vs CPU or two humans sharing one device.</small>
+        </label>
+        <select
+          id="players"
+          value={settings.hotseat ? 'hotseat' : 'cpu'}
+          onChange={(e) => update('hotseat', e.target.value === 'hotseat')}
+          data-testid="select-players"
+        >
+          <option value="cpu">vs CPU</option>
+          <option value="hotseat">2P local</option>
+        </select>
+      </div>
+
+      <div className="option-row">
         <label htmlFor="turn-seconds">
           <span>Turn timer</span>
           <small>Seconds per turn. Longer turns reward repositioning.</small>

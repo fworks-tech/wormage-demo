@@ -116,6 +116,7 @@ export const DEFAULT_SETTINGS: GameSettings = {
   mode: 'deathmatch',
   loadout: 'default',
   wormsPerTeam: 3,
+  hotseat: false,
 };
 
 export function sanitizeSettings(input: Partial<GameSettings> | null | undefined): GameSettings {
@@ -135,6 +136,7 @@ export function sanitizeSettings(input: Partial<GameSettings> | null | undefined
     mode: (['deathmatch','assassinate','sudden-death','fort'] as const).includes(merged.mode as any) ? merged.mode : 'deathmatch',
     loadout: (['default','heavy','scout'] as const).includes(merged.loadout as any) ? merged.loadout : 'default',
     wormsPerTeam: typeof merged.wormsPerTeam === 'number' ? Math.min(8, Math.max(1, Math.round(merged.wormsPerTeam))) : 3,
+    hotseat: Boolean(merged.hotseat),
   };
 }
 

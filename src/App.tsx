@@ -45,6 +45,7 @@ export default function App() {
 
   const submitResult = useCallback(
     (finished: SessionResult) => {
+      if (finished.config.hotseat) return;
       register.mutate({
         clientMatchId: clientMatchId.current || newClientId(),
         playerId: player.id,

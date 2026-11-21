@@ -30,6 +30,7 @@ const UI_E2E = [
   'tests/rope.spec.ts',
   'tests/settings.spec.ts',
   'tests/stages.spec.ts',
+  'tests/hotseat.spec.ts',
 ];
 
 const FULL_FILES = [

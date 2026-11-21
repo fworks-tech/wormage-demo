@@ -8,6 +8,7 @@ export interface SessionConfig {
   map?: 'island' | 'mesa' | 'canyon' | 'desert' | 'arctic';
   mode?: 'deathmatch' | 'assassinate' | 'sudden-death' | 'fort';
   loadout?: 'default' | 'heavy' | 'scout';
+  hotseat?: boolean;
 }
 
 export interface SessionResult {
@@ -18,6 +19,8 @@ export interface SessionResult {
   durationSeconds: number;
   endReason: EndReason;
   kills: number;
+  teamScores?: [number, number];
+  teamKills?: [number, number];
   config: SessionConfig;
   recordedAt: string;
 }

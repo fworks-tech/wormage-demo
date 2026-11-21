@@ -31,6 +31,7 @@ export function ResultScreen({
   onChangeSetup,
   onMenu,
 }: ResultScreenProps) {
+  const hotseat = Boolean(result.config.hotseat);
   const won = result.playerWon;
   const [copyState, setCopyState] = useState<'idle' | 'copied' | 'failed'>('idle');
   const kills = `${result.kills} kill${result.kills === 1 ? '' : 's'}`;
@@ -51,8 +52,8 @@ export function ResultScreen({
   return (
     <div className="result-shell">
       <div className="result-card" data-testid="result-screen">
-        <p className="eyebrow">{won ? 'Island secured' : 'Island lost'}</p>
-        <h1>{won ? 'Victory' : 'Wiped out'}</h1>
+        <p className="eyebrow">{hotseat ? 'Match complete' : won ? 'Island secured' : 'Island lost'}</p>
+        <h1>{hotseat ? (result.winnerTeam === null ? 'Draw' : result.winnerTeam === 0 ? 'Player 1 wins' : 'Player 2 wins') : won ? 'Victory' : 'Wiped out'}</h1>
         <p className="result-reason">{REASON_COPY[result.endReason] ?? result.endReason}</p>
         <p className="result-line" data-testid="result-line">
           {resultLine(result)}
@@ -64,6 +65,21 @@ export function ResultScreen({
           </span>
           <span className="score-label">score</span>
         </div>
+
+        {hotseat && result.teamScores && (
+          <div className="score-block" data-testid="result-scores">
+            <span className="score-value">
+              P1 {result.teamScores[0]} · P2 {result.teamScores[1]}
+            </span>
+            <span className="score-label">
+              {result.winnerTeam === null
+                ? 'draw'
+                : result.winnerTeam === 0
+                  ? 'Player 1 wins'
+                  : 'Player 2 wins'}
+            </span>
+          </div>
+        )}
 
         <p className="result-meta">
           {kills} · {formatDuration(result.durationSeconds)} · {wind} · {DIFFICULTY[result.config.difficulty].label} ·
