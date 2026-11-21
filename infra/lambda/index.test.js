@@ -108,6 +108,14 @@ test('postMatch requires clientMatchId', async () => {
   assert.equal(r.statusCode, 400);
 });
 
+test('postMatch propagates non-condition errors', async () => {
+  const ddb = {
+    async send() { const e = new Error('boom'); e.name = 'InternalServerError'; throw e; },
+  };
+  const body = { clientMatchId: 'c-err', playerId: 'p', playerName: 'P', teamName: 'T', score: 1, durationSeconds: 1, endReason: 'wipeout', turnSeconds: 45, wind: 'light', difficulty: 'veteran' };
+  await assert.rejects(() => L.postMatch(ev('POST', '/api/matches', {}, body), ddb));
+});
+
 test('handler routes health', async () => {
   const r = await L.handler(ev('GET', '/health'));
   assert.equal(r.statusCode, 200);

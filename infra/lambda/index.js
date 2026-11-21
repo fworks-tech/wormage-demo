@@ -178,11 +178,19 @@ async function postMatch(event, ddbClient = ddb) {
   item.playerId = body.playerId;
 
   let created = true;
-  await ddbClient.send(new PutCommand({
-    TableName: TABLE,
-    Item: item,
-    ConditionExpression: 'attribute_not_exists(pk)',
-  })).catch(() => { created = false; });
+  try {
+    await ddbClient.send(new PutCommand({
+      TableName: TABLE,
+      Item: item,
+      ConditionExpression: 'attribute_not_exists(pk)',
+    }));
+  } catch (err) {
+    if (err && err.name === 'ConditionalCheckFailedException') {
+      created = false;
+    } else {
+      throw err;
+    }
+  }
 
   // Re-read to return the canonical (idempotent) record.
   const after = await ddbClient.send(new GetCommand({
