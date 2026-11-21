@@ -140,12 +140,10 @@ export class WormageStack extends cdk.Stack {
         throttlingBurstLimit: 20,
         throttlingRateLimit: 10,
       };
-      cfnStage.routeSettings = {
-        'POST /api/debug-logs': {
-          ThrottlingBurstLimit: 5,
-          ThrottlingRateLimit: 2,
-        } as any,
-      };
+      // shortcut: per-route routeSettings caused CloudFormation UPDATE failures
+      // ("Unable to find Route by key ...") when the stage update ran before the
+      // route resource existed in the same changeset. Revisit per-route throttling
+      // via a separate stage update or WAF rate-based rule when traffic demands it.
     }
 
     // Optional custom domain (issue #133). Enabled when a certificate ARN is provided.
