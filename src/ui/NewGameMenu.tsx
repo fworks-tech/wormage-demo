@@ -54,7 +54,7 @@ export function NewGameMenu({ onStart, settings, onSaveSettings, bindings, onSav
           <ControlsDialog bindings={bindings} onSave={onSaveBindings} onClose={() => setPanel(null)} />
         ) : (
           <div className="overlay-card">
-            <p className="eyebrow">Turn-based artillery · 1v1 vs CPU</p>
+            <p className="eyebrow">Turn-based artillery · {settings.hotseat ? '1v1 hotseat' : '1v1 vs CPU'}</p>
             <h2>New game</h2>
             <p className="muted">Three worms a side. Read the wind, carve the island, erase the other team.</p>
             <div className="overlay-actions overlay-actions-stacked">

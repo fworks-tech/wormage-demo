@@ -30,3 +30,18 @@ test('hotseat mode makes team 1 human and shows the handoff overlay', async ({ p
   await page.getByTestId('btn-handoff-ready').click();
   await expect(page.getByTestId('handoff-overlay')).toHaveCount(0);
 });
+
+test('hotseat match reaches the result screen with both players scores', async ({ page }) => {
+  await startHotseat(page);
+  // Wipe team 1 to force a gameover on the next turn pass.
+  await page.evaluate(() => {
+    const w = (window as never as { __WORMAGE__: { engine: { teams: Array<{ worms: Array<{ alive: boolean; hp: number }> }> } } }).__WORMAGE__.engine;
+    for (const worm of w.teams[1].worms) {
+      worm.alive = false;
+      worm.hp = 0;
+    }
+  });
+  await page.evaluate(() => (window as never as { __WORMAGE__: { engine: { endTurn: () => void } } }).__WORMAGE__.engine.endTurn());
+  await expect(page.getByTestId('result-screen')).toBeVisible({ timeout: 10000 });
+  await expect(page.getByTestId('result-scores')).toBeVisible();
+});

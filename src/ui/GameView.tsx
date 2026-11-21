@@ -167,6 +167,8 @@ export function GameView({
     const tick = () => {
       const renderer = rendererRef.current;
       if (!renderer) return;
+      // Gameover must be handled even while a handoff freezes the simulation.
+      if (engine.phase === 'gameover') onResult();
       const dt = Math.min(0.08, renderer.app.ticker.deltaMS / 1000);
       if (handoffRef.current !== null) {
         renderer.render(dt, true);
