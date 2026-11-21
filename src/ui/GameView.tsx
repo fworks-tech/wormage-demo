@@ -47,8 +47,10 @@ export function GameView({
   const rendererRef = useRef<ArenaRenderer | null>(null);
   const soundRef = useRef<SoundKit | null>(null);
   const pausedRef = useRef(false);
+  const handoffRef = useRef<number | null>(null);
   const finishedRef = useRef(false);
   const snapshotRef = useRef<GameSnapshot | null>(null);
+  const lastActiveTeamRef = useRef<number | null>(null);
   const keysRef = useRef<Set<string>>(new Set());
   const bindingsRef = useRef(bindings);
   bindingsRef.current = bindings;
@@ -66,6 +68,7 @@ export function GameView({
 
   const [snapshot, setSnapshot] = useState<GameSnapshot | null>(null);
   const [paused, setPaused] = useState(false);
+  const [handoff, setHandoff] = useState<number | null>(null);
   const [pausePanel, setPausePanel] = useState<PausePanel>(null);
   pausePanelRef.current = pausePanel;
   // The card unmounts while a panel is open; its button takes focus back afterwards.
@@ -116,6 +119,7 @@ export function GameView({
       map: settings.map ?? 'island',
       mode: settings.mode ?? 'deathmatch',
       loadout: settings.loadout ?? 'default',
+      hotseat: settings.hotseat ?? false,
     });
     engineRef.current = engine;
     // E2E instrumentation: lets Playwright observe the authoritative simulation
@@ -138,6 +142,8 @@ export function GameView({
         playerTeam: 0,
         playerWon: engine.winnerTeam === 0,
         score: engine.scoreFor(0),
+        teamScores: [engine.scoreFor(0), engine.scoreFor(1)],
+        teamKills: [engine.kills[0], engine.kills[1]],
         durationSeconds: Math.round(engine.elapsed),
         endReason: engine.endReason ?? 'wipeout',
         kills: engine.kills[0],
@@ -149,6 +155,7 @@ export function GameView({
           map: settings.map ?? 'island',
           mode: settings.mode ?? 'deathmatch',
           loadout: settings.loadout ?? 'default',
+          hotseat: settings.hotseat ?? false,
         },
         recordedAt: new Date().toISOString(),
       };
@@ -160,9 +167,20 @@ export function GameView({
     const tick = () => {
       const renderer = rendererRef.current;
       if (!renderer) return;
+      const dt = Math.min(0.08, renderer.app.ticker.deltaMS / 1000);
+      if (handoffRef.current !== null) {
+        renderer.render(dt, true);
+        const next = engine.snapshot();
+        snapshotRef.current = next;
+        const now = performance.now();
+        if (now - lastUiPush.current > 100) {
+          lastUiPush.current = now;
+          setSnapshot(next);
+        }
+        return;
+      }
       // Rendering keeps the real frame delta; the simulation only advances in
       // fixed steps. The clamp caps catch-up after a stalled tab.
-      const dt = Math.min(0.08, renderer.app.ticker.deltaMS / 1000);
       const isPaused = pausedRef.current;
 
       if (!isPaused) {
@@ -233,6 +251,13 @@ export function GameView({
               break;
             case 'turn':
               sound.play('turn');
+              if (settings.hotseat) {
+                if (lastActiveTeamRef.current !== null && event.teamId !== lastActiveTeamRef.current) {
+                  handoffRef.current = event.teamId;
+                  setHandoff(event.teamId);
+                }
+                lastActiveTeamRef.current = event.teamId;
+              }
               break;
             case 'gameover':
               sound.play(engine.winnerTeam === 0 ? 'victory' : 'death');
@@ -302,6 +327,7 @@ export function GameView({
 
   useEffect(() => {
     const down = (e: KeyboardEvent) => {
+      if (handoffRef.current !== null) return;
       const target = e.target as HTMLElement | null;
       if (e.ctrlKey || e.metaKey || e.altKey) return;
       const keys = bindingsRef.current;
@@ -351,15 +377,15 @@ export function GameView({
       }
       if (e.code === keys.fire) {
         keysRef.current.add(e.code);
-        if (!e.repeat && snap.activeTeam === 0) engine.startCharge();
+        if (!e.repeat && !snap.teams[snap.activeTeam]?.isAi) engine.startCharge();
         return;
       }
       if (e.code === keys.jump) {
-        if (!e.repeat && snap.activeTeam === 0) engine.jump();
+        if (!e.repeat && !snap.teams[snap.activeTeam]?.isAi) engine.jump();
         return;
       }
       if (e.code === keys.rope) {
-        if (!e.repeat && snap.activeTeam === 0) engine.useRope();
+        if (!e.repeat && !snap.teams[snap.activeTeam]?.isAi) engine.useRope();
         return;
       }
       const weaponByKey: Record<string, WeaponId> = {
@@ -373,7 +399,7 @@ export function GameView({
         engine.selectWeapon(weapon);
         return;
       }
-      if (e.code === keys.endTurn && snap.activeTeam === 0) engine.endTurn();
+      if (e.code === keys.endTurn && !snap.teams[snap.activeTeam]?.isAi) engine.endTurn();
     };
 
     const up = (e: KeyboardEvent) => {
@@ -398,9 +424,9 @@ export function GameView({
 
     const onDown = (e: PointerEvent) => {
       const engine = engineRef.current;
-      if (!engine || pausedRef.current || finishedRef.current) return;
+      if (!engine || pausedRef.current || finishedRef.current || handoffRef.current !== null) return;
       const snap = engine.snapshot();
-      if (snap.phase !== 'aim' || snap.activeTeam !== 0) return;
+      if (snap.phase !== 'aim' || snap.teams[snap.activeTeam]?.isAi) return;
       const point = localPoint(e);
       engine.setAimFromPoint(point.x, point.y);
       dragRef.current = { active: true, moved: false, startX: e.clientX, startY: e.clientY };
@@ -561,6 +587,29 @@ export function GameView({
         </div>
       )}
 
+
+      {handoff !== null && (
+        <div className="overlay handoff-overlay" data-testid="handoff-overlay" role="dialog" aria-modal="true" aria-label="Pass the device">
+          <div className="overlay-card">
+            <p className="eyebrow">Pass the device</p>
+            <h2>Player {handoff + 1}&apos;s turn</h2>
+            <p className="muted">Hand the device to the next commander before you act.</p>
+            <div className="overlay-actions overlay-actions-stacked">
+              <button
+                type="button"
+                className="primary-btn"
+                data-testid="btn-handoff-ready"
+                onClick={() => {
+                  handoffRef.current = null;
+                  setHandoff(null);
+                }}
+              >
+                Ready
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

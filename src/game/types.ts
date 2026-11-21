@@ -38,6 +38,7 @@ export interface GameSettings {
   mode?: ModeId;
   loadout?: LoadoutId;
   wormsPerTeam?: number;
+  hotseat?: boolean;
 }
 
 export interface MatchConfig {
@@ -49,6 +50,7 @@ export interface MatchConfig {
   map?: MapId;
   mode?: ModeId;
   loadout?: LoadoutId;
+  hotseat?: boolean;
 }
 
 /** Stable identifier for a ruleset. Used to compare like-for-like on the board. */

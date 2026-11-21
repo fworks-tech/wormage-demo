@@ -128,7 +128,7 @@ export class GameEngine {
         name: team.name,
         color: team.color,
         accent: team.accent,
-        isAi: team.isAi,
+        isAi: teamIndex === 0 ? false : !config.hotseat,
         worms,
         ammo: {
           bazooka: WEAPONS.bazooka.ammo ?? Infinity,
