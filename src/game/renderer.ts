@@ -112,16 +112,16 @@ class WormView {
     this.lastFacing = facing;
   }
 
-  sync(worm: Worm, color: number, active: boolean, canAct: boolean, dt: number, weapon: WeaponId): void {
+  sync(worm: Worm, color: number, active: boolean, canAct: boolean, dt: number, weapon: WeaponId | null): void {
     this.root.position.set(worm.x, worm.y);
     this.heldWeapon.position.set(0, -16);
     this.heldWeapon.rotation = worm.aimAngle;
-    if (weapon !== this.lastWeapon) this.drawHeldWeapon(weapon);
+    if (weapon !== null && weapon !== this.lastWeapon) this.drawHeldWeapon(weapon);
     this.bob += dt * 4;
     if (worm.facing !== this.lastFacing) this.drawWorm(color, worm.facing);
     this.root.alpha = worm.alive ? 1 : 0;
     this.root.visible = worm.alive;
-    this.heldWeapon.visible = worm.alive && !worm.rope;
+    this.heldWeapon.visible = worm.alive && !worm.rope && weapon !== null;
 
     this.label.visible = worm.alive;
     this.hpText.visible = worm.alive;
@@ -220,6 +220,8 @@ export class ArenaRenderer {
   private readonly wormLayer = new Container();
   private readonly mobLayer = new Container();
   private readonly mobGfx = new Graphics();
+  private readonly lootLayer = new Container();
+  private readonly lootGfx = new Graphics();
   private readonly projectileLayer = new Container();
   private readonly fxLayer = new Container();
   private readonly aimLayer = new Container();
@@ -251,7 +253,7 @@ export class ArenaRenderer {
     app.stage.addChild(this.root);
     app.stage.addChild(this.overlay);
     this.root.addChild(this.world);
-    this.world.addChild(this.terrainLayer, this.projectileLayer, this.mobLayer, this.wormLayer, this.fxLayer, this.aimLayer);
+    this.world.addChild(this.terrainLayer, this.projectileLayer, this.mobLayer, this.lootLayer, this.wormLayer, this.fxLayer, this.aimLayer);
 
     const sky = this.buildSky();
     this.terrainLayer.addChild(sky);
@@ -267,6 +269,7 @@ export class ArenaRenderer {
 
     this.fxLayer.addChild(this.fx);
     this.mobLayer.addChild(this.mobGfx);
+    this.lootLayer.addChild(this.lootGfx);
     this.aimLayer.addChild(this.aim);
     this.aimLayer.addChild(this.rope);
 
@@ -407,6 +410,31 @@ export class ArenaRenderer {
       }
       case 'explosion': {
         this.explode(event.x, event.y, event.radius);
+        break;
+      }
+      case 'mineExplosion': {
+        const { x, y, radius } = event;
+        this.shake = Math.max(this.shake, 3 + radius * 0.08);
+        // Ring
+        this.particles.push({
+          x, y, vx: 0, vy: 0, life: 0.4, maxLife: 0.4,
+          size: radius * 0.35, color: 0xff6b5b, gravity: 0, shape: 'ring', growth: radius * 2.2,
+        });
+        // Orange/red sparks
+        this.burst(x, y, 20, 0xff6b5b, 340, 'circle', 0.55);
+        this.burst(x, y, 10, 0xffd166, 240, 'circle', 0.3);
+        // Dark smoke puffs
+        for (let i = 0; i < 12; i += 1) {
+          const angle = Math.random() * Math.PI * 2;
+          this.particles.push({
+            x, y,
+            vx: Math.cos(angle) * 30,
+            vy: Math.sin(angle) * 20 - 20,
+            life: 0.7 + Math.random() * 0.6, maxLife: 1.3,
+            size: radius * 0.12 + Math.random() * radius * 0.12,
+            color: 0x2c2020, gravity: -20, shape: 'circle', growth: 14,
+          });
+        }
         break;
       }
       case 'hurt': {
@@ -569,7 +597,7 @@ export class ArenaRenderer {
         if (!view) continue;
         const active = worm.id === snapshot.activeWormId && !paused;
         const canAct = active && snapshot.phase === 'aim' && !team.isAi;
-        const heldWeapon = worm.id === snapshot.activeWormId ? snapshot.weapon : 'bazooka';
+        const heldWeapon = worm.id === snapshot.activeWormId ? snapshot.weapon : null;
         view.sync(worm, team.color, active, canAct, paused ? 0 : dt, heldWeapon);
       }
     }
@@ -599,6 +627,41 @@ export class ArenaRenderer {
       const bw = 28;
       this.mobGfx.rect(x - bw / 2, y - r - 9, bw, 3).fill(0x101a1c);
       this.mobGfx.rect(x - bw / 2, y - r - 9, bw * (mob.hp / mob.maxHp), 3).fill(0xff6b5b);
+    }
+
+    // Loot (mines, ammo, secrets) — rendered in the arena so mines are visible.
+    this.lootGfx.clear();
+    for (const item of snapshot.loot) {
+      if (item.x < 0) continue;
+      const x = item.x;
+      const y = item.y;
+      if (item.kind === 'mine') {
+        // Ground shadow.
+        this.lootGfx.ellipse(x, y + 10, 9, 3).fill({ color: 0x000000, alpha: 0.3 });
+        // Canister body.
+        this.lootGfx.roundRect(x - 7, y - 6, 14, 12, 3).fill(0x3a2f3a);
+        this.lootGfx.roundRect(x - 7, y - 6, 14, 12, 3).stroke({ width: 1.5, color: 0x15201f, alpha: 0.9 });
+        // Metallic band.
+        this.lootGfx.rect(x - 7, y - 1, 14, 3).fill(0x8a7a6a);
+        // Fuse nub.
+        const fuseColor = item.armed ? (Math.floor(this.time * 8) % 2 === 0 ? 0xff3b3b : 0xff8a6b) : 0xffd166;
+        this.lootGfx.circle(x, y - 8, 2.5).fill(fuseColor);
+        if (item.armed) {
+          // Armed glow.
+          this.lootGfx.circle(x, y - 2, 11).fill({ color: 0xff3b3b, alpha: 0.18 });
+        }
+      } else if (item.kind === 'ammo') {
+        this.lootGfx.ellipse(x, y + 8, 7, 2.5).fill({ color: 0x000000, alpha: 0.25 });
+        this.lootGfx.roundRect(x - 6, y - 4, 12, 8, 2).fill(0x8a6a3a);
+        this.lootGfx.roundRect(x - 6, y - 4, 12, 8, 2).stroke({ width: 1, color: 0x15201f, alpha: 0.8 });
+        this.lootGfx.rect(x - 3, y - 2, 6, 4).fill(0xffd166);
+      } else {
+        // secret
+        this.lootGfx.ellipse(x, y + 8, 7, 2.5).fill({ color: 0x000000, alpha: 0.25 });
+        this.lootGfx.circle(x, y - 2, 6).fill(0x7bd389);
+        this.lootGfx.circle(x, y - 2, 6).stroke({ width: 1, color: 0x15201f, alpha: 0.8 });
+        this.lootGfx.circle(x - 1.5, y - 3.5, 1.5).fill(0xffffff);
+      }
     }
 
     // projectiles

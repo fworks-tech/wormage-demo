@@ -249,6 +249,9 @@ export function GameView({
             case 'explosion':
               sound.play('boom');
               break;
+            case 'mineExplosion':
+              sound.play('mine');
+              break;
             case 'hurt':
               sound.play('hurt');
               break;

@@ -649,16 +649,28 @@ export class GameEngine {
         if (item.armed) {
           item.fuse -= dt;
           if (item.fuse <= 0) {
-            // explode
-            for (const t of this.teams) for (const w of t.worms) {
-              if (!w.alive) continue;
-              const d = Math.hypot(w.x - item.x, w.y - item.y);
-              if (d <= 60) {
-                w.hp = Math.max(0, w.hp - 40);
-                if (w.hp <= 0) w.alive = false;
+            // Mine detonation: visible + audible (was silent before).
+            this.events.push({ type: 'mineExplosion', x: item.x, y: item.y, radius: 60 });
+            this.terrain.carve(item.x, item.y, 40);
+            outer: for (const t of this.teams) {
+              for (const w of t.worms) {
+                if (!w.alive) continue;
+                const d = Math.hypot(w.x - item.x, w.y - item.y);
+                if (d <= 60) {
+                  this.hurt(w, 40, item.x, item.y, null, 0.9);
+                  if (this.phase === 'gameover') break outer;
+                }
               }
             }
-            this.terrain.carve(item.x, item.y, 40);
+            // Mob damage from mine blast.
+            for (const mob of this.mobs) {
+              if (!mob.alive) continue;
+              const d = Math.hypot(mob.x - item.x, mob.y - item.y);
+              if (d <= 60) {
+                mob.hp = Math.max(0, mob.hp - 40);
+                if (mob.hp <= 0) mob.alive = false;
+              }
+            }
             item.kind = 'ammo'; // mark consumed (will be removed)
             item.x = -10000;
           }
@@ -820,7 +832,7 @@ export class GameEngine {
     this.captureDebugSnapshot('match.end');
   }
 
-  private hurt(worm: Worm, amount: number, sourceX: number, sourceY: number, sourceTeam: number | null): void {
+  private hurt(worm: Worm, amount: number, sourceX: number, sourceY: number, sourceTeam: number | null, impulseScale = 1.0): void {
     if (!worm.alive || amount <= 0) return;
     worm.hp = Math.max(0, worm.hp - amount);
     this.events.push({ type: 'hurt', x: worm.x, y: worm.y - 26, amount: Math.round(amount) });
@@ -1513,7 +1525,7 @@ export class GameEngine {
       retreatLeft: this.retreatActive ? this.retreatTimer : 0,
       activeOnGround: active?.onGround ?? true,
       ropeAttached: Boolean(active?.rope),
-      loot: this.loot.filter(l=>l.x>=0).map(l=>({x:l.x,y:l.y,kind:l.kind})),
+      loot: this.loot.filter(l=>l.x>=0).map(l=>({x:l.x,y:l.y,kind:l.kind,armed:l.armed,fuse:l.fuse})),
       mobs: this.mobs.filter(m=>m.alive).map(m=>({x:m.x,y:m.y,hp:m.hp})),
       waterLevel: WATER_Y,
       revengeByTeam: { ...this.revengeFocusByTeam },
