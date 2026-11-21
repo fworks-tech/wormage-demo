@@ -80,14 +80,13 @@ export class WormageStack extends cdk.Stack {
       integration,
     });
 
-    // Optional custom domain (issue #133). Enabled when hosted zone + cert are provided.
+    // Optional custom domain (issue #133). Enabled when a certificate ARN is provided.
+    // Route 53 records are only created when a hosted zone is also provided; otherwise
+    // the caller adds the DNS record (e.g. a CNAME in Vercel DNS) using the
+    // regionalDomainName output below.
     const domainName = props?.apiDomainName ?? 'api.wormage.flabs.tech';
-    if (props?.hostedZoneId && props?.hostedZoneName && props?.certificateArn) {
+    if (props?.certificateArn) {
       const cert = acm.Certificate.fromCertificateArn(this, 'ApiCert', props.certificateArn);
-      const hostedZone = route53.HostedZone.fromHostedZoneAttributes(this, 'HostedZone', {
-        hostedZoneId: props.hostedZoneId,
-        zoneName: props.hostedZoneName,
-      });
       const domain = new apigwv2.DomainName(this, 'ApiDomain', {
         domainName,
         certificate: cert,
@@ -96,11 +95,21 @@ export class WormageStack extends cdk.Stack {
         api: this.httpApi,
         domainName: domain,
       });
-      new route53.ARecord(this, 'ApiAlias', {
-        zone: hostedZone,
-        recordName: domainName,
-        target: route53.RecordTarget.fromAlias(new route53Targets.ApiGatewayv2DomainProperties(domain.regionalDomainName, domain.regionalHostedZoneId)),
+      new cdk.CfnOutput(this, 'ApiRegionalDomain', {
+        value: domain.regionalDomainName,
+        description: 'DNS target for the custom domain (CNAME api.wormage.flabs.tech to this value)',
       });
+      if (props?.hostedZoneId && props?.hostedZoneName) {
+        const hostedZone = route53.HostedZone.fromHostedZoneAttributes(this, 'HostedZone', {
+          hostedZoneId: props.hostedZoneId,
+          zoneName: props.hostedZoneName,
+        });
+        new route53.ARecord(this, 'ApiAlias', {
+          zone: hostedZone,
+          recordName: domainName,
+          target: route53.RecordTarget.fromAlias(new route53Targets.ApiGatewayv2DomainProperties(domain.regionalDomainName, domain.regionalHostedZoneId)),
+        });
+      }
     }
 
     new cdk.CfnOutput(this, 'HttpApiUrl', {
