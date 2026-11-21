@@ -91,10 +91,23 @@ export const PREVIEW_SECONDS = 3;
 export const WEAPONS = CONTENT_WEAPONS;
 export const WEAPON_ORDER = CONTENT_WEAPON_ORDER as WeaponId[];
 
-export const TEAMS = [
-  { name: 'Ironclad', color: 0xf05d8f, accent: '#f05d8f', isAi: false },
-  { name: 'Rustbelt', color: 0x4ad6d0, accent: '#4ad6d0', isAi: true },
+export const TEAM_PALETTE = [
+  { name: 'Ironclad', color: 0xf05d8f, accent: '#f05d8f' },
+  { name: 'Rustbelt', color: 0x4ad6d0, accent: '#4ad6d0' },
+  { name: 'Verdant', color: 0x9ee37d, accent: '#9ee37d' },
+  { name: 'Amber', color: 0xf4c95d, accent: '#f4c95d' },
 ] as const;
+
+/** Pool used by the dice generator for random default team names. */
+export const TEAM_NAME_POOL = [
+  'Ironclad', 'Rustbelt', 'Verdant', 'Amber', 'Cinder', 'Frost', 'Vanguard', 'Nomad',
+  'Ashen', 'Gilded', 'Storm', 'Hollow', 'Ember', 'Tundra', 'Cobalt', 'Sable',
+] as const;
+
+export function randomTeamName(rng: () => number = Math.random): string {
+  return TEAM_NAME_POOL[Math.floor(rng() * TEAM_NAME_POOL.length)];
+}
+
 
 export const DIFFICULTY: Record<
   Difficulty,
@@ -137,6 +150,15 @@ export function sanitizeSettings(input: Partial<GameSettings> | null | undefined
     loadout: (['default','heavy','scout'] as const).includes(merged.loadout as any) ? merged.loadout : 'default',
     wormsPerTeam: typeof merged.wormsPerTeam === 'number' ? Math.min(8, Math.max(1, Math.round(merged.wormsPerTeam))) : 3,
     hotseat: Boolean(merged.hotseat),
+    teamCount:
+      typeof merged.teamCount === 'number'
+        ? Math.min(4, Math.max(2, Math.round(merged.teamCount)))
+        : 2,
+    teamNames: Array.isArray(merged.teamNames)
+      ? merged.teamNames
+          .slice(0, 4)
+          .map((n) => (typeof n === 'string' && n.trim() ? n.trim() : ''))
+      : undefined,
   };
 }
 

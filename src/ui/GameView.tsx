@@ -120,6 +120,8 @@ export function GameView({
       mode: settings.mode ?? 'deathmatch',
       loadout: settings.loadout ?? 'default',
       hotseat: settings.hotseat ?? false,
+      teamCount: settings.teamCount ?? 2,
+      teamNames: settings.teamNames,
     });
     engineRef.current = engine;
     // E2E instrumentation: lets Playwright observe the authoritative simulation
@@ -142,8 +144,8 @@ export function GameView({
         playerTeam: 0,
         playerWon: engine.winnerTeam === 0,
         score: engine.scoreFor(0),
-        teamScores: [engine.scoreFor(0), engine.scoreFor(1)],
-        teamKills: [engine.kills[0], engine.kills[1]],
+        teamScores: engine.teams.map((t) => engine.scoreFor(t.id)),
+        teamKills: engine.teams.map((t) => engine.kills[t.id] ?? 0),
         durationSeconds: Math.round(engine.elapsed),
         endReason: engine.endReason ?? 'wipeout',
         kills: engine.kills[0],
@@ -156,6 +158,8 @@ export function GameView({
           mode: settings.mode ?? 'deathmatch',
           loadout: settings.loadout ?? 'default',
           hotseat: settings.hotseat ?? false,
+          teamCount: settings.teamCount ?? 2,
+          teamNames: settings.teamNames,
         },
         recordedAt: new Date().toISOString(),
       };

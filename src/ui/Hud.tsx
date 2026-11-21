@@ -52,15 +52,18 @@ export function Hud({
   const [showMinimap, setShowMinimap] = useState(false);
   const minimapRef = useRef<HTMLCanvasElement | null>(null);
 
-  const playerTurn = snapshot.activeTeam === 0 && snapshot.phase === 'aim' && !paused;
-  const canSteer = snapshot.activeTeam === 0 && !paused && (snapshot.phase === 'aim' || snapshot.retreatLeft > 0);
+  const activeTeamSnap = snapshot.teams[snapshot.activeTeam];
+  const activeIsHuman = !activeTeamSnap?.isAi;
+  const playerTurn = activeIsHuman && snapshot.phase === 'aim' && !paused;
+  const canSteer = activeIsHuman && !paused && (snapshot.phase === 'aim' || snapshot.retreatLeft > 0);
   const ropeAttached = snapshot.ropeAttached;
   const canAim = playerTurn && !ropeAttached;
   const canReel = canSteer && ropeAttached;
   const canJump =
-    snapshot.activeTeam === 0 && snapshot.phase !== 'gameover' && !paused && (snapshot.activeOnGround || ropeAttached);
+    activeIsHuman && snapshot.phase !== 'gameover' && !paused && (snapshot.activeOnGround || ropeAttached);
   const canRope = canSteer;
-  const myTeam = snapshot.teams[0];
+  // Show the active human's ammo on their turn (hotseat); otherwise the player's team.
+  const myTeam = activeIsHuman ? activeTeamSnap : snapshot.teams[0];
   const enemy = snapshot.teams[1];
   const weapon = WEAPONS[snapshot.weapon];
   const ammo = myTeam?.ammo[snapshot.weapon] ?? 0;
@@ -113,7 +116,7 @@ export function Hud({
     const sx = w / 3840, sy = h / 2160;
     for (const t of snapshot.teams) for (const worm of t.worms) {
       if (!worm.alive) continue;
-      ctx.fillStyle = t.id === 0 ? '#f05d8f' : '#4ad6d0';
+      ctx.fillStyle = t.accent;
       ctx.fillRect(worm.x*sx-2, worm.y*sy-2, 4, 4);
     }
     for (const l of snapshot.loot) {

@@ -9,6 +9,8 @@ export interface SessionConfig {
   mode?: 'deathmatch' | 'assassinate' | 'sudden-death' | 'fort';
   loadout?: 'default' | 'heavy' | 'scout';
   hotseat?: boolean;
+  teamCount?: number;
+  teamNames?: string[];
 }
 
 export interface SessionResult {
@@ -19,8 +21,8 @@ export interface SessionResult {
   durationSeconds: number;
   endReason: EndReason;
   kills: number;
-  teamScores?: [number, number];
-  teamKills?: [number, number];
+  teamScores?: number[];
+  teamKills?: number[];
   config: SessionConfig;
   recordedAt: string;
 }
