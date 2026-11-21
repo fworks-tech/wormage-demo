@@ -136,7 +136,6 @@ function toRecord(m) {
   };
 }
 
-
 const ALLOWED_WIND = new Set(['off', 'light', 'strong']);
 const ALLOWED_DIFFICULTY = new Set(['rookie', 'veteran', 'elite']);
 const ALLOWED_MAP = new Set(['island', 'mesa', 'canyon', 'desert', 'arctic']);
@@ -153,10 +152,10 @@ function validateBody(body) {
   if (!isStr(body.playerId)) return 'playerId is required';
   if (!isStr(body.playerName)) return 'playerName is required';
   if (!isStr(body.teamName)) return 'teamName is required';
-  if (body.score !== undefined && !isNum(Number(body.score), 0, 1e9)) return 'score out of range';
-  if (body.durationSeconds !== undefined && !isNum(Number(body.durationSeconds), 0, 1e6)) return 'durationSeconds out of range';
-  if (body.kills !== undefined && !isNum(Number(body.kills), 0, 10000)) return 'kills out of range';
-  if (body.turnSeconds !== undefined && !isNum(Number(body.turnSeconds), 1, 600)) return 'turnSeconds out of range';
+  if (body.score !== undefined && !isNum(body.score, 0, 1e9)) return 'score out of range';
+  if (body.durationSeconds !== undefined && !isNum(body.durationSeconds, 0, 1e6)) return 'durationSeconds out of range';
+  if (body.kills !== undefined && !isNum(body.kills, 0, 10000)) return 'kills out of range';
+  if (body.turnSeconds !== undefined && !isNum(body.turnSeconds, 1, 600)) return 'turnSeconds out of range';
   if (body.wind !== undefined && !ALLOWED_WIND.has(body.wind)) return 'invalid wind';
   if (body.difficulty !== undefined && !ALLOWED_DIFFICULTY.has(body.difficulty)) return 'invalid difficulty';
   if (body.map !== undefined && !ALLOWED_MAP.has(body.map)) return 'invalid map';

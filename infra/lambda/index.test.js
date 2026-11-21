@@ -120,3 +120,24 @@ test('handler routes health', async () => {
   const r = await L.handler(ev('GET', '/health'));
   assert.equal(r.statusCode, 200);
 });
+
+
+test('validateBody rejects missing clientMatchId', async () => {
+  const r = L.validateBody({ playerId: 'p', playerName: 'P', teamName: 'T' });
+  assert.equal(r, 'clientMatchId is required');
+});
+
+test('validateBody rejects out-of-range score', async () => {
+  const r = L.validateBody({ clientMatchId: 'c', playerId: 'p', playerName: 'P', teamName: 'T', score: 1e10 });
+  assert.equal(r, 'score out of range');
+});
+
+test('validateBody rejects invalid wind', async () => {
+  const r = L.validateBody({ clientMatchId: 'c', playerId: 'p', playerName: 'P', teamName: 'T', wind: 'hurricane' });
+  assert.equal(r, 'invalid wind');
+});
+
+test('validateBody accepts a valid body', async () => {
+  const r = L.validateBody({ clientMatchId: 'c', playerId: 'p', playerName: 'P', teamName: 'T', score: 10, wind: 'light' });
+  assert.equal(r, null);
+});
