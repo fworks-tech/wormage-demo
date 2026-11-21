@@ -14,6 +14,7 @@ type View = 'home' | 'create' | 'join';
 export function OnlineMatchDialog({ player, onClose }: Props) {
   const [view, setView] = useState<View>('home');
   const [codeInput, setCodeInput] = useState('');
+  const [teamName, setTeamName] = useState('');
   const [match, setMatch] = useState<OnlineMatch | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [resumeMsg, setResumeMsg] = useState<string | null>(null);
@@ -50,6 +51,7 @@ export function OnlineMatchDialog({ player, onClose }: Props) {
       const res = await create.mutateAsync({
         playerId: player.id,
         playerName: player.name,
+        teamName: teamName.trim() || undefined,
       });
       setMatch(res.match);
       saveOnlineSession({ code: res.match.code, playerId: player.id, playerName: player.name, teamName: res.match.players.find((pl) => pl.playerId === player.id)?.teamName ?? 'Team 1' });
@@ -64,7 +66,7 @@ export function OnlineMatchDialog({ player, onClose }: Props) {
     const code = codeInput.trim().toUpperCase();
     if (!code) return;
     try {
-      const res = await join.mutateAsync({ code, input: { playerId: player.id, playerName: player.name } });
+      const res = await join.mutateAsync({ code, input: { playerId: player.id, playerName: player.name, teamName: teamName.trim() || undefined } });
       setMatch(res.match);
       saveOnlineSession({ code: res.match.code, playerId: player.id, playerName: player.name, teamName: res.match.players.find((pl) => pl.playerId === player.id)?.teamName ?? 'Team 1' });
       setView('join');
@@ -89,6 +91,15 @@ export function OnlineMatchDialog({ player, onClose }: Props) {
           {resumeMsg && <p className="muted" style={{ color: '#f66' }}>{resumeMsg}</p>}
           <p className="muted">Create a match and share the code, or join one with a code.</p>
           <div className="overlay-actions overlay-actions-stacked">
+            <input
+              type="text"
+              value={teamName}
+              onChange={(e) => setTeamName(e.target.value)}
+              placeholder="Team name (optional)"
+              maxLength={24}
+              data-testid="input-team-name"
+              style={{ width: '100%' }}
+            />
             <button type="button" className="primary-btn" onClick={handleCreate} disabled={create.isPending} data-testid="btn-create-online">
               {create.isPending ? 'Creating…' : 'Create match'}
             </button>
@@ -118,7 +129,7 @@ export function OnlineMatchDialog({ player, onClose }: Props) {
           </p>
           <ul style={{ listStyle: 'none', padding: 0, margin: '0.5rem 0' }}>
             {match.players.map((p, i) => (
-              <li key={p.playerId} data-testid="online-player">{p.playerName} — Team {i + 1}</li>
+              <li key={p.playerId} data-testid="online-player">{p.playerName} — {p.teamName || `Team ${i + 1}`}</li>
             ))}
           </ul>
           {match.status === 'ready' && match.winnerTeam == null && (
