@@ -10,6 +10,10 @@ import * as ssm from 'aws-cdk-lib/aws-ssm';
 import * as acm from 'aws-cdk-lib/aws-certificatemanager';
 import * as route53 from 'aws-cdk-lib/aws-route53';
 import * as route53Targets from 'aws-cdk-lib/aws-route53-targets';
+import * as sns from 'aws-cdk-lib/aws-sns';
+import * as cloudwatch from 'aws-cdk-lib/aws-cloudwatch';
+import * as cwActions from 'aws-cdk-lib/aws-cloudwatch-actions';
+import * as wafv2 from 'aws-cdk-lib/aws-wafv2';
 
 export interface WormageStackProps extends cdk.StackProps {
   /** Optional custom domain (api.wormage.flabs.tech). Requires hosted zone + cert ARN. */
@@ -35,6 +39,7 @@ export class WormageStack extends cdk.Stack {
       sortKey: { name: 'sk', type: dynamodb.AttributeType.STRING },
       billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
       removalPolicy: cdk.RemovalPolicy.RETAIN,
+      pointInTimeRecovery: true,
     });
 
     this.table.addGlobalSecondaryIndex({
@@ -98,6 +103,7 @@ export class WormageStack extends cdk.Stack {
       timeout: cdk.Duration.seconds(10),
       memorySize: 256,
       logRetention: logs.RetentionDays.ONE_WEEK,
+      tracing: lambda.Tracing.ACTIVE,
     });
 
     this.table.grantReadWriteData(this.handler);
@@ -144,6 +150,115 @@ export class WormageStack extends cdk.Stack {
       // ("Unable to find Route by key ...") when the stage update ran before the
       // route resource existed in the same changeset. Revisit per-route throttling
       // via a separate stage update or WAF rate-based rule when traffic demands it.
+    }
+
+    // Observability: SNS topic + CloudWatch alarms for the backend.
+    const alarmTopic = new sns.Topic(this, 'WormageAlarmTopic', {
+      displayName: 'Wormage backend alarms',
+    });
+
+    const lambdaErrors = this.handler.metricErrors({ period: cdk.Duration.minutes(5) });
+    new cloudwatch.Alarm(this, 'LambdaErrorsAlarm', {
+      metric: lambdaErrors,
+      threshold: 1,
+      evaluationPeriods: 1,
+      datapointsToAlarm: 1,
+      treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
+      alarmDescription: 'Lambda invocation errors',
+    }).addAlarmAction(new cwActions.SnsAction(alarmTopic));
+
+    const lambdaThrottles = this.handler.metricThrottles({ period: cdk.Duration.minutes(5) });
+    new cloudwatch.Alarm(this, 'LambdaThrottlesAlarm', {
+      metric: lambdaThrottles,
+      threshold: 1,
+      evaluationPeriods: 1,
+      datapointsToAlarm: 1,
+      treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
+      alarmDescription: 'Lambda throttles',
+    }).addAlarmAction(new cwActions.SnsAction(alarmTopic));
+
+    const lambdaDuration = this.handler.metricDuration({ period: cdk.Duration.minutes(5), statistic: 'p99' });
+    new cloudwatch.Alarm(this, 'LambdaDurationAlarm', {
+      metric: lambdaDuration,
+      threshold: 8000,
+      evaluationPeriods: 2,
+      datapointsToAlarm: 2,
+      treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
+      alarmDescription: 'Lambda p99 duration above 8s',
+    }).addAlarmAction(new cwActions.SnsAction(alarmTopic));
+
+    const tableThrottles = this.table.metricThrottledRequests({ period: cdk.Duration.minutes(5) });
+    new cloudwatch.Alarm(this, 'DynamoThrottlesAlarm', {
+      metric: tableThrottles,
+      threshold: 1,
+      evaluationPeriods: 1,
+      datapointsToAlarm: 1,
+      treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
+      alarmDescription: 'DynamoDB throttled requests',
+    }).addAlarmAction(new cwActions.SnsAction(alarmTopic));
+
+    const api5xx = this.httpApi.metricServerError({ period: cdk.Duration.minutes(5) });
+    new cloudwatch.Alarm(this, 'Api5xxAlarm', {
+      metric: api5xx,
+      threshold: 5,
+      evaluationPeriods: 1,
+      datapointsToAlarm: 1,
+      treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
+      alarmDescription: 'API Gateway 5xx count',
+    }).addAlarmAction(new cwActions.SnsAction(alarmTopic));
+
+    // WAF: regional WebACL with a rate-based rule and the AWS Common Rule Set.
+    const webAcl = new wafv2.CfnWebACL(this, 'WormageWebAcl', {
+      scope: 'REGIONAL',
+      defaultAction: { allow: {} },
+      visibilityConfig: {
+        sampledRequestsEnabled: true,
+        cloudWatchMetricsEnabled: true,
+        metricName: 'WormageWebAcl',
+      },
+      rules: [
+        {
+          name: 'RateLimit',
+          priority: 1,
+          statement: {
+            rateBasedStatement: {
+              limit: 100,
+              aggregateKeyType: 'IP',
+            },
+          },
+          action: { block: {} },
+          visibilityConfig: {
+            sampledRequestsEnabled: true,
+            cloudWatchMetricsEnabled: true,
+            metricName: 'RateLimit',
+          },
+        },
+        {
+          name: 'AWSManagedRulesCommonRuleSet',
+          priority: 2,
+          overrideAction: { none: {} },
+          statement: {
+            managedRuleGroupStatement: {
+              vendorName: 'AWS',
+              name: 'AWSManagedRulesCommonRuleSet',
+            },
+          },
+          visibilityConfig: {
+            sampledRequestsEnabled: true,
+            cloudWatchMetricsEnabled: true,
+            metricName: 'AWSManagedRulesCommonRuleSet',
+          },
+        },
+      ],
+    });
+
+    const stageArn = `arn:aws:apigateway:${this.region}::/apis/${this.httpApi.apiId}/stages/$default`;
+    const webAclAssociation = new wafv2.CfnWebACLAssociation(this, 'WormageWebAclAssociation', {
+      resourceArn: stageArn,
+      webAclArn: webAcl.attrArn,
+    });
+    if (cfnStage) {
+      webAclAssociation.addDependency(cfnStage);
     }
 
     // Optional custom domain (issue #133). Enabled when a certificate ARN is provided.
