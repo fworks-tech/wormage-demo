@@ -5,6 +5,7 @@ import {
   listMatches,
   latencyMs,
   registerMatch,
+  registerDebugLog,
   shouldFail,
   isEmpty,
 } from './mockServer';
@@ -59,6 +60,12 @@ const localAdapter: AxiosAdapter = async (config) => {
     const body = (typeof config.data === 'string' ? JSON.parse(config.data) : config.data) as NewMatchInput;
     const { record, created } = registerMatch(body);
     return respond(config, created ? 201 : 200, record);
+  }
+
+  if (method === 'POST' && url.pathname === '/api/debug-logs') {
+    const body = (typeof config.data === 'string' ? JSON.parse(config.data) : config.data) as unknown;
+    const { stored } = registerDebugLog(body);
+    return respond(config, 201, { stored, schemaVersion: 1 });
   }
 
   throw new AxiosError(`No mock route for ${method} ${url.pathname}`, 'ERR_NOT_FOUND', config, null, respond(config, 404, { message: 'Not found' }));

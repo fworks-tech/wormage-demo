@@ -10,6 +10,7 @@ import type {
 
 const DB_KEY = 'wormage.mockdb.v1';
 const SCENARIO_KEY = 'wormage.netScenario.v1';
+const DEBUG_LOG_KEY = 'wormage.debuglogs.v1';
 
 interface Db {
   matches: MatchRecord[];
@@ -239,3 +240,17 @@ function paginate<T>(rows: T[], page: number, pageSize: number): Paginated<T> {
 }
 
 export const MOCK_TOTAL_FIXTURES = FIXTURE_PLAYERS.length;
+
+
+export function registerDebugLog(payload: unknown): { stored: boolean; count: number } {
+  const now = Date.now();
+  const list = safeRead<unknown[]>(DEBUG_LOG_KEY) ?? [];
+  const filtered = (Array.isArray(list) ? list : []).filter((item) => {
+    if (!item || typeof item !== 'object') return false;
+    const expires = (item as { expiresAt?: string }).expiresAt;
+    return !expires || new Date(expires).getTime() > now;
+  });
+  filtered.push(payload);
+  safeWrite(DEBUG_LOG_KEY, filtered);
+  return { stored: true, count: filtered.length };
+}

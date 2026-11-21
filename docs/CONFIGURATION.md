@@ -113,6 +113,18 @@ Damage falloff: `max(0.22, 1 - distance / (radius + 11))`. A worm on the edge st
 
 Reset with **Reset demo data** in Options, or `localStorage.removeItem('wormage.mockdb.v1')`.
 
+## Debug logging
+
+- Engine state: `GameEngine.debugLog` (bounded to 5000 entries) and `debugSnapshots` (bounded to 200).
+- Client flush: `src/api/debugLog.ts` posts to `POST /api/debug-logs` with a 7-day `expiresAt`.
+- Backend: `infra/lib/wormage-stack.ts` provisions the S3 bucket, SSM parameters and Lambda route.
+- SSM parameters:
+  - `/wormage/debug-logs/enabled`
+  - `/wormage/debug-logs/retention-days`
+  - `/wormage/debug-logs/max-payload-bytes`
+  - `/wormage/debug-logs/prefix`
+- Browser instrumentation: `window.__WORMAGE__.debugLog()`, `clearDebugLog()`, `flushDebugLog()`.
+
 ## Common tweaks
 
 - **Faster, bloodier matches:** `WORM.maxHp = 70`, bazooka `damage = 55`.
