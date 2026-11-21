@@ -249,6 +249,7 @@ export const MOCK_TOTAL_FIXTURES = FIXTURE_PLAYERS.length;
 
 interface OnlineDb {
   matches: Record<string, OnlineMatch>;
+  actionLogs?: Record<string, { actions: unknown[] }>;
 }
 
 const onlineMemory: { current: OnlineDb | null } = { current: null };
@@ -324,6 +325,86 @@ export function joinOnlineMatch(code: string, input: { playerId: string; playerN
     match.turnStartedAt = new Date().toISOString();
     match.turnSeconds = match.turnSeconds ?? 45;
   }
+  persistOnline(db);
+  return { code: match.code, match };
+}
+
+
+export function submitOnlineAction(code: string, input: { playerId: string; action: { type: string; [k: string]: unknown }; clientActionId?: string }): { code: string; match: OnlineMatch } | { error: string; status: number } {
+  const db = getOnlineDb();
+  const match = db.matches[code.toUpperCase()];
+  if (!match) return { error: 'match not found', status: 404 };
+  if (match.status !== 'ready') return { error: 'match not ready', status: 409 };
+  if (match.winnerTeam != null) return { error: 'match finished', status: 409 };
+  if (!match.players.some((p) => p.playerId === input.playerId)) return { error: 'not a participant', status: 403 };
+  if (match.players[match.activeTeam]?.playerId !== input.playerId) return { error: 'not your turn', status: 409 };
+
+  const phase = match.phase || 'aim';
+  const type = input.action.type;
+  if (phase === 'gameover') return { error: 'match finished', status: 409 };
+  const aimOnly = ['move', 'aim', 'jump', 'rope', 'reel', 'weapon', 'startCharge', 'releaseCharge'];
+  if (type === 'fire' || type === 'startCharge') {
+    if (phase !== 'aim' || match.hasFired) return { error: 'illegal action for current phase', status: 409 };
+  } else if (type === 'endTurn') {
+    if (phase !== 'aim') return { error: 'illegal action for current phase', status: 409 };
+  } else if (aimOnly.includes(type)) {
+    if (phase !== 'aim') return { error: 'illegal action for current phase', status: 409 };
+  } else {
+    return { error: 'unknown action type', status: 400 };
+  }
+
+  // Idempotency
+  const logDb = getOnlineDb();
+  // store action log in a separate in-memory map
+  if (!logDb.actionLogs) logDb.actionLogs = {};
+  const log = logDb.actionLogs[code.toUpperCase()] || { actions: [] };
+  if (input.clientActionId && log.actions.some((a) => (a as { clientActionId?: string }).clientActionId === input.clientActionId)) {
+    return { code: match.code, match };
+  }
+  if (log.actions.length >= 500) return { error: 'action log full', status: 409 };
+
+  const now = new Date().toISOString();
+  if (type === 'endTurn') {
+    const n = match.players.length;
+    let nextTeam = match.activeTeam;
+    for (let i = 1; i <= n; i++) {
+      const idx = (match.activeTeam + i) % n;
+      if (match.players[idx]) { nextTeam = idx; break; }
+    }
+    match.activeTeam = nextTeam;
+    match.turn = (match.turn || 1) + 1;
+    match.turnStartedAt = now;
+    match.phase = 'aim';
+    match.hasFired = false;
+  } else if (type === 'fire') {
+    match.phase = 'projectile';
+    match.hasFired = true;
+  }
+  if (type === 'weapon' && typeof input.action.id === 'string') {
+    match.weapon = input.action.id;
+  }
+
+  log.actions.push({ tick: match.turn || 1, action: input.action, playerId: input.playerId, clientActionId: input.clientActionId || null, at: now });
+  logDb.actionLogs[code.toUpperCase()] = log;
+  persistOnline(db);
+
+  return { code: match.code, match };
+}
+
+export function forfeitOnlineMatch(code: string, playerId: string): { code: string; match: OnlineMatch } | { error: string; status: number } {
+  const db = getOnlineDb();
+  const match = db.matches[code.toUpperCase()];
+  if (!match) return { error: 'match not found', status: 404 };
+  if (!match.players.some((p) => p.playerId === playerId)) return { error: 'not a participant', status: 403 };
+
+  if (match.winnerTeam != null) {
+    return { code: match.code, match };
+  }
+
+  const opponentIdx = match.players.findIndex((p) => p.playerId !== playerId);
+  match.winnerTeam = opponentIdx >= 0 ? opponentIdx : null;
+  match.endReason = 'surrender';
+  match.status = 'finished';
   persistOnline(db);
   return { code: match.code, match };
 }

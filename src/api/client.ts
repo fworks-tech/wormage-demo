@@ -9,6 +9,8 @@ import {
   createOnlineMatch,
   joinOnlineMatch,
   getOnlineMatch,
+  submitOnlineAction,
+  forfeitOnlineMatch,
   shouldFail,
   isEmpty,
 } from './mockServer';
@@ -109,6 +111,30 @@ const localAdapter: AxiosAdapter = async (config) => {
     if ('error' in result) {
       const status = result.error === 'not_found' ? 404 : 409;
       throw new AxiosError(result.error, 'ERR_BAD_REQUEST', config, null, respond(config, status, { message: result.error }));
+    }
+    return respond(config, 200, { code: result.code, match: result.match });
+  }
+
+  const onlineAction = url.pathname.match(/^\/api\/matches\/online\/([^/]+)\/action$/);
+  if (method === 'POST' && onlineAction) {
+    const code = decodeURIComponent(onlineAction[1]);
+    const body = (typeof config.data === 'string' ? JSON.parse(config.data) : config.data) as {
+      playerId: string; action: { type: string; [k: string]: unknown }; clientActionId?: string;
+    };
+    const result = submitOnlineAction(code, { playerId: body.playerId, action: body.action, clientActionId: body.clientActionId });
+    if ('error' in result) {
+      throw new AxiosError(result.error, 'ERR_BAD_REQUEST', config, null, respond(config, result.status, { message: result.error }));
+    }
+    return respond(config, 200, { code: result.code, match: result.match });
+  }
+
+  const onlineForfeit = url.pathname.match(/^\/api\/matches\/online\/([^/]+)\/forfeit$/);
+  if (method === 'POST' && onlineForfeit) {
+    const code = decodeURIComponent(onlineForfeit[1]);
+    const body = (typeof config.data === 'string' ? JSON.parse(config.data) : config.data) as { playerId: string };
+    const result = forfeitOnlineMatch(code, body.playerId);
+    if ('error' in result) {
+      throw new AxiosError(result.error, 'ERR_BAD_REQUEST', config, null, respond(config, result.status, { message: result.error }));
     }
     return respond(config, 200, { code: result.code, match: result.match });
   }

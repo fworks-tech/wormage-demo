@@ -78,7 +78,7 @@ export interface OnlineMatchSettings {
 
 export interface OnlineMatch {
   code: string;
-  status: 'waiting' | 'ready';
+  status: 'waiting' | 'ready' | 'finished';
   createdAt: string;
   maxPlayers: number;
   settings: OnlineMatchSettings;
@@ -89,6 +89,9 @@ export interface OnlineMatch {
   turnSeconds: number;
   winnerTeam: number | null;
   endReason: string | null;
+  phase?: string;
+  hasFired?: boolean;
+  weapon?: string;
 }
 
 export interface CreateOnlineMatchInput {

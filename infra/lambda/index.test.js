@@ -28,22 +28,58 @@ function makeMockDdb() {
       }
       if (cmd instanceof UpdateCommand || (cmd && cmd.constructor && cmd.constructor.name === 'UpdateCommand')) {
         const k = `${input.Key.pk}#${input.Key.sk}`;
-        const item = store.get(k);
+        let item = store.get(k);
         if (!item) {
-          const err = new Error('NotFound');
-          err.name = 'ConditionalCheckFailedException';
-          throw err;
+          // Upsert for action log / new items.
+          item = { pk: input.Key.pk, sk: input.Key.sk };
         }
-        const max = (input.ExpressionAttributeValues || {})[':max'];
+        const vals = input.ExpressionAttributeValues || {};
+        const names = input.ExpressionAttributeNames || {};
+        const max = vals[':max'];
         if (input.ConditionExpression === 'size(players) < :max' && !(Array.isArray(item.players) && item.players.length < max)) {
           const err = new Error('ConditionalCheckFailed');
           err.name = 'ConditionalCheckFailedException';
           throw err;
         }
-        const p = (input.ExpressionAttributeValues || {})[':p'];
-        item.players = [...(Array.isArray(item.players) ? item.players : []), ...(Array.isArray(p) ? p : [])];
-        const ready = (input.ExpressionAttributeValues || {})[':ready'];
+        // Condition: turnStartedAt = :old (turn expiry concurrency)
+        if (input.ConditionExpression === 'turnStartedAt = :old' && item.turnStartedAt !== vals[':old']) {
+          const err = new Error('ConditionalCheckFailed');
+          err.name = 'ConditionalCheckFailedException';
+          throw err;
+        }
+        const expr = input.UpdateExpression || '';
+        // players append (join)
+        const p = vals[':p'];
+        if (expr.includes('list_append(players') && Array.isArray(p)) {
+          item.players = [...(Array.isArray(item.players) ? item.players : []), ...p];
+        }
+        const ready = vals[':ready'];
         if (ready !== undefined) item.status = ready;
+        // Generic SET key = :val
+        const setMatch = expr.match(/SET (.+)/);
+        if (setMatch) {
+          const full = setMatch[1].trim();
+          const la = full.match(/^actions\s*=\s*list_append\(if_not_exists\(actions,\s*(:\w+)\),\s*(:\w+)\)$/);
+          if (la) {
+            const empty = vals[la[1]];
+            const e = vals[la[2]];
+            const cur = Array.isArray(item.actions) ? item.actions : (Array.isArray(empty) ? empty : []);
+            const toAdd = Array.isArray(e) ? e : [e];
+            item.actions = [...cur, ...toAdd];
+          } else {
+            const parts = full.split(',').map((x) => x.trim());
+            for (const part of parts) {
+              const m = part.match(/^(#?\w+)\s*=\s*(:\w+)$/);
+              if (m) {
+                const keyToken = m[1];
+                const valToken = m[2];
+                const attrName = keyToken.startsWith('#') ? (names[keyToken] || keyToken.slice(1)) : keyToken;
+                const val = vals[valToken];
+                if (val !== undefined) item[attrName] = val;
+              }
+            }
+          }
+        }
         store.set(k, item);
         return {};
       }
@@ -139,6 +175,70 @@ test('postMatch propagates non-condition errors', async () => {
 
 test('handler routes health', async () => {
   const r = await L.handler(ev('GET', '/health'));
+  assert.equal(r.statusCode, 200);
+});
+
+test('submitAction advances turn on endTurn', async () => {
+  const ddb = makeMockDdb();
+  const c = await L.postOnlineMatch(ev('POST', '/api/matches/online', {}, { playerId: 'p1', playerName: 'Alice' }), ddb);
+  const code = JSON.parse(c.body).code;
+  await L.joinOnlineMatch(ev('POST', `/api/matches/online/${code}/join`, {}, { playerId: 'p2', playerName: 'Bob' }), code, ddb);
+  const r = await L.submitAction(ev('POST', `/api/matches/online/${code}/action`, {}, { playerId: 'p1', action: { type: 'endTurn' } }), code, ddb);
+  assert.equal(r.statusCode, 200);
+  const b = JSON.parse(r.body);
+  assert.equal(b.match.activeTeam, 1);
+  assert.equal(b.match.turn, 2);
+});
+
+test('submitAction rejects not-your-turn with 409', async () => {
+  const ddb = makeMockDdb();
+  const c = await L.postOnlineMatch(ev('POST', '/api/matches/online', {}, { playerId: 'p1', playerName: 'Alice' }), ddb);
+  const code = JSON.parse(c.body).code;
+  await L.joinOnlineMatch(ev('POST', `/api/matches/online/${code}/join`, {}, { playerId: 'p2', playerName: 'Bob' }), code, ddb);
+  const r = await L.submitAction(ev('POST', `/api/matches/online/${code}/action`, {}, { playerId: 'p2', action: { type: 'endTurn' } }), code, ddb);
+  assert.equal(r.statusCode, 409);
+});
+
+test('submitAction rejects unknown action type with 400', async () => {
+  const ddb = makeMockDdb();
+  const c = await L.postOnlineMatch(ev('POST', '/api/matches/online', {}, { playerId: 'p1', playerName: 'Alice' }), ddb);
+  const code = JSON.parse(c.body).code;
+  await L.joinOnlineMatch(ev('POST', `/api/matches/online/${code}/join`, {}, { playerId: 'p2', playerName: 'Bob' }), code, ddb);
+  const r = await L.submitAction(ev('POST', `/api/matches/online/${code}/action`, {}, { playerId: 'p1', action: { type: 'teleport' } }), code, ddb);
+  assert.equal(r.statusCode, 400);
+});
+
+test('submitAction is idempotent on clientActionId', async () => {
+  const ddb = makeMockDdb();
+  const c = await L.postOnlineMatch(ev('POST', '/api/matches/online', {}, { playerId: 'p1', playerName: 'Alice' }), ddb);
+  const code = JSON.parse(c.body).code;
+  await L.joinOnlineMatch(ev('POST', `/api/matches/online/${code}/join`, {}, { playerId: 'p2', playerName: 'Bob' }), code, ddb);
+  await L.submitAction(ev('POST', `/api/matches/online/${code}/action`, {}, { playerId: 'p1', action: { type: 'endTurn' }, clientActionId: 'abc' }), code, ddb);
+  const r = await L.submitAction(ev('POST', `/api/matches/online/${code}/action`, {}, { playerId: 'p1', action: { type: 'endTurn' }, clientActionId: 'abc' }), code, ddb);
+  assert.equal(r.statusCode, 200);
+  const b = JSON.parse(r.body);
+  assert.equal(b.duplicate, true);
+});
+
+test('forfeitOnlineMatch ends match with opponent as winner', async () => {
+  const ddb = makeMockDdb();
+  const c = await L.postOnlineMatch(ev('POST', '/api/matches/online', {}, { playerId: 'p1', playerName: 'Alice' }), ddb);
+  const code = JSON.parse(c.body).code;
+  await L.joinOnlineMatch(ev('POST', `/api/matches/online/${code}/join`, {}, { playerId: 'p2', playerName: 'Bob' }), code, ddb);
+  const r = await L.forfeitOnlineMatch(ev('POST', `/api/matches/online/${code}/forfeit`, {}, { playerId: 'p1' }), code, ddb);
+  assert.equal(r.statusCode, 200);
+  const b = JSON.parse(r.body);
+  assert.equal(b.match.winnerTeam, 1);
+  assert.equal(b.match.endReason, 'surrender');
+});
+
+test('forfeitOnlineMatch is idempotent', async () => {
+  const ddb = makeMockDdb();
+  const c = await L.postOnlineMatch(ev('POST', '/api/matches/online', {}, { playerId: 'p1', playerName: 'Alice' }), ddb);
+  const code = JSON.parse(c.body).code;
+  await L.joinOnlineMatch(ev('POST', `/api/matches/online/${code}/join`, {}, { playerId: 'p2', playerName: 'Bob' }), code, ddb);
+  await L.forfeitOnlineMatch(ev('POST', `/api/matches/online/${code}/forfeit`, {}, { playerId: 'p1' }), code, ddb);
+  const r = await L.forfeitOnlineMatch(ev('POST', `/api/matches/online/${code}/forfeit`, {}, { playerId: 'p2' }), code, ddb);
   assert.equal(r.statusCode, 200);
 });
 

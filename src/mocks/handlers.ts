@@ -9,6 +9,8 @@ import {
   createOnlineMatch,
   joinOnlineMatch,
   getOnlineMatch,
+  submitOnlineAction,
+  forfeitOnlineMatch,
   shouldFail,
 } from '../api/mockServer';
 import type { NewMatchInput } from '../api/types';
@@ -75,6 +77,30 @@ export const handlers = [
       settings: body.settings as never,
     });
     return HttpResponse.json({ code, link, match }, { status: 201 });
+  }),
+
+  http.post('/api/matches/online/:code/action', async ({ request, params }) => {
+    await delay(latencyMs());
+    if (shouldFail()) return HttpResponse.json({ message: 'Upstream unavailable' }, { status: 503 });
+    const code = String(params.code);
+    const body = (await request.json()) as { playerId: string; action: { type: string; [k: string]: unknown }; clientActionId?: string };
+    const result = submitOnlineAction(code, { playerId: body.playerId, action: body.action, clientActionId: body.clientActionId });
+    if ('error' in result) {
+      return HttpResponse.json({ message: result.error }, { status: result.status });
+    }
+    return HttpResponse.json({ code: result.code, match: result.match }, { status: 200 });
+  }),
+
+  http.post('/api/matches/online/:code/forfeit', async ({ request, params }) => {
+    await delay(latencyMs());
+    if (shouldFail()) return HttpResponse.json({ message: 'Upstream unavailable' }, { status: 503 });
+    const code = String(params.code);
+    const body = (await request.json()) as { playerId: string };
+    const result = forfeitOnlineMatch(code, body.playerId);
+    if ('error' in result) {
+      return HttpResponse.json({ message: result.error }, { status: result.status });
+    }
+    return HttpResponse.json({ code: result.code, match: result.match }, { status: 200 });
   }),
 
   http.post('/api/matches/online/:code/join', async ({ request, params }) => {
