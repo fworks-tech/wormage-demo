@@ -786,6 +786,10 @@ export class GameEngine {
     this.turn += 1;
     // Mobs act every turn so they feel alive instead of once per full cycle.
     this.hostilePhase();
+    this.checkWipeout();
+    if ((this.phase as string) === 'gameover') {
+      return;
+    }
     if (this.config.mode === 'sudden-death' && this.config.turnSeconds > 0) {
       // damage all alive worms per turn after threshold (threshold stored in config? use 6 turns)
       if (this.turn >= 6) {
@@ -796,6 +800,7 @@ export class GameEngine {
       }
       if (this.turn >= 6) this.logDebug('suddenDeath.damage', 'Sudden death damage applied', { turn: this.turn }, 'system');
     }
+    if ((this.phase as string) === 'gameover') return;
     this.beginTurn();
   }
 
