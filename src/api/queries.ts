@@ -53,6 +53,27 @@ export function useRegisterMatch() {
   });
 }
 
+export function useOnlineMatch(code: string | null, enabled = true) {
+  return useQuery({
+    queryKey: ['online-match', code],
+    queryFn: async () => {
+      if (!code) throw new Error('no code');
+      const { data } = await api.get<{ code: string; match: import('./types').OnlineMatch }>(`/api/matches/online/${encodeURIComponent(code)}`);
+      return data.match;
+    },
+    enabled: enabled && !!code,
+    refetchInterval: (q) => {
+      const m = q.state.data;
+      if (!m || m.winnerTeam != null) return false;
+      if (m.status !== 'ready') return 2000;
+      return 1000;
+    },
+    refetchIntervalInBackground: false,
+    staleTime: 0,
+    retry: 1,
+  });
+}
+
 export function useCreateOnlineMatch() {
   return useMutation({
     mutationFn: async (input: CreateOnlineMatchInput) => {

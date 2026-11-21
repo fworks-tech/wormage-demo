@@ -83,6 +83,12 @@ export interface OnlineMatch {
   maxPlayers: number;
   settings: OnlineMatchSettings;
   players: OnlinePlayer[];
+  activeTeam: number;
+  turn: number;
+  turnStartedAt: string;
+  turnSeconds: number;
+  winnerTeam: number | null;
+  endReason: string | null;
 }
 
 export interface CreateOnlineMatchInput {

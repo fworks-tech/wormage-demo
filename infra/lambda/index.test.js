@@ -142,6 +142,23 @@ test('handler routes health', async () => {
   assert.equal(r.statusCode, 200);
 });
 
+test('getOnlineMatch returns 200 for existing match', async () => {
+  const ddb = makeMockDdb();
+  const c = await L.postOnlineMatch(ev('POST', '/api/matches/online', {}, { playerId: 'p1', playerName: 'Alice' }), ddb);
+  const code = JSON.parse(c.body).code;
+  const r = await L.getOnlineMatch(ev('GET', `/api/matches/online/${code}`), code, ddb);
+  assert.equal(r.statusCode, 200);
+  const b = JSON.parse(r.body);
+  assert.equal(b.match.code, code);
+  assert.equal(b.match.status, 'waiting');
+});
+
+test('getOnlineMatch returns 404 for unknown code', async () => {
+  const ddb = makeMockDdb();
+  const r = await L.getOnlineMatch(ev('GET', '/api/matches/online/ZZZZZZ'), 'ZZZZZZ', ddb);
+  assert.equal(r.statusCode, 404);
+});
+
 test('handler answers CORS preflight with 2xx', async () => {
   const r = await L.handler(ev('OPTIONS', '/api/matches/online'));
   assert.ok(r.statusCode >= 200 && r.statusCode < 300, `expected 2xx, got ${r.statusCode}`);

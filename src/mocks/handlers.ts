@@ -8,6 +8,7 @@ import {
   registerMatch,
   createOnlineMatch,
   joinOnlineMatch,
+  getOnlineMatch,
   shouldFail,
 } from '../api/mockServer';
 import type { NewMatchInput } from '../api/types';
@@ -52,6 +53,15 @@ export const handlers = [
     const body = await request.json();
     const result = registerDebugLog(body);
     return HttpResponse.json(result, { status: 201 });
+  }),
+
+  http.get('/api/matches/online/:code', async ({ params }) => {
+    await delay(latencyMs());
+    if (shouldFail()) return HttpResponse.json({ message: 'Upstream unavailable' }, { status: 503 });
+    const code = String(params.code);
+    const match = getOnlineMatch(code);
+    if (!match) return HttpResponse.json({ message: 'match not found' }, { status: 404 });
+    return HttpResponse.json({ code: match.code, match }, { status: 200 });
   }),
 
   http.post('/api/matches/online', async ({ request }) => {

@@ -8,6 +8,7 @@ import {
   registerDebugLog,
   createOnlineMatch,
   joinOnlineMatch,
+  getOnlineMatch,
   shouldFail,
   isEmpty,
 } from './mockServer';
@@ -68,6 +69,16 @@ const localAdapter: AxiosAdapter = async (config) => {
     const body = (typeof config.data === 'string' ? JSON.parse(config.data) : config.data) as unknown;
     const { stored } = registerDebugLog(body);
     return respond(config, 201, { stored, schemaVersion: 1 });
+  }
+
+  const onlineGet = url.pathname.match(/^\/api\/matches\/online\/([^/]+)$/);
+  if (method === 'GET' && onlineGet) {
+    const code = decodeURIComponent(onlineGet[1]);
+    const match = getOnlineMatch(code);
+    if (!match) {
+      throw new AxiosError('not found', 'ERR_BAD_REQUEST', config, null, respond(config, 404, { message: 'match not found' }));
+    }
+    return respond(config, 200, { code: match.code, match });
   }
 
   const onlineCreate = url.pathname === '/api/matches/online';
