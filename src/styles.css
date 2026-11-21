@@ -1499,6 +1499,15 @@ html:fullscreen {
   color: #ff9a8f;
 }
 
+.campaign-complete {
+  margin: 0;
+  font-family: var(--display);
+  font-size: 22px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--amber);
+}
+
 .result-actions {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));

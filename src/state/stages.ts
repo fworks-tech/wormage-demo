@@ -36,6 +36,16 @@ export function isUnlocked(stage: Stage, progress: Record<string, boolean>): boo
   return Boolean(progress[stage.unlockAfter]);
 }
 
+export function getStage(id: string): Stage | undefined {
+  return STAGES.find((s) => s.id === id);
+}
+
+export function nextStage(id: string): Stage | null {
+  const idx = STAGES.findIndex((s) => s.id === id);
+  if (idx < 0 || idx >= STAGES.length - 1) return null;
+  return STAGES[idx + 1];
+}
+
 export function completeStage(id: string): void {
   const p = loadProgress();
   p[id] = true;
