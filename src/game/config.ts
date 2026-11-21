@@ -105,7 +105,8 @@ export const TEAM_NAME_POOL = [
 ] as const;
 
 export function randomTeamName(rng: () => number = Math.random): string {
-  return TEAM_NAME_POOL[Math.floor(rng() * TEAM_NAME_POOL.length)];
+  const idx = Math.min(TEAM_NAME_POOL.length - 1, Math.floor(rng() * TEAM_NAME_POOL.length));
+  return TEAM_NAME_POOL[idx];
 }
 
 

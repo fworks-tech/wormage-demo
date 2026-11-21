@@ -39,6 +39,8 @@ import type {
 const WORM_NAMES = [
   ['Sarge', 'Biscuit', 'Mags'],
   ['Crank', 'Nyx', 'Dust'],
+  ['Pip', 'Rook', 'Tansy'],
+  ['Bramble', 'Quill', 'Hodge'],
 ];
 
 /** Blast damage at a distance: linear falloff, floored at 22% inside the radius. */
@@ -202,7 +204,7 @@ export class GameEngine {
         return;
       }
       this.activeTeam = this.nextAliveTeam(this.activeTeam);
-      this.beginTurn(first);
+      this.beginTurn(false);
       return;
     }
     const team = this.teams[this.activeTeam];
@@ -215,7 +217,7 @@ export class GameEngine {
         return;
       }
       this.activeTeam = this.nextAliveTeam(this.activeTeam);
-      this.beginTurn(first);
+      this.beginTurn(false);
       return;
     }
     this.activeWormId = next.id;
