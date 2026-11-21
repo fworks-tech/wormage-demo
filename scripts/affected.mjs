@@ -35,6 +35,7 @@ const UI_E2E = [
   'tests/stages.spec.ts',
   'tests/hotseat.spec.ts',
   'tests/online.spec.ts',
+  'tests/online-two-browsers.spec.ts',
 ];
 
 const FULL_FILES = [
