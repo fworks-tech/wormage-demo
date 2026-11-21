@@ -141,3 +141,74 @@ test('validateBody accepts a valid body', async () => {
   const r = L.validateBody({ clientMatchId: 'c', playerId: 'p', playerName: 'P', teamName: 'T', score: 10, wind: 'light' });
   assert.equal(r, null);
 });
+
+function makeMockS3() {
+  const store = new Map();
+  return {
+    store,
+    async send(cmd) {
+      const input = cmd.input || cmd;
+      if (cmd && cmd.constructor && cmd.constructor.name === 'PutObjectCommand') {
+        store.set(input.Key, { Bucket: input.Bucket, Body: input.Body, ContentType: input.ContentType });
+        return {};
+      }
+      throw new Error('Unknown command: ' + (cmd && cmd.constructor && cmd.constructor.name));
+    },
+  };
+}
+
+test('postDebugLog stores payload in S3', async () => {
+  process.env.DEBUG_LOG_BUCKET = 'bucket';
+  process.env.DEBUG_LOGS_ENABLED = 'true';
+  const s3 = makeMockS3();
+  const body = { sessionId: 's1', matchId: 'm1', schemaVersion: 1, entries: [{ category: 'turn.start' }], snapshots: [] };
+  const r = await L.postDebugLog(ev('POST', '/api/debug-logs', {}, body), s3);
+  assert.equal(r.statusCode, 201);
+  const b = JSON.parse(r.body);
+  assert.equal(b.stored, true);
+  assert.equal(b.sessionId, 's1');
+  assert.equal(s3.store.size, 1);
+});
+
+test('postDebugLog keys each flush and chunk separately', async () => {
+  process.env.DEBUG_LOG_BUCKET = 'bucket';
+  process.env.DEBUG_LOGS_ENABLED = 'true';
+  const s3 = makeMockS3();
+  const base = { sessionId: 's1', matchId: 'm1', schemaVersion: 1, entries: [], snapshots: [] };
+  await L.postDebugLog(ev('POST', '/api/debug-logs', {}, { ...base, flushId: 'f1', chunk: 1 }), s3);
+  await L.postDebugLog(ev('POST', '/api/debug-logs', {}, { ...base, flushId: 'f1', chunk: 2 }), s3);
+  await L.postDebugLog(ev('POST', '/api/debug-logs', {}, { ...base, flushId: 'f2', chunk: 1 }), s3);
+  assert.equal(s3.store.size, 3);
+  for (const key of s3.store.keys()) {
+    assert.ok(key.includes('/s1/f1-1.json') || key.includes('/s1/f1-2.json') || key.includes('/s1/f2-1.json'));
+  }
+});
+
+test('postDebugLog keeps untrusted session ids inside the prefix', async () => {
+  process.env.DEBUG_LOG_BUCKET = 'bucket';
+  process.env.DEBUG_LOGS_ENABLED = 'true';
+  const s3 = makeMockS3();
+  const body = { sessionId: '../../evil', matchId: 'm1', entries: [], snapshots: [] };
+  const r = await L.postDebugLog(ev('POST', '/api/debug-logs', {}, body), s3);
+  assert.equal(r.statusCode, 201);
+  const [key] = [...s3.store.keys()];
+  assert.ok(!key.includes('..'));
+  assert.ok(key.startsWith('debug-logs/'));
+});
+
+test('postDebugLog validates body', async () => {
+  const s3 = makeMockS3();
+  const r = await L.postDebugLog(ev('POST', '/api/debug-logs', {}, { entries: [] }), s3);
+  assert.equal(r.statusCode, 400);
+});
+
+test('postDebugLog respects disabled flag', async () => {
+  process.env.DEBUG_LOGS_ENABLED = 'false';
+  const s3 = makeMockS3();
+  const body = { sessionId: 's2', matchId: 'm2', entries: [], snapshots: [] };
+  const r = await L.postDebugLog(ev('POST', '/api/debug-logs', {}, body), s3);
+  assert.equal(r.statusCode, 202);
+  const b = JSON.parse(r.body);
+  assert.equal(b.stored, false);
+  process.env.DEBUG_LOGS_ENABLED = 'true';
+});

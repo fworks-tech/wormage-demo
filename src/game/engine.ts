@@ -24,6 +24,7 @@ import type { AiTurnPlan } from './ai';
 import { configKey } from './types';
 import type {
   ActionLogEntry,
+  DebugLogEntry,
   EndReason,
   GameAction,
   GameEvent,
@@ -71,6 +72,16 @@ export class GameEngine {
   endReason: EndReason | null = null;
   hasFired = false;
   kills: number[] = [];
+  readonly sessionId = (globalThis.crypto && typeof globalThis.crypto.randomUUID === 'function')
+    ? globalThis.crypto.randomUUID()
+    : `s-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+  readonly matchId = `M-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).slice(2, 6).toUpperCase()}`;
+  debugLog: DebugLogEntry[] = [];
+  private debugSeq = 0;
+  private readonly debugLogLimit = 5000;
+  debugSnapshots: Array<{ reason: string; snapshot: GameSnapshot }> = [];
+  private readonly debugSnapshotLimit = 200;
+  private aiBlockedLogged = false;
   elapsed = 0;
   aiThinking = false;
   retreatTimer = 0;
@@ -102,6 +113,8 @@ export class GameEngine {
     this.timeLeft = config.turnSeconds;
     this.spawnLoot();
     this.spawnMobs();
+    this.logDebug('loot.spawn', 'Loot spawned', { items: this.loot.map((l) => ({ id: l.id, x: Math.round(l.x), y: Math.round(l.y), kind: l.kind })) }, 'system');
+    this.logDebug('mob.spawn', 'Mobs spawned', { mobs: this.mobs.map((m) => ({ id: m.id, x: Math.round(m.x), y: Math.round(m.y), hp: m.hp })) }, 'system');
 
     const teamCount = Math.min(4, Math.max(2, config.teamCount ?? 2));
     const margin = 120;
@@ -158,7 +171,19 @@ export class GameEngine {
     });
     this.kills = this.teams.map(() => 0);
 
+    this.logDebug('match.start', 'Match started', {
+      seed: config.seed,
+      teamCount,
+      wormsPerTeam: config.wormsPerTeam,
+      map: config.map ?? 'island',
+      mode: config.mode ?? 'deathmatch',
+      turnSeconds: config.turnSeconds,
+      wind: config.wind,
+      difficulty: config.difficulty,
+      waterLevel: WATER_Y,
+    }, 'system');
     this.beginTurn(true);
+    this.captureDebugSnapshot('match.start');
   }
 
   get configurationKey(): string {
@@ -197,9 +222,54 @@ export class GameEngine {
     );
   }
 
+  logDebug(
+    category: string,
+    message: string,
+    data?: Record<string, unknown>,
+    actorType: 'cpu' | 'mob' | 'system' = 'system',
+    actorId?: string,
+    level: 'info' | 'warn' | 'error' = 'info',
+  ): void {
+    this.debugSeq += 1;
+    this.debugLog.push({
+      seq: this.debugSeq,
+      sessionId: this.sessionId,
+      matchId: this.matchId,
+      t: Math.round(this.elapsed * 1000) / 1000,
+      tick: this.tick,
+      turn: this.turn,
+      actorType,
+      actorId,
+      category,
+      level,
+      message,
+      data,
+    });
+    if (this.debugLog.length > this.debugLogLimit) {
+      this.debugLog.splice(0, this.debugLog.length - this.debugLogLimit);
+    }
+  }
+
+  clearDebugLog(): void {
+    this.debugLog = [];
+    this.debugSeq = 0;
+  }
+
+  captureDebugSnapshot(reason: string): void {
+    this.debugSnapshots.push({ reason, snapshot: this.snapshot() });
+    if (this.debugSnapshots.length > this.debugSnapshotLimit) {
+      this.debugSnapshots.splice(0, this.debugSnapshots.length - this.debugSnapshotLimit);
+    }
+  }
+
+  clearDebugSnapshots(): void {
+    this.debugSnapshots = [];
+  }
+
   private beginTurn(first = false): void {
     // Skip eliminated teams (no alive worms).
     if (!this.teams[this.activeTeam].worms.some((w) => w.alive)) {
+      this.logDebug('turn.skip', 'Skipped eliminated team', { teamId: this.activeTeam }, 'system');
       if (this.teams.filter((t) => t.worms.some((w) => w.alive)).length <= 1) {
         const alive = this.teams.filter((t) => t.worms.some((w) => w.alive));
         this.finish(alive.length === 1 ? alive[0].id : null, 'wipeout');
@@ -213,6 +283,7 @@ export class GameEngine {
     const next = this.nextAliveWorm(team);
     if (!next) {
       // Team fully eliminated mid-cycle.
+      this.logDebug('turn.skip', 'Skipped eliminated team', { teamId: this.activeTeam }, 'system');
       if (this.teams.filter((t) => t.worms.some((w) => w.alive)).length <= 1) {
         const alive = this.teams.filter((t) => t.worms.some((w) => w.alive));
         this.finish(alive.length === 1 ? alive[0].id : null, 'wipeout');
@@ -223,6 +294,20 @@ export class GameEngine {
       return;
     }
     this.activeWormId = next.id;
+    this.logDebug('turn.start', 'Turn started', {
+      teamId: team.id,
+      teamName: team.name,
+      wormId: next.id,
+      wormName: next.name,
+      x: next.x,
+      y: next.y,
+      wind: this.wind,
+      timeLeft: this.timeLeft,
+      first,
+      revengeFocus: this.revengeFocusByTeam[team.id] ?? null,
+      revengeTurns: this.revengeTurnsByTeam[team.id] ?? 0,
+    }, team.isAi ? 'cpu' : 'system', next.id);
+    this.captureDebugSnapshot('turn.start');
     this.lastWormByTeam[team.id] = next.id;
     // Decay revenge state for the acting team.
     const turns = (this.revengeTurnsByTeam[team.id] ?? 0) - 1;
@@ -612,21 +697,27 @@ export class GameEngine {
   }
 
   private hostilePhase(): void {
+    this.logDebug('mob.phase', 'Hostile phase started', {
+      aliveMobs: this.mobs.filter((m) => m.alive).length,
+      aliveWorms: this.teams.flatMap((t) => t.worms).filter((w) => w.alive).length,
+    }, 'system');
     for (const mob of this.mobs) {
       if (!mob.alive) continue;
-      // find nearest alive worm
+      const fromX = mob.x;
+      const fromY = mob.y;
       let best: { w: any; d: number } | null = null;
       for (const t of this.teams) for (const w of t.worms) {
         if (!w.alive) continue;
         const d = Math.hypot(w.x - mob.x, w.y - mob.y);
         if (!best || d < best.d) best = { w, d };
       }
-      if (!best) continue;
+      if (!best) {
+        this.logDebug('mob.idle', 'Mob found no target', { mobId: mob.id, x: mob.x, y: mob.y }, 'mob', `mob-${mob.id}`);
+        continue;
+      }
       const dx = best.w.x - mob.x;
       const dy = best.w.y - mob.y;
       const dist = Math.hypot(dx, dy) || 1;
-      // Move along the ground surface in small steps, stopping at walls/pits so
-      // mobs cannot pass through terrain.
       const dir = dx >= 0 ? 1 : -1;
       const budget = Math.min(mob.speed * 0.5, dist);
       let moved = 0;
@@ -637,7 +728,6 @@ export class GameEngine {
         if (nx < 0 || nx > WORLD_W) break;
         const g = this.terrain.groundY(nx, 120, WATER_Y - 120);
         if (g === null) break;
-        // Too steep a climb (or a gap): treat as a wall.
         const curG = this.terrain.groundY(x, 120, WATER_Y - 120);
         if (curG === null || Math.abs(g - curG) > 40) break;
         x = nx;
@@ -646,16 +736,45 @@ export class GameEngine {
       mob.x = x;
       const g = this.terrain.groundY(mob.x, 120, WATER_Y - 120);
       if (g !== null) mob.y = g - mob.radius;
-      if (dist <= 50) {
+      const attacked = dist <= 50;
+      if (attacked) {
         best.w.hp = Math.max(0, best.w.hp - mob.damage);
         if (best.w.hp <= 0) best.w.alive = false;
       }
+      this.logDebug('mob.move', 'Mob moved', {
+        mobId: mob.id,
+        from: { x: Math.round(fromX), y: Math.round(fromY) },
+        to: { x: Math.round(mob.x), y: Math.round(mob.y) },
+        targetId: best.w.id,
+        targetTeam: best.w.teamId,
+        distance: Math.round(dist),
+        moved: Math.round(moved),
+        attacked,
+        damage: attacked ? mob.damage : 0,
+        killed: attacked && best.w.hp <= 0,
+      }, 'mob', `mob-${mob.id}`);
+      if (attacked && best.w.hp <= 0) {
+        this.logDebug('mob.kill', 'Mob killed worm', { mobId: mob.id, wormId: best.w.id }, 'mob', `mob-${mob.id}`);
+      }
     }
+    this.captureDebugSnapshot('mob.phase');
     this.checkWipeout();
   }
 
   private finishTurn(): void {
     if (this.phase === 'gameover') return;
+    const endingTeam = this.activeTeam;
+    const endingWorm = this.activeWorm;
+    this.logDebug('turn.end', 'Turn ended', {
+      teamId: endingTeam,
+      wormId: endingWorm?.id,
+      wormName: endingWorm?.name,
+      x: endingWorm?.x,
+      y: endingWorm?.y,
+      hasFired: this.hasFired,
+      turn: this.turn,
+    }, this.teams[endingTeam].isAi ? 'cpu' : 'system', endingWorm?.id);
+    this.captureDebugSnapshot('turn.end');
     this.moveDir = 0;
     this.reelDir = 0;
     this.charging = false;
@@ -675,12 +794,14 @@ export class GameEngine {
         }
         this.checkWipeout();
       }
+      if (this.turn >= 6) this.logDebug('suddenDeath.damage', 'Sudden death damage applied', { turn: this.turn }, 'system');
     }
     this.beginTurn();
   }
 
   private finish(winner: number | null, reason: EndReason): void {
     if (this.phase === 'gameover') return;
+    this.logDebug('match.end', 'Match ended', { winnerTeam: winner, reason, elapsed: Math.round(this.elapsed) }, 'system');
     this.phase = 'gameover';
     this.winnerTeam = winner;
     this.endReason = reason;
@@ -690,12 +811,15 @@ export class GameEngine {
     this.projectiles = [];
     this.clearRopes();
     this.events.push({ type: 'gameover', winnerTeamId: winner });
+    // Capture after the terminal state so the snapshot reports the winner and end reason.
+    this.captureDebugSnapshot('match.end');
   }
 
   private hurt(worm: Worm, amount: number, sourceX: number, sourceY: number, sourceTeam: number | null): void {
     if (!worm.alive || amount <= 0) return;
     worm.hp = Math.max(0, worm.hp - amount);
     this.events.push({ type: 'hurt', x: worm.x, y: worm.y - 26, amount: Math.round(amount) });
+    this.logDebug('combat.hurt', 'Worm hurt', { wormId: worm.id, teamId: worm.teamId, amount: Math.round(amount), sourceTeam, x: worm.x, y: worm.y }, 'system');
     const dx = worm.x - sourceX;
     worm.x = worldClamp(worm.x + Math.sign(dx) * Math.min(14, amount * 0.18), 12, WORLD_W - 12);
     worm.vy = Math.min(worm.vy, -Math.min(260, amount * 2.2));
@@ -706,6 +830,7 @@ export class GameEngine {
       worm.alive = false;
       worm.rope = null;
       this.events.push({ type: 'death', x: worm.x, y: worm.y, color: this.teams[worm.teamId].color });
+      this.logDebug('combat.death', 'Worm died', { wormId: worm.id, teamId: worm.teamId, sourceTeam, x: worm.x, y: worm.y }, 'system');
       if (sourceTeam !== null && sourceTeam !== worm.teamId) this.kills[sourceTeam] += 1;
       this.checkWipeout();
     }
@@ -735,6 +860,7 @@ export class GameEngine {
 
   private explode(x: number, y: number, weapon: WeaponId, sourceTeam: number | null): void {
     const def = WEAPONS[weapon];
+    this.logDebug('combat.explosion', 'Explosion', { x: Math.round(x), y: Math.round(y), weapon, sourceTeam, terrainRadius: def.terrainRadius }, 'system');
     this.terrain.carve(x, y, def.terrainRadius);
     for (const mob of this.mobs) {
       if (!mob.alive) continue;
@@ -1132,12 +1258,28 @@ export class GameEngine {
       this.aiStall = 0;
       this.aiJumpCount = 0;
       this.aiRopeCount = 0;
+      this.aiBlockedLogged = false;
 
       if (!this.aiPlan) {
+        this.logDebug('ai.noPlan', 'AI found no plan', { wormId: worm.id, teamId: worm.teamId }, 'cpu', worm.id, 'warn');
         this.aiThinking = false;
         this.finishTurn();
         return;
       }
+      const initialTarget = this.nearestEnemy(worm);
+      this.logDebug('ai.plan', 'AI planned turn', {
+        wormId: worm.id,
+        targetId: initialTarget?.id,
+        targetTeam: initialTarget?.teamId,
+        fireX: this.aiPlan.fireX,
+        fireY: this.aiPlan.fireY,
+        angle: this.aiPlan.angle,
+        power: this.aiPlan.power,
+        weapon: this.aiPlan.weapon,
+        retreatX: this.aiPlan.retreatX,
+        wind: this.wind,
+        mood: this.revengeFocusByTeam[this.activeTeam] ? 'revenge' : 'normal',
+      }, 'cpu', worm.id);
     }
 
     const plan = this.aiPlan;
@@ -1166,6 +1308,7 @@ export class GameEngine {
           this.toggleRope();
           if (worm.rope) {
             this.aiRopeCount += 1;
+            this.logDebug('ai.rope', 'AI used rope to climb', { wormId: worm.id, ropeCount: this.aiRopeCount, fireX: plan.fireX, fromX: worm.x }, 'cpu', worm.id);
             this.aiStall = 0;
             this.aiLastX = worm.x;
             return;
@@ -1180,9 +1323,23 @@ export class GameEngine {
       else {
         this.aiStall = 0;
         this.aiLastX = worm.x;
+        this.aiBlockedLogged = false;
       }
       // Blocked or out of turn time: take the best bazooka shot from here.
       if (this.aiStall < 1.5 && this.timeLeft > 0.5) return;
+
+      if (!this.aiBlockedLogged) {
+        this.aiBlockedLogged = true;
+        this.logDebug('ai.blocked', 'AI movement blocked', {
+          wormId: worm.id,
+          x: worm.x,
+          fireX: plan.fireX,
+          stall: Math.round(this.aiStall * 100) / 100,
+          planInReach,
+          ropeCount: this.aiRopeCount,
+          jumpCount: this.aiJumpCount,
+        }, 'cpu', worm.id, 'warn');
+      }
 
       // A blocked AI walk climbs with the rope when the ledge is too high,
       // otherwise jumps for a bounded window, then shoots from here.
@@ -1202,6 +1359,7 @@ export class GameEngine {
               this.aimAt(ropePlan.angle, this.power);
               this.toggleRope();
               if (worm.rope) {
+                this.logDebug('ai.rope', 'AI used rope after block', { wormId: worm.id, ropeCount: this.aiRopeCount, fromX: worm.x, fireX: plan.fireX }, 'cpu', worm.id);
                 this.aiStall = 0;
                 this.aiLastX = worm.x;
                 return;
@@ -1214,6 +1372,7 @@ export class GameEngine {
           }
           this.aiJump(this.moveDir);
           this.aiJumpCount += 1;
+          this.logDebug('ai.jump', 'AI jumped', { wormId: worm.id, jumpCount: this.aiJumpCount, fromX: worm.x, dir: this.moveDir }, 'cpu', worm.id);
           this.aiStall = 0;
           this.aiLastX = worm.x;
           return;
@@ -1223,6 +1382,7 @@ export class GameEngine {
       this.moveDir = 0;
       const target = this.nearestEnemy(worm);
       if (target) {
+        this.logDebug('ai.fallback', 'AI falling back to shot from current position', { wormId: worm.id, targetId: target.id, targetTeam: target.teamId, fromX: worm.x }, 'cpu', worm.id, 'warn');
         const bodies = this.teams.flatMap((team) =>
           team.worms.filter((w) => w.alive && w.id !== worm.id).map((w) => ({ x: w.x, y: w.y })),
         );
@@ -1237,6 +1397,7 @@ export class GameEngine {
           this.rng,
           bodies,
         );
+        this.logDebug('ai.fallbackShot', 'AI computed fallback shot', { wormId: worm.id, targetId: target.id, angle: shot.angle, power: shot.power }, 'cpu', worm.id);
         // Retarget once, then give the visible reticle time to reach this fallback shot.
         this.aiPlan = {
           ...plan,
@@ -1260,6 +1421,7 @@ export class GameEngine {
     if (Math.abs(clampAngle(plan.angle) - worm.aimAngle) > 1e-6) return;
     this.weapon = plan.weapon;
     this.aiThinking = false;
+    this.logDebug('ai.fire', 'AI fired', { wormId: worm.id, weapon: plan.weapon, angle: plan.angle, power: plan.power, x: worm.x, y: worm.y }, 'cpu', worm.id);
     this.fire();
   }
 
@@ -1341,12 +1503,15 @@ export class GameEngine {
       weapon: this.weapon,
       teams,
       winnerTeam: this.winnerTeam,
+      endReason: this.endReason,
       aiThinking: this.aiThinking,
       retreatLeft: this.retreatActive ? this.retreatTimer : 0,
       activeOnGround: active?.onGround ?? true,
       ropeAttached: Boolean(active?.rope),
       loot: this.loot.filter(l=>l.x>=0).map(l=>({x:l.x,y:l.y,kind:l.kind})),
       mobs: this.mobs.filter(m=>m.alive).map(m=>({x:m.x,y:m.y,hp:m.hp})),
+      waterLevel: WATER_Y,
+      revengeByTeam: { ...this.revengeFocusByTeam },
       fuseLeft: this.projectiles.reduce<number | null>((soonest, p) => {
         if (p.fuse === null) return soonest;
         const left = Math.max(0, p.fuse - p.age);

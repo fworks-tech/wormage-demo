@@ -174,6 +174,23 @@ export interface TeamSnapshot {
   ammo: Record<WeaponId, number>;
 }
 
+export type DebugLogLevel = 'info' | 'warn' | 'error';
+
+export interface DebugLogEntry {
+  seq: number;
+  sessionId: string;
+  matchId: string;
+  t: number;
+  tick: number;
+  turn: number;
+  actorType: 'cpu' | 'mob' | 'system';
+  actorId?: string;
+  category: string;
+  level: DebugLogLevel;
+  message: string;
+  data?: Record<string, unknown>;
+}
+
 export interface GameSnapshot {
   phase: Phase;
   turn: number;
@@ -190,6 +207,8 @@ export interface GameSnapshot {
   weapon: WeaponId;
   teams: TeamSnapshot[];
   winnerTeam: number | null;
+  /** Why the match ended; null while it is still running. */
+  endReason: EndReason | null;
   aiThinking: boolean;
   /** Seconds left in the post-fire movement window. */
   retreatLeft: number;
@@ -201,4 +220,8 @@ export interface GameSnapshot {
   fuseLeft: number | null;
   loot: { x: number; y: number; kind: 'ammo' | 'mine' | 'secret' }[];
   mobs: { x: number; y: number; hp: number }[];
+  /** Water level used for drowning checks. */
+  waterLevel: number;
+  /** Active revenge focus per team, when any. */
+  revengeByTeam: Record<number, { x: number; y: number } | null>;
 }

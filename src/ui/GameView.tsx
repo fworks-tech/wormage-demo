@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { GameEngine } from '../game/engine';
 import { ArenaRenderer } from '../game/renderer';
+import { flushDebugLog } from '../api/debugLog';
 import { SoundKit } from '../game/audio';
 import { AIM, FIXED_DT } from '../game/config';
 import type { GameSettings, GameSnapshot, WeaponId } from '../game/types';
@@ -130,6 +131,13 @@ export function GameView({
       (window as unknown as { __WORMAGE__?: unknown }).__WORMAGE__ = {
         engine,
         snapshot: () => engine.snapshot(),
+        ...(new URLSearchParams(window.location.search).get('debug') === '1'
+          ? {
+              debugLog: () => engine.debugLog,
+              clearDebugLog: () => engine.clearDebugLog(),
+              flushDebugLog: () => flushDebugLog(engine),
+            }
+          : {}),
         version: '1.0.0',
       };
     }
@@ -163,6 +171,7 @@ export function GameView({
         },
         recordedAt: new Date().toISOString(),
       };
+      void flushDebugLog(engine);
       window.setTimeout(() => {
         if (!disposed) onFinish(result);
       }, 1500);
@@ -308,13 +317,22 @@ export function GameView({
 
     const pauseAuto = () => setPause(true);
     const onVisibility = () => {
-      if (document.hidden) pauseAuto();
+      if (document.hidden) {
+        pauseAuto();
+        const engine = engineRef.current;
+        if (engine) void flushDebugLog(engine);
+      }
     };
     window.addEventListener('blur', pauseAuto);
     document.addEventListener('visibilitychange', onVisibility);
+    const flushTimer = window.setInterval(() => {
+      const engine = engineRef.current;
+      if (engine) void flushDebugLog(engine);
+    }, 30_000);
 
     return () => {
       disposed = true;
+      window.clearInterval(flushTimer);
       window.removeEventListener('blur', pauseAuto);
       document.removeEventListener('visibilitychange', onVisibility);
       const renderer = rendererRef.current;
@@ -323,6 +341,8 @@ export function GameView({
         renderer.destroy();
       }
       rendererRef.current = null;
+      const engine = engineRef.current;
+      if (engine) void flushDebugLog(engine);
       engineRef.current = null;
       delete (window as unknown as { __WORMAGE__?: unknown }).__WORMAGE__;
       soundRef.current = null;

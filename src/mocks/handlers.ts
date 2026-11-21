@@ -4,6 +4,7 @@ import {
   latencyMs,
   listLeaderboard,
   listMatches,
+  registerDebugLog,
   registerMatch,
   shouldFail,
 } from '../api/mockServer';
@@ -41,5 +42,13 @@ export const handlers = [
     }
     const { record, created } = registerMatch(body);
     return HttpResponse.json(record, { status: created ? 201 : 200 });
+  }),
+
+  http.post('/api/debug-logs', async ({ request }) => {
+    await delay(latencyMs());
+    if (shouldFail()) return HttpResponse.json({ message: 'Upstream unavailable' }, { status: 503 });
+    const body = await request.json();
+    const result = registerDebugLog(body);
+    return HttpResponse.json(result, { status: 201 });
   }),
 ];

@@ -4,6 +4,9 @@ import * as apigwv2 from 'aws-cdk-lib/aws-apigatewayv2';
 import { HttpLambdaIntegration } from 'aws-cdk-lib/aws-apigatewayv2-integrations';
 import * as lambda from 'aws-cdk-lib/aws-lambda';
 import * as dynamodb from 'aws-cdk-lib/aws-dynamodb';
+import * as logs from 'aws-cdk-lib/aws-logs';
+import * as s3 from 'aws-cdk-lib/aws-s3';
+import * as ssm from 'aws-cdk-lib/aws-ssm';
 import * as acm from 'aws-cdk-lib/aws-certificatemanager';
 import * as route53 from 'aws-cdk-lib/aws-route53';
 import * as route53Targets from 'aws-cdk-lib/aws-route53-targets';
@@ -48,18 +51,58 @@ export class WormageStack extends cdk.Stack {
       projectionType: dynamodb.ProjectionType.ALL,
     });
 
+
+    const debugLogBucket = new s3.Bucket(this, 'DebugLogBucket', {
+      encryption: s3.BucketEncryption.S3_MANAGED,
+      blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
+      enforceSSL: true,
+      lifecycleRules: [
+        {
+          id: 'expire-debug-logs',
+          enabled: true,
+          expiration: cdk.Duration.days(7),
+        },
+      ],
+      removalPolicy: cdk.RemovalPolicy.RETAIN,
+    });
+    const debugLogsEnabled = new ssm.StringParameter(this, 'DebugLogsEnabled', {
+      parameterName: '/wormage/debug-logs/enabled',
+      stringValue: 'true',
+    });
+    const debugLogsRetentionDays = new ssm.StringParameter(this, 'DebugLogsRetentionDays', {
+      parameterName: '/wormage/debug-logs/retention-days',
+      stringValue: '7',
+    });
+    const debugLogsMaxPayloadBytes = new ssm.StringParameter(this, 'DebugLogsMaxPayloadBytes', {
+      parameterName: '/wormage/debug-logs/max-payload-bytes',
+      stringValue: '256000',
+    });
+    const debugLogsPrefix = new ssm.StringParameter(this, 'DebugLogsPrefix', {
+      parameterName: '/wormage/debug-logs/prefix',
+      stringValue: 'debug-logs',
+    });
+
     this.handler = new lambda.Function(this, 'WormageHandler', {
       runtime: lambda.Runtime.NODEJS_22_X,
       handler: 'index.handler',
       code: lambda.Code.fromAsset('lambda'),
       environment: {
         TABLE_NAME: this.table.tableName,
+        DEBUG_LOG_BUCKET: debugLogBucket.bucketName,
+        DEBUG_LOGS_ENABLED: debugLogsEnabled.stringValue,
+        DEBUG_LOG_RETENTION_DAYS: debugLogsRetentionDays.stringValue,
+        DEBUG_LOG_MAX_PAYLOAD_BYTES: debugLogsMaxPayloadBytes.stringValue,
+        DEBUG_LOG_PREFIX: debugLogsPrefix.stringValue,
+        DEBUG_LOG_ENV: 'prod',
       },
       timeout: cdk.Duration.seconds(10),
       memorySize: 256,
+      logRetention: logs.RetentionDays.ONE_WEEK,
     });
 
     this.table.grantReadWriteData(this.handler);
+    debugLogBucket.grantWrite(this.handler);
+
 
     const corsOrigins = props?.corsOrigins && props.corsOrigins.length > 0
       ? props.corsOrigins
@@ -84,6 +127,11 @@ export class WormageStack extends cdk.Stack {
       methods: [apigwv2.HttpMethod.ANY],
       integration,
     });
+    this.httpApi.addRoutes({
+      path: '/api/debug-logs',
+      methods: [apigwv2.HttpMethod.POST],
+      integration,
+    });
 
     // Basic throttle on the default stage to protect POST /api/matches.
     const cfnStage = this.httpApi.defaultStage?.node.defaultChild as apigwv2.CfnStage | undefined;
@@ -91,6 +139,12 @@ export class WormageStack extends cdk.Stack {
       cfnStage.defaultRouteSettings = {
         throttlingBurstLimit: 20,
         throttlingRateLimit: 10,
+      };
+      cfnStage.routeSettings = {
+        'POST /api/debug-logs': {
+          throttlingBurstLimit: 5,
+          throttlingRateLimit: 2,
+        },
       };
     }
 
@@ -133,6 +187,10 @@ export class WormageStack extends cdk.Stack {
     new cdk.CfnOutput(this, 'TableName', {
       value: this.table.tableName,
       description: 'Wormage DynamoDB table',
+    });
+    new cdk.CfnOutput(this, 'DebugLogBucketName', {
+      value: debugLogBucket.bucketName,
+      description: 'Wormage debug log bucket',
     });
   }
 }

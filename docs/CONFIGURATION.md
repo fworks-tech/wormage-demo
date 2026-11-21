@@ -113,6 +113,22 @@ Damage falloff: `max(0.22, 1 - distance / (radius + 11))`. A worm on the edge st
 
 Reset with **Reset demo data** in Options, or `localStorage.removeItem('wormage.mockdb.v1')`.
 
+## Debug logging
+
+- Engine state: `GameEngine.debugLog` (bounded to 5000 entries) and `debugSnapshots` (bounded to 200).
+- Client flush: `src/api/debugLog.ts` posts to `POST /api/debug-logs` with a 7-day `expiresAt`, chunked by a 200 KB byte budget (500 entries / 20 snapshots upper bounds) and serialized per engine so overlapping timers cannot duplicate or drop buffered entries.
+- Server cap: `DEBUG_LOG_MAX_PAYLOAD_BYTES` (default 256 KB); oversized requests return 413.
+- S3 layout: `debug-logs/<env>/<yyyy>/<mm>/<dd>/<sessionId>/<flushId>-<chunk>.json`, so periodic and final flushes never overwrite each other.
+- Backend: `infra/lib/wormage-stack.ts` provisions the S3 bucket, SSM parameters and Lambda route.
+- SSM parameters:
+  - `/wormage/debug-logs/enabled`
+  - `/wormage/debug-logs/retention-days`
+  - `/wormage/debug-logs/max-payload-bytes`
+  - `/wormage/debug-logs/prefix`
+- Browser instrumentation: `window.__WORMAGE__.debugLog()`, `clearDebugLog()`, `flushDebugLog()`.
+- Note: SSM values are read at deploy time and baked into the Lambda's environment variables; changing a parameter requires a redeploy. `retention-days` is enforced by the S3 lifecycle rule (7 days), not by the Lambda.
+- CloudWatch Logs retention is also 7 days (Lambda log group retention set in CDK).
+
 ## Common tweaks
 
 - **Faster, bloodier matches:** `WORM.maxHp = 70`, bazooka `damage = 55`.

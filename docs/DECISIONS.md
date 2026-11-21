@@ -142,3 +142,10 @@ The CPU walks to its firing spot with the reticle hidden, then stops and slews t
 
 **Why:** a shot that leaves from an angle the player never saw reads as a cheat, and the pause makes the turn legible instead of instantaneous. The gate also catches a planner angle outside the `AIM` bounds.
 **Cost:** up to ~0.37 s of extra turn time for a half-turn of slew, and the CPU's intent is visible before it fires. The fallback bazooka shot is retargeted once so the visible animation has a stable angle to chase.
+
+## 21. Zod upgraded to v4 with the debug-logging change
+
+The debug-logging PR also moved `zod` from 3.25 to 4.6. v4 changes two behaviors that touched this codebase: `z.record(...)` now requires a key schema (so `z.record(z.unknown())` became `z.record(z.string(), z.unknown())`), and `.default()` short-circuits and no longer parses its value (so `MapParamsSchema.default({})` had to become a full literal default).
+
+**Why:** keep the dependency on a supported major and avoid mixing a later, separate bump into unrelated work.
+**Cost:** a major-version bump landed inside a logging PR, which is scope creep; any other `.default()` on an object schema would silently return the un-parsed default. Audited `src/content/schema.ts` — all other defaults are on primitives and are unaffected.

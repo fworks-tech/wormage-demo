@@ -147,6 +147,7 @@ Match registration is idempotent on `clientMatchId`: a retry after a timeout ret
 
 - Vitest runs browserless unit tests in `tests/unit/`: the engine in Node, ballistics/AI helpers and `mockServer` rules.
 - Playwright drives real clicks/keys and asserts engine state through `window.__WORMAGE__` (documented as instrumentation, not a gameplay shortcut).
+- Debug logging: the engine keeps a bounded in-memory log (`debugLog`) and turn snapshots (`debugSnapshots`), exposed through `window.__WORMAGE__` as `debugLog()`, `clearDebugLog()` and `flushDebugLog()`. Flushes are sent to `POST /api/debug-logs` and stored in S3 with a 7-day lifecycle; CloudWatch Logs carries the structured operational trail.
 - Deterministic seeds are passed via `?seed=123` (ruleset snapshot) so terrain and AI jitter are reproducible.
 - Visual baselines are planned for M1; the suite currently asserts state, not pixels.
 - The mock layer supports deterministic latency/failure scenarios, which is how the loading/empty/error and duplicate-write tests are written.

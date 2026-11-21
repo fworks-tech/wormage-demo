@@ -10,6 +10,7 @@ import type {
 
 const DB_KEY = 'wormage.mockdb.v1';
 const SCENARIO_KEY = 'wormage.netScenario.v1';
+const DEBUG_LOG_KEY = 'wormage.debuglogs.v1';
 
 interface Db {
   matches: MatchRecord[];
@@ -25,11 +26,13 @@ function safeRead<T>(key: string): T | null {
   }
 }
 
-function safeWrite(key: string, value: unknown): void {
+function safeWrite(key: string, value: unknown): boolean {
   try {
     localStorage.setItem(key, JSON.stringify(value));
+    return true;
   } catch {
     // opaque-origin iframes cannot persist; in-memory state still works
+    return false;
   }
 }
 
@@ -239,3 +242,19 @@ function paginate<T>(rows: T[], page: number, pageSize: number): Paginated<T> {
 }
 
 export const MOCK_TOTAL_FIXTURES = FIXTURE_PLAYERS.length;
+
+
+export function registerDebugLog(payload: unknown): { stored: boolean; count: number } {
+  const now = Date.now();
+  const list = safeRead<unknown[]>(DEBUG_LOG_KEY) ?? [];
+  const filtered = (Array.isArray(list) ? list : []).filter((item) => {
+    if (!item || typeof item !== 'object') return false;
+    const expires = (item as { expiresAt?: string }).expiresAt;
+    return !expires || new Date(expires).getTime() > now;
+  });
+  filtered.push(payload);
+  const MAX_DEBUG_SESSIONS = 20;
+  while (filtered.length > MAX_DEBUG_SESSIONS) filtered.shift();
+  const stored = safeWrite(DEBUG_LOG_KEY, filtered);
+  return { stored, count: filtered.length };
+}
