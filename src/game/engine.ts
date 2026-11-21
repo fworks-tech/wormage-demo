@@ -241,6 +241,8 @@ export class GameEngine {
     this.aiLastX = -1;
     this.aiJumpDeadline = null;
     this.aiRopeDeadline = null;
+    this.aiJumpCount = 0;
+    this.aiRopeCount = 0;
     this.aiThinking = team.isAi;
     const maxWind = WIND_ACCEL[this.config.wind];
     this.wind = first ? 0 : (Math.round((this.rng() * 2 - 1) * maxWind) || 0);
