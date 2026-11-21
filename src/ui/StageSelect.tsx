@@ -23,9 +23,11 @@ export function StageSelect({ settings, onSaveSettings, onStart, onClose }: Prop
     onStart();
   };
   return (
-    <div className="dialog" role="dialog" aria-label="Stages">
-      <h2>STAGES</h2>
-      <ul>
+    <div className="overlay-card stages-dialog" data-testid="stages-dialog">
+      <p className="eyebrow">Campaign</p>
+      <h2>Stages</h2>
+      <p className="muted">Pick a stage. Clear one to unlock the next.</p>
+      <ul className="stage-list">
         {STAGES.map((stage) => {
           const unlocked = isUnlocked(stage, progress);
           const done = Boolean(progress[stage.id]);
@@ -33,17 +35,25 @@ export function StageSelect({ settings, onSaveSettings, onStart, onClose }: Prop
             <li key={stage.id}>
               <button
                 type="button"
+                className="stage-btn"
                 disabled={!unlocked}
                 onClick={() => startStage(stage)}
                 data-testid={`stage-${stage.id}`}
               >
-                {stage.name} {done ? '✓' : unlocked ? '' : '🔒'}
+                <span className="stage-name">{stage.name}</span>
+                <span className="stage-meta">
+                  {done ? '✓ cleared' : unlocked ? 'available' : '🔒 locked'}
+                </span>
               </button>
             </li>
           );
         })}
       </ul>
-      <button type="button" onClick={onClose} data-testid="stage-close">Close</button>
+      <div className="overlay-actions">
+        <button type="button" className="ghost-btn" onClick={onClose} data-testid="stage-close">
+          Close
+        </button>
+      </div>
     </div>
   );
 }
