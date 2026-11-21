@@ -342,7 +342,7 @@ async function postOnlineMatch(event, ddbClient = ddb) {
   const body = parseBody(event);
   if (!isStr(body.playerId)) return json(400, { message: 'playerId is required' });
   if (!isStr(body.playerName)) return json(400, { message: 'playerName is required' });
-  const teamName = isStr(body.teamName) ? body.teamName : 'Ironclad';
+  const teamName = isStr(body.teamName) ? body.teamName : 'Team 1';
   const settings = (body.settings && typeof body.settings === 'object' && !Array.isArray(body.settings)) ? body.settings : {};
   // DynamoDB rejects `undefined` values; keep only defined keys.
   const cleanSettings = {};
@@ -394,14 +394,13 @@ async function joinOnlineMatch(event, rawCode, ddbClient = ddb) {
   const body = parseBody(event);
   if (!isStr(body.playerId)) return json(400, { message: 'playerId is required' });
   if (!isStr(body.playerName)) return json(400, { message: 'playerName is required' });
-  const teamName = isStr(body.teamName) ? body.teamName : 'Ironclad';
-
   const got = await ddbClient.send(new GetCommand({
     TableName: TABLE,
     Key: { pk: `ONLINE#${code}`, sk: 'META' },
   }));
   if (!got.Item) return json(404, { message: 'match not found' });
   const match = got.Item;
+  const teamName = isStr(body.teamName) ? body.teamName : `Team ${(Array.isArray(match.players) ? match.players.length : 0) + 1}`;
 
   if (Array.isArray(match.players) && match.players.some((p) => p && p.playerId === body.playerId)) {
     return json(200, { code: match.code, match: toOnlineMatch(match) });

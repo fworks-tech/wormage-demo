@@ -294,7 +294,7 @@ export function createOnlineMatch(input: {
     createdAt: now,
     maxPlayers: 2,
     settings: input.settings ?? {},
-    players: [{ playerId: input.playerId, playerName: input.playerName, teamName: input.teamName ?? 'Ironclad' }],
+    players: [{ playerId: input.playerId, playerName: input.playerName, teamName: input.teamName ?? 'Team 1' }],
     activeTeam: 0,
     turn: 1,
     turnStartedAt: now,
@@ -317,7 +317,7 @@ export function joinOnlineMatch(code: string, input: { playerId: string; playerN
   if (match.players.length >= match.maxPlayers) {
     return { error: 'full' };
   }
-  match.players.push({ playerId: input.playerId, playerName: input.playerName, teamName: input.teamName ?? 'Ironclad' });
+  match.players.push({ playerId: input.playerId, playerName: input.playerName, teamName: input.teamName ?? `Team ${match.players.length + 1}` });
   if (match.players.length >= match.maxPlayers) {
     match.status = 'ready';
     match.activeTeam = 0;
