@@ -630,9 +630,9 @@ export class GameEngine {
         if (nx < 0 || nx > WORLD_W) break;
         const g = this.terrain.groundY(nx, 120, WATER_Y - 120);
         if (g === null) break;
-        // Too steep a climb: treat as a wall.
-        const curG = this.terrain.groundY(x, 120, WATER_Y - 120) ?? g;
-        if (Math.abs(g - curG) > 40) break;
+        // Too steep a climb (or a gap): treat as a wall.
+        const curG = this.terrain.groundY(x, 120, WATER_Y - 120);
+        if (curG === null || Math.abs(g - curG) > 40) break;
         x = nx;
         moved += step;
       }
