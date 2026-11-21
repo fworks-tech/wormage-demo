@@ -142,9 +142,9 @@ export class WormageStack extends cdk.Stack {
       };
       cfnStage.routeSettings = {
         'POST /api/debug-logs': {
-          throttlingBurstLimit: 5,
-          throttlingRateLimit: 2,
-        },
+          ThrottlingBurstLimit: 5,
+          ThrottlingRateLimit: 2,
+        } as any,
       };
     }
 
