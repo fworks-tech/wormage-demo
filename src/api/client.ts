@@ -6,6 +6,8 @@ import {
   latencyMs,
   registerMatch,
   registerDebugLog,
+  createOnlineMatch,
+  joinOnlineMatch,
   shouldFail,
   isEmpty,
 } from './mockServer';
@@ -66,6 +68,38 @@ const localAdapter: AxiosAdapter = async (config) => {
     const body = (typeof config.data === 'string' ? JSON.parse(config.data) : config.data) as unknown;
     const { stored } = registerDebugLog(body);
     return respond(config, 201, { stored, schemaVersion: 1 });
+  }
+
+  const onlineCreate = url.pathname === '/api/matches/online';
+  if (method === 'POST' && onlineCreate) {
+    const body = (typeof config.data === 'string' ? JSON.parse(config.data) : config.data) as {
+      playerId: string; playerName: string; teamName?: string; settings?: Record<string, unknown>;
+    };
+    const { code, link, match } = createOnlineMatch({
+      playerId: body.playerId,
+      playerName: body.playerName,
+      teamName: body.teamName,
+      settings: body.settings as never,
+    });
+    return respond(config, 201, { code, link, match });
+  }
+
+  const onlineJoinMatch = url.pathname.match(/^\/api\/matches\/online\/([^/]+)\/join$/);
+  if (method === 'POST' && onlineJoinMatch) {
+    const code = decodeURIComponent(onlineJoinMatch[1]);
+    const body = (typeof config.data === 'string' ? JSON.parse(config.data) : config.data) as {
+      playerId: string; playerName: string; teamName?: string;
+    };
+    const result = joinOnlineMatch(code, {
+      playerId: body.playerId,
+      playerName: body.playerName,
+      teamName: body.teamName,
+    });
+    if ('error' in result) {
+      const status = result.error === 'not_found' ? 404 : 409;
+      throw new AxiosError(result.error, 'ERR_BAD_REQUEST', config, null, respond(config, status, { message: result.error }));
+    }
+    return respond(config, 200, { code: result.code, match: result.match });
   }
 
   throw new AxiosError(`No mock route for ${method} ${url.pathname}`, 'ERR_NOT_FOUND', config, null, respond(config, 404, { message: 'Not found' }));

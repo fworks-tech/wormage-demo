@@ -5,9 +5,10 @@ import { ControlsDialog } from './ControlsDialog';
 import { MenuBackdrop } from './MenuBackdrop';
 import { SettingsDialog } from './SettingsDialog';
 import { StageSelect } from './StageSelect';
+import { OnlineMatchDialog } from './OnlineMatchDialog';
 import { useDialogFocus } from './useDialogFocus';
 
-type MenuPanel = 'settings' | 'controls' | 'stages' | null;
+type MenuPanel = 'settings' | 'controls' | 'stages' | 'online' | null;
 
 interface NewGameMenuProps {
   onStart: () => void;
@@ -15,10 +16,11 @@ interface NewGameMenuProps {
   onSaveSettings: (settings: GameSettings) => void;
   bindings: Bindings;
   onSaveBindings: (bindings: Bindings) => void;
+  player: import('../state/storage').PlayerIdentity;
 }
 
 /** Landing dialog for /demo: the game is one click away, the project page one link away. */
-export function NewGameMenu({ onStart, settings, onSaveSettings, bindings, onSaveBindings }: NewGameMenuProps) {
+export function NewGameMenu({ onStart, settings, onSaveSettings, bindings, onSaveBindings, player }: NewGameMenuProps) {
   // The single-file build has no routes, so /project would leave the app.
   const hasRoutes = import.meta.env.MODE !== 'single';
   const [panel, setPanel] = useState<MenuPanel>(null);
@@ -35,7 +37,7 @@ export function NewGameMenu({ onStart, settings, onSaveSettings, bindings, onSav
         className="overlay"
         role="dialog"
         aria-modal="true"
-        aria-label={panel === 'settings' ? 'Settings' : panel === 'controls' ? 'Controls' : 'New game'}
+        aria-label={panel === 'settings' ? 'Settings' : panel === 'controls' ? 'Controls' : panel === 'online' ? 'Online match' : 'New game'}
         onKeyDown={(event) => {
           if (event.key === 'Escape' && panel) {
             event.preventDefault();
@@ -52,6 +54,8 @@ export function NewGameMenu({ onStart, settings, onSaveSettings, bindings, onSav
           <StageSelect settings={settings} onSaveSettings={onSaveSettings} onStart={onStart} onClose={() => setPanel(null)} />
         ) : panel === 'controls' ? (
           <ControlsDialog bindings={bindings} onSave={onSaveBindings} onClose={() => setPanel(null)} />
+        ) : panel === 'online' ? (
+          <OnlineMatchDialog player={player} onClose={() => setPanel(null)} />
         ) : (
           <div className="overlay-card">
             <p className="eyebrow">
@@ -88,6 +92,14 @@ export function NewGameMenu({ onStart, settings, onSaveSettings, bindings, onSav
                 data-testid="btn-stages"
               >
                 Stages
+              </button>
+              <button
+                type="button"
+                className="ghost-btn"
+                onClick={() => setPanel('online')}
+                data-testid="btn-online"
+              >
+                Online match
               </button>
               {hasRoutes && (
                 <a className="ghost-btn" href="/project" data-testid="btn-project">

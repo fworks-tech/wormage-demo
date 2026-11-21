@@ -32,6 +32,7 @@ const UI_E2E = [
   'tests/settings.spec.ts',
   'tests/stages.spec.ts',
   'tests/hotseat.spec.ts',
+  'tests/online.spec.ts',
 ];
 
 const FULL_FILES = [
@@ -92,7 +93,7 @@ const RULES = [
   },
   {
     dirs: ['src/api/', 'src/mocks/', 'src/state/'],
-    unit: ['tests/unit/mockServer.test.ts'],
+    unit: ['tests/unit/mockServer.test.ts', 'tests/unit/onlineMatch.test.ts'],
     e2e: ['tests/data.spec.ts', 'tests/menu.spec.ts'],
   },
   // A new screen or component still runs every spec: over-selecting is cheap.

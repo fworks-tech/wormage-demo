@@ -1,6 +1,6 @@
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from './client';
-import type { LeaderboardRow, MatchRecord, NewMatchInput, Paginated } from './types';
+import type { LeaderboardRow, MatchRecord, NewMatchInput, OnlineMatch, Paginated, CreateOnlineMatchInput, JoinOnlineMatchInput } from './types';
 
 export const queryKeys = {
   leaderboard: (configKey: string, page: number, pageSize: number) =>
@@ -50,6 +50,26 @@ export function useRegisterMatch() {
       void client.invalidateQueries({ queryKey: ['leaderboard'] });
       void client.invalidateQueries({ queryKey: ['matches'] });
     },
+  });
+}
+
+export function useCreateOnlineMatch() {
+  return useMutation({
+    mutationFn: async (input: CreateOnlineMatchInput) => {
+      const { data } = await api.post<{ code: string; link: string; match: OnlineMatch }>('/api/matches/online', input);
+      return data;
+    },
+    retry: 0,
+  });
+}
+
+export function useJoinOnlineMatch() {
+  return useMutation({
+    mutationFn: async ({ code, input }: { code: string; input: JoinOnlineMatchInput }) => {
+      const { data } = await api.post<{ code: string; match: OnlineMatch }>(`/api/matches/online/${encodeURIComponent(code)}/join`, input);
+      return data;
+    },
+    retry: 0,
   });
 }
 

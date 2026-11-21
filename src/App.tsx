@@ -139,6 +139,7 @@ export default function App() {
           onSaveSettings={handleSaveSettings}
           bindings={bindings}
           onSaveBindings={handleSaveBindings}
+          player={player}
         />
       )}
 
