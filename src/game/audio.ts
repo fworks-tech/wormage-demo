@@ -2,6 +2,7 @@ type SfxName =
   | 'click'
   | 'fire'
   | 'boom'
+  | 'mine'
   | 'jump'
   | 'bounce'
   | 'hurt'
@@ -121,6 +122,12 @@ export class SoundKit {
           osc.start(start);
           osc.stop(start + 0.35);
         });
+        break;
+      case 'mine':
+        // Deeper thud + debris rattle — distinct from 'boom'.
+        noiseBurst(0.5, 600, 0.7);
+        tone(72, 28, 0.5, 'sine', 0.5);
+        tone(140, 60, 0.25, 'square', 0.15);
         break;
       default:
         break;

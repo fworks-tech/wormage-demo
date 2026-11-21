@@ -141,6 +141,7 @@ export type Phase = 'aim' | 'projectile' | 'settle' | 'gameover';
 export type GameEvent =
   | { type: 'fire'; x: number; y: number; angle: number; weapon: WeaponId }
   | { type: 'explosion'; x: number; y: number; radius: number }
+  | { type: 'mineExplosion'; x: number; y: number; radius: number }
   | { type: 'hurt'; x: number; y: number; amount: number }
   | { type: 'death'; x: number; y: number; color: number }
   | { type: 'splash'; x: number; y: number }
@@ -218,7 +219,7 @@ export interface GameSnapshot {
   ropeAttached: boolean;
   /** Shortest lit fuse among projectiles in flight, or null. */
   fuseLeft: number | null;
-  loot: { x: number; y: number; kind: 'ammo' | 'mine' | 'secret' }[];
+  loot: { x: number; y: number; kind: 'ammo' | 'mine' | 'secret'; armed: boolean; fuse: number }[];
   mobs: { x: number; y: number; hp: number }[];
   /** Water level used for drowning checks. */
   waterLevel: number;

@@ -39,6 +39,7 @@ test('game sources run the game units and the gameplay specs', () => {
     'tests/unit/debugLog.test.ts',
     'tests/unit/engine.test.ts',
     'tests/unit/jump.test.ts',
+    'tests/unit/mines.test.ts',
     'tests/unit/parity.test.ts',
     'tests/unit/replay.test.ts',
     'tests/unit/rope.test.ts',
