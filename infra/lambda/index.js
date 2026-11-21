@@ -112,7 +112,7 @@ async function getMatches(event, ddbClient = ddb) {
 }
 
 function keyOf(turnSeconds, wind, difficulty, map, mode, loadout) {
-  return `${turnSeconds}-${wind}-${difficulty}-${map || 'island'}-${mode || 'deathmatch'}-${loadout || 'default'}`;
+  return `${turnSeconds}s-${wind}-${difficulty}-${map || 'island'}-${mode || 'deathmatch'}-${loadout || 'default'}`;
 }
 
 function toRecord(m) {

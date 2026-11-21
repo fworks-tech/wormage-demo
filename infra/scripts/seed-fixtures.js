@@ -19,7 +19,7 @@ const CONFIGS = [
 ];
 
 function keyOf(cfg) {
-  return `${cfg.turnSeconds}-${cfg.wind}-${cfg.difficulty}-island-deathmatch-default`;
+  return `${cfg.turnSeconds}s-${cfg.wind}-${cfg.difficulty}-island-deathmatch-default`;
 }
 
 async function main() {

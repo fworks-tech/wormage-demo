@@ -71,11 +71,11 @@ test('leaderboard returns paginated shape', async () => {
   const ddb = makeMockDdb();
   const item = {
     pk: 'CLIENT#c1', sk: 'META', playerId: 'p1', playerName: 'P', teamName: 'T',
-    score: 100, kills: 1, durationSeconds: 60, configKey: '45-light-veteran-island-deathmatch-default',
-    createdAt: new Date().toISOString(), gsi1pk: 'CONFIG#45-light-veteran-island-deathmatch-default', gsi1sk: new Date().toISOString(),
+    score: 100, kills: 1, durationSeconds: 60, configKey: '45s-light-veteran-island-deathmatch-default',
+    createdAt: new Date().toISOString(), gsi1pk: 'CONFIG#45s-light-veteran-island-deathmatch-default', gsi1sk: new Date().toISOString(),
   };
   await ddb.send(new PutCommand({ TableName: 't', Item: item }));
-  const r = await L.getLeaderboard(ev('GET', '/api/leaderboard', { configKey: '45-light-veteran-island-deathmatch-default', page: '1', pageSize: '8' }), ddb);
+  const r = await L.getLeaderboard(ev('GET', '/api/leaderboard', { configKey: '45s-light-veteran-island-deathmatch-default', page: '1', pageSize: '8' }), ddb);
   assert.equal(r.statusCode, 200);
   const b = JSON.parse(r.body);
   assert.deepEqual(Object.keys(b).sort(), ['items', 'page', 'pageSize', 'total', 'totalPages']);
