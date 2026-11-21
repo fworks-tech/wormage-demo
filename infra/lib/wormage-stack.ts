@@ -207,59 +207,11 @@ export class WormageStack extends cdk.Stack {
       alarmDescription: 'API Gateway 5xx count',
     }).addAlarmAction(new cwActions.SnsAction(alarmTopic));
 
-    // WAF: regional WebACL with a rate-based rule and the AWS Common Rule Set.
-    const webAcl = new wafv2.CfnWebACL(this, 'WormageWebAcl', {
-      scope: 'REGIONAL',
-      defaultAction: { allow: {} },
-      visibilityConfig: {
-        sampledRequestsEnabled: true,
-        cloudWatchMetricsEnabled: true,
-        metricName: 'WormageWebAcl',
-      },
-      rules: [
-        {
-          name: 'RateLimit',
-          priority: 1,
-          statement: {
-            rateBasedStatement: {
-              limit: 100,
-              aggregateKeyType: 'IP',
-            },
-          },
-          action: { block: {} },
-          visibilityConfig: {
-            sampledRequestsEnabled: true,
-            cloudWatchMetricsEnabled: true,
-            metricName: 'RateLimit',
-          },
-        },
-        {
-          name: 'AWSManagedRulesCommonRuleSet',
-          priority: 2,
-          overrideAction: { none: {} },
-          statement: {
-            managedRuleGroupStatement: {
-              vendorName: 'AWS',
-              name: 'AWSManagedRulesCommonRuleSet',
-            },
-          },
-          visibilityConfig: {
-            sampledRequestsEnabled: true,
-            cloudWatchMetricsEnabled: true,
-            metricName: 'AWSManagedRulesCommonRuleSet',
-          },
-        },
-      ],
-    });
-
-    const stageArn = `arn:aws:apigateway:${this.region}::/apis/${this.httpApi.apiId}/stages/$default`;
-    const webAclAssociation = new wafv2.CfnWebACLAssociation(this, 'WormageWebAclAssociation', {
-      resourceArn: stageArn,
-      webAclArn: webAcl.attrArn,
-    });
-    if (cfnStage) {
-      webAclAssociation.addDependency(cfnStage);
-    }
+    // WAF: regional WebACL association is not supported for HTTP APIs (v2) —
+    // WAFv2 accepts REST API stage ARNs (/restapis/...). Rate limiting for this
+    // HTTP API relies on the default stage throttling (20 burst / 10 rate) until
+    // migrated to a REST API or fronted by CloudFront + WAF.
+    // shortcut: WAF deferred for HTTP API; revisit if traffic/abuse demands it.
 
     // Optional custom domain (issue #133). Enabled when a certificate ARN is provided.
     // Route 53 records are only created when a hosted zone is also provided; otherwise
