@@ -6,10 +6,11 @@ export interface DebugLogPayload {
   schemaVersion: number;
   sessionId: string;
   matchId: string;
+  flushId: string;
+  chunk: number;
+  totalChunks: number;
   createdAt: string;
   expiresAt: string;
-  chunk?: number;
-  totalChunks?: number;
   session: {
     seed: number;
     teamCount: number;
@@ -29,16 +30,39 @@ const RETENTION_DAYS = 7;
 const ENTRY_CHUNK_SIZE = 500;
 const SNAPSHOT_CHUNK_SIZE = 20;
 
-export async function flushDebugLog(engine: GameEngine): Promise<boolean> {
+// Flushes fire from the interval, the visibility handler, the finish path and cleanup.
+// Serializing per engine stops two uploads from snapshotting and splicing the same entries.
+const inFlight = new WeakMap<GameEngine, Promise<boolean>>();
+
+export function flushDebugLog(engine: GameEngine): Promise<boolean> {
+  const previous = inFlight.get(engine) ?? Promise.resolve(true);
+  const run = previous.then(
+    () => sendDebugLog(engine),
+    () => sendDebugLog(engine),
+  );
+  inFlight.set(engine, run);
+  void run.finally(() => {
+    if (inFlight.get(engine) === run) inFlight.delete(engine);
+  });
+  return run;
+}
+
+async function sendDebugLog(engine: GameEngine): Promise<boolean> {
   const entries = [...engine.debugLog];
   const snapshots = [...engine.debugSnapshots];
   if (entries.length === 0 && snapshots.length === 0) return true;
 
   const now = new Date();
   const expires = new Date(now.getTime() + RETENTION_DAYS * 24 * 60 * 60 * 1000);
+  // A fresh id per flush keeps S3 keys unique across periodic and final uploads.
+  // randomUUID needs a secure context; fall back for file:// and sandboxed previews.
+  const flushId = crypto.randomUUID?.() ?? `${now.getTime().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+  // Each request carries one entry slice and one snapshot slice, so the request
+  // count is the larger of the two, not their sum.
   const totalChunks = Math.max(
     1,
-    Math.ceil(entries.length / ENTRY_CHUNK_SIZE) + Math.ceil(snapshots.length / SNAPSHOT_CHUNK_SIZE),
+    Math.ceil(entries.length / ENTRY_CHUNK_SIZE),
+    Math.ceil(snapshots.length / SNAPSHOT_CHUNK_SIZE),
   );
   let chunkNumber = 1;
   let entriesSent = 0;
@@ -51,6 +75,7 @@ export async function flushDebugLog(engine: GameEngine): Promise<boolean> {
       schemaVersion: 1,
       sessionId: engine.sessionId,
       matchId: engine.matchId,
+      flushId,
       chunk: chunkNumber,
       totalChunks,
       createdAt: now.toISOString(),

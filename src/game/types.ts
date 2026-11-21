@@ -207,6 +207,8 @@ export interface GameSnapshot {
   weapon: WeaponId;
   teams: TeamSnapshot[];
   winnerTeam: number | null;
+  /** Why the match ended; null while it is still running. */
+  endReason: EndReason | null;
   aiThinking: boolean;
   /** Seconds left in the post-fire movement window. */
   retreatLeft: number;

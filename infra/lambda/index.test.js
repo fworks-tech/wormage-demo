@@ -170,6 +170,32 @@ test('postDebugLog stores payload in S3', async () => {
   assert.equal(s3.store.size, 1);
 });
 
+test('postDebugLog keys each flush and chunk separately', async () => {
+  process.env.DEBUG_LOG_BUCKET = 'bucket';
+  process.env.DEBUG_LOGS_ENABLED = 'true';
+  const s3 = makeMockS3();
+  const base = { sessionId: 's1', matchId: 'm1', schemaVersion: 1, entries: [], snapshots: [] };
+  await L.postDebugLog(ev('POST', '/api/debug-logs', {}, { ...base, flushId: 'f1', chunk: 1 }), s3);
+  await L.postDebugLog(ev('POST', '/api/debug-logs', {}, { ...base, flushId: 'f1', chunk: 2 }), s3);
+  await L.postDebugLog(ev('POST', '/api/debug-logs', {}, { ...base, flushId: 'f2', chunk: 1 }), s3);
+  assert.equal(s3.store.size, 3);
+  for (const key of s3.store.keys()) {
+    assert.ok(key.includes('/s1/f1-1.json') || key.includes('/s1/f1-2.json') || key.includes('/s1/f2-1.json'));
+  }
+});
+
+test('postDebugLog keeps untrusted session ids inside the prefix', async () => {
+  process.env.DEBUG_LOG_BUCKET = 'bucket';
+  process.env.DEBUG_LOGS_ENABLED = 'true';
+  const s3 = makeMockS3();
+  const body = { sessionId: '../../evil', matchId: 'm1', entries: [], snapshots: [] };
+  const r = await L.postDebugLog(ev('POST', '/api/debug-logs', {}, body), s3);
+  assert.equal(r.statusCode, 201);
+  const [key] = [...s3.store.keys()];
+  assert.ok(!key.includes('..'));
+  assert.ok(key.startsWith('debug-logs/'));
+});
+
 test('postDebugLog validates body', async () => {
   const s3 = makeMockS3();
   const r = await L.postDebugLog(ev('POST', '/api/debug-logs', {}, { entries: [] }), s3);

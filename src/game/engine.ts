@@ -802,7 +802,6 @@ export class GameEngine {
   private finish(winner: number | null, reason: EndReason): void {
     if (this.phase === 'gameover') return;
     this.logDebug('match.end', 'Match ended', { winnerTeam: winner, reason, elapsed: Math.round(this.elapsed) }, 'system');
-    this.captureDebugSnapshot('match.end');
     this.phase = 'gameover';
     this.winnerTeam = winner;
     this.endReason = reason;
@@ -812,6 +811,8 @@ export class GameEngine {
     this.projectiles = [];
     this.clearRopes();
     this.events.push({ type: 'gameover', winnerTeamId: winner });
+    // Capture after the terminal state so the snapshot reports the winner and end reason.
+    this.captureDebugSnapshot('match.end');
   }
 
   private hurt(worm: Worm, amount: number, sourceX: number, sourceY: number, sourceTeam: number | null): void {
@@ -1502,6 +1503,7 @@ export class GameEngine {
       weapon: this.weapon,
       teams,
       winnerTeam: this.winnerTeam,
+      endReason: this.endReason,
       aiThinking: this.aiThinking,
       retreatLeft: this.retreatActive ? this.retreatTimer : 0,
       activeOnGround: active?.onGround ?? true,

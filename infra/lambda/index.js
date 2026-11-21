@@ -257,7 +257,10 @@ async function postDebugLog(event, s3Client = s3) {
   const yyyy = now.toISOString().slice(0, 4);
   const mm = now.toISOString().slice(5, 7);
   const dd = now.toISOString().slice(8, 10);
-  const key = `${prefix}/${env}/${yyyy}/${mm}/${dd}/${body.sessionId}.json`;
+  // Client-supplied segments must not escape the prefix or collide across flushes.
+  const flushId = keySegment(body.flushId || now.toISOString());
+  const chunk = Number.isInteger(body.chunk) ? body.chunk : 1;
+  const key = `${prefix}/${env}/${yyyy}/${mm}/${dd}/${keySegment(body.sessionId)}/${flushId}-${chunk}.json`;
 
   await s3Client.send(new PutObjectCommand({
     Bucket: bucket,
@@ -270,6 +273,8 @@ async function postDebugLog(event, s3Client = s3) {
     type: 'debug-log',
     sessionId: body.sessionId,
     matchId: body.matchId,
+    flushId,
+    chunk,
     entries: Array.isArray(body.entries) ? body.entries.length : 0,
     snapshots: Array.isArray(body.snapshots) ? body.snapshots.length : 0,
     s3Key: key,
@@ -287,7 +292,18 @@ function validateDebugLogBody(body) {
   if (body.entries.length > 100000) return 'too many entries';
   if (body.snapshots.length > 10000) return 'too many snapshots';
   if (body.schemaVersion !== undefined && !isNum(body.schemaVersion, 1, 1000)) return 'invalid schemaVersion';
+  if (body.flushId !== undefined && !isStr(body.flushId, 128)) return 'invalid flushId';
+  if (body.chunk !== undefined && !Number.isInteger(body.chunk)) return 'invalid chunk';
+  if (body.totalChunks !== undefined && !Number.isInteger(body.totalChunks)) return 'invalid totalChunks';
   return null;
+}
+
+/** Keep untrusted key segments inside one S3 "folder" and free of separators. */
+function keySegment(value) {
+  return String(value)
+    .replace(/[^A-Za-z0-9._-]/g, '-')
+    .replace(/\.{2,}/g, '.')
+    .slice(0, 128);
 }
 
 exports.handler = async (event) => {
