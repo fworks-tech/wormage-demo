@@ -36,7 +36,7 @@ export const MapParamsSchema = z.object({
 export const MapSchema = z.object({
   id: z.string().min(1),
   theme: MapThemeSchema,
-  params: MapParamsSchema.default({}),
+  params: MapParamsSchema.default({ roughness: 1, waterLevel: 0.92, shelfCount: 2, caveDensity: 0.3, symmetry: false }),
   chunks: z.number().int().min(1).max(9).default(1),
 });
 

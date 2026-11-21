@@ -179,7 +179,7 @@ export function keyLabel(code: string): string {
   return code.replace(/([a-z0-9])([A-Z])/g, '$1 $2');
 }
 
-const STORED_BINDINGS = z.record(z.unknown());
+const STORED_BINDINGS = z.record(z.string(), z.unknown());
 
 /** Merge stored values over the defaults; anything malformed or reserved falls back. */
 export function sanitizeBindings(raw: unknown): Bindings {

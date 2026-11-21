@@ -81,6 +81,7 @@ export class GameEngine {
   private readonly debugLogLimit = 5000;
   debugSnapshots: Array<{ reason: string; snapshot: GameSnapshot }> = [];
   private readonly debugSnapshotLimit = 200;
+  private aiBlockedLogged = false;
   elapsed = 0;
   aiThinking = false;
   retreatTimer = 0;
@@ -1256,6 +1257,7 @@ export class GameEngine {
       this.aiStall = 0;
       this.aiJumpCount = 0;
       this.aiRopeCount = 0;
+      this.aiBlockedLogged = false;
 
       if (!this.aiPlan) {
         this.logDebug('ai.noPlan', 'AI found no plan', { wormId: worm.id, teamId: worm.teamId }, 'cpu', worm.id, 'warn');
@@ -1320,11 +1322,14 @@ export class GameEngine {
       else {
         this.aiStall = 0;
         this.aiLastX = worm.x;
+        this.aiBlockedLogged = false;
       }
       // Blocked or out of turn time: take the best bazooka shot from here.
       if (this.aiStall < 1.5 && this.timeLeft > 0.5) return;
 
-      this.logDebug('ai.blocked', 'AI movement blocked', {
+      if (!this.aiBlockedLogged) {
+        this.aiBlockedLogged = true;
+        this.logDebug('ai.blocked', 'AI movement blocked', {
         wormId: worm.id,
         x: worm.x,
         fireX: plan.fireX,
@@ -1333,6 +1338,7 @@ export class GameEngine {
         ropeCount: this.aiRopeCount,
         jumpCount: this.aiJumpCount,
       }, 'cpu', worm.id, 'warn');
+      }
 
       // A blocked AI walk climbs with the rope when the ledge is too high,
       // otherwise jumps for a bounded window, then shoots from here.

@@ -251,6 +251,8 @@ export function registerDebugLog(payload: unknown): { stored: boolean; count: nu
     return !expires || new Date(expires).getTime() > now;
   });
   filtered.push(payload);
+  const MAX_DEBUG_SESSIONS = 20;
+  while (filtered.length > MAX_DEBUG_SESSIONS) filtered.shift();
   safeWrite(DEBUG_LOG_KEY, filtered);
   return { stored: true, count: filtered.length };
 }

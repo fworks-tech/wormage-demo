@@ -52,7 +52,6 @@ export class WormageStack extends cdk.Stack {
 
 
     const debugLogBucket = new s3.Bucket(this, 'DebugLogBucket', {
-      bucketName: undefined,
       encryption: s3.BucketEncryption.S3_MANAGED,
       blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
       enforceSSL: true,
@@ -126,6 +125,11 @@ export class WormageStack extends cdk.Stack {
       methods: [apigwv2.HttpMethod.ANY],
       integration,
     });
+    this.httpApi.addRoutes({
+      path: '/api/debug-logs',
+      methods: [apigwv2.HttpMethod.POST],
+      integration,
+    });
 
     // Basic throttle on the default stage to protect POST /api/matches.
     const cfnStage = this.httpApi.defaultStage?.node.defaultChild as apigwv2.CfnStage | undefined;
@@ -133,6 +137,12 @@ export class WormageStack extends cdk.Stack {
       cfnStage.defaultRouteSettings = {
         throttlingBurstLimit: 20,
         throttlingRateLimit: 10,
+      };
+      cfnStage.routeSettings = {
+        'POST /api/debug-logs': {
+          throttlingBurstLimit: 5,
+          throttlingRateLimit: 2,
+        },
       };
     }
 
