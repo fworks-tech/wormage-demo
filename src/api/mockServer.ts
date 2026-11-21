@@ -337,6 +337,14 @@ export function submitOnlineAction(code: string, input: { playerId: string; acti
   if (match.status !== 'ready') return { error: 'match not ready', status: 409 };
   if (match.winnerTeam != null) return { error: 'match finished', status: 409 };
   if (!match.players.some((p) => p.playerId === input.playerId)) return { error: 'not a participant', status: 403 };
+
+  // Idempotency (before turn/phase validation)
+  if (!db.actionLogs) db.actionLogs = {};
+  const log = db.actionLogs[code.toUpperCase()] || { actions: [] };
+  if (input.clientActionId && log.actions.some((a) => (a as { clientActionId?: string }).clientActionId === input.clientActionId)) {
+    return { code: match.code, match };
+  }
+
   if (match.players[match.activeTeam]?.playerId !== input.playerId) return { error: 'not your turn', status: 409 };
 
   const phase = match.phase || 'aim';
@@ -353,14 +361,6 @@ export function submitOnlineAction(code: string, input: { playerId: string; acti
     return { error: 'unknown action type', status: 400 };
   }
 
-  // Idempotency
-  const logDb = getOnlineDb();
-  // store action log in a separate in-memory map
-  if (!logDb.actionLogs) logDb.actionLogs = {};
-  const log = logDb.actionLogs[code.toUpperCase()] || { actions: [] };
-  if (input.clientActionId && log.actions.some((a) => (a as { clientActionId?: string }).clientActionId === input.clientActionId)) {
-    return { code: match.code, match };
-  }
   if (log.actions.length >= 500) return { error: 'action log full', status: 409 };
 
   const now = new Date().toISOString();
@@ -385,7 +385,7 @@ export function submitOnlineAction(code: string, input: { playerId: string; acti
   }
 
   log.actions.push({ tick: match.turn || 1, action: input.action, playerId: input.playerId, clientActionId: input.clientActionId || null, at: now });
-  logDb.actionLogs[code.toUpperCase()] = log;
+  db.actionLogs[code.toUpperCase()] = log;
   persistOnline(db);
 
   return { code: match.code, match };
@@ -416,7 +416,8 @@ export function getOnlineMatch(code: string): OnlineMatch | null {
   // Server-side turn expiry advance.
   if (match.status === 'ready' && match.winnerTeam == null && match.turnStartedAt) {
     const elapsed = Date.now() - new Date(match.turnStartedAt).getTime();
-    const limit = (match.turnSeconds || 45) * 1000;
+    const ts = match.turnSeconds != null ? match.turnSeconds : 45;
+    const limit = ts * 1000;
     if (elapsed >= limit) {
       const now = new Date().toISOString();
       const n = match.players.length;

@@ -452,7 +452,8 @@ async function getOnlineMatch(event, rawCode, ddbClient = ddb) {
   // Server-side turn expiry: if the active turn has run out, advance.
   if (match.status === 'ready' && match.winnerTeam == null && match.turnStartedAt) {
     const elapsed = Date.now() - new Date(match.turnStartedAt).getTime();
-    const limit = (match.turnSeconds || 45) * 1000;
+    const ts = match.turnSeconds != null ? match.turnSeconds : 45;
+    const limit = ts * 1000;
     if (elapsed >= limit) {
       const now = new Date().toISOString();
       const n = Array.isArray(match.players) ? match.players.length : 0;
