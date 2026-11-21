@@ -3,6 +3,8 @@ import {
   createOnlineMatch,
   joinOnlineMatch,
   getOnlineMatch,
+  submitOnlineAction,
+  forfeitOnlineMatch,
   resetOnlineMatches,
 } from '../../src/api/mockServer';
 
@@ -52,3 +54,117 @@ test('code lookup is case-insensitive', () => {
   const joined = joinOnlineMatch(created.code.toLowerCase(), { playerId: 'p2', playerName: 'Bob' });
   expect('error' in joined).toBe(false);
 });
+
+// --- submitOnlineAction ---
+
+test('submitAction advances turn on endTurn', () => {
+  const created = createOnlineMatch({ playerId: 'p1', playerName: 'Alice' });
+  joinOnlineMatch(created.code, { playerId: 'p2', playerName: 'Bob' });
+  const res = submitOnlineAction(created.code, { playerId: 'p1', action: { type: 'endTurn' } });
+  expect('error' in res).toBe(false);
+  if ('error' in res) return;
+  expect(res.match.activeTeam).toBe(1);
+  expect(res.match.turn).toBe(2);
+});
+
+test('submitAction rejects not-your-turn with 409', () => {
+  const created = createOnlineMatch({ playerId: 'p1', playerName: 'Alice' });
+  joinOnlineMatch(created.code, { playerId: 'p2', playerName: 'Bob' });
+  const res = submitOnlineAction(created.code, { playerId: 'p2', action: { type: 'endTurn' } });
+  expect(res).toMatchObject({ error: 'not your turn', status: 409 });
+});
+
+test('submitAction rejects unknown action type with 400', () => {
+  const created = createOnlineMatch({ playerId: 'p1', playerName: 'Alice' });
+  joinOnlineMatch(created.code, { playerId: 'p2', playerName: 'Bob' });
+  const res = submitOnlineAction(created.code, { playerId: 'p1', action: { type: 'teleport' } });
+  expect(res).toMatchObject({ error: 'unknown action type', status: 400 });
+});
+
+test('submitAction rejects illegal phase (fire during projectile)', () => {
+  const created = createOnlineMatch({ playerId: 'p1', playerName: 'Alice' });
+  joinOnlineMatch(created.code, { playerId: 'p2', playerName: 'Bob' });
+  submitOnlineAction(created.code, { playerId: 'p1', action: { type: 'fire' } });
+  const res = submitOnlineAction(created.code, { playerId: 'p1', action: { type: 'fire' } });
+  expect(res).toMatchObject({ error: 'illegal action for current phase', status: 409 });
+});
+
+test('submitAction is idempotent on clientActionId', () => {
+  const created = createOnlineMatch({ playerId: 'p1', playerName: 'Alice' });
+  joinOnlineMatch(created.code, { playerId: 'p2', playerName: 'Bob' });
+  submitOnlineAction(created.code, { playerId: 'p1', action: { type: 'endTurn' }, clientActionId: 'abc' });
+  const res = submitOnlineAction(created.code, { playerId: 'p1', action: { type: 'endTurn' }, clientActionId: 'abc' });
+  expect('error' in res).toBe(false);
+  if ('error' in res) return;
+  expect(res.match.turn).toBe(2); // not advanced again
+});
+
+test('submitAction rejects non-participant with 403', () => {
+  const created = createOnlineMatch({ playerId: 'p1', playerName: 'Alice' });
+  joinOnlineMatch(created.code, { playerId: 'p2', playerName: 'Bob' });
+  const res = submitOnlineAction(created.code, { playerId: 'p3', action: { type: 'endTurn' } });
+  expect(res).toMatchObject({ error: 'not a participant', status: 403 });
+});
+
+test('submitAction rejects when match not ready', () => {
+  const created = createOnlineMatch({ playerId: 'p1', playerName: 'Alice' });
+  const res = submitOnlineAction(created.code, { playerId: 'p1', action: { type: 'endTurn' } });
+  expect(res).toMatchObject({ error: 'match not ready', status: 409 });
+});
+
+// --- forfeitOnlineMatch ---
+
+test('forfeit ends match with opponent as winner', () => {
+  const created = createOnlineMatch({ playerId: 'p1', playerName: 'Alice' });
+  joinOnlineMatch(created.code, { playerId: 'p2', playerName: 'Bob' });
+  const res = forfeitOnlineMatch(created.code, 'p1');
+  expect('error' in res).toBe(false);
+  if ('error' in res) return;
+  expect(res.match.winnerTeam).toBe(1);
+  expect(res.match.endReason).toBe('surrender');
+  expect(res.match.status).toBe('finished');
+});
+
+test('forfeit is idempotent', () => {
+  const created = createOnlineMatch({ playerId: 'p1', playerName: 'Alice' });
+  joinOnlineMatch(created.code, { playerId: 'p2', playerName: 'Bob' });
+  forfeitOnlineMatch(created.code, 'p1');
+  const res = forfeitOnlineMatch(created.code, 'p2');
+  expect('error' in res).toBe(false);
+  if ('error' in res) return;
+  expect(res.match.winnerTeam).toBe(1);
+});
+
+test('forfeit rejects non-participant with 403', () => {
+  const created = createOnlineMatch({ playerId: 'p1', playerName: 'Alice' });
+  joinOnlineMatch(created.code, { playerId: 'p2', playerName: 'Bob' });
+  const res = forfeitOnlineMatch(created.code, 'p3');
+  expect(res).toMatchObject({ error: 'not a participant', status: 403 });
+});
+
+test('forfeit returns 404 for unknown code', () => {
+  const res = forfeitOnlineMatch('ZZZZZZ', 'p1');
+  expect(res).toMatchObject({ error: 'match not found', status: 404 });
+});
+
+// --- turn expiry ---
+
+test('getOnlineMatch advances turn when expired', () => {
+  const created = createOnlineMatch({ playerId: 'p1', playerName: 'Alice', settings: { turnSeconds: 0 } });
+  joinOnlineMatch(created.code, { playerId: 'p2', playerName: 'Bob' });
+  // turnSeconds=0 means immediately expired
+  const m = getOnlineMatch(created.code);
+  expect(m).not.toBeNull();
+  expect(m!.turn).toBe(2);
+  expect(m!.activeTeam).toBe(1);
+});
+
+test('getOnlineMatch does not advance when not expired', () => {
+  const created = createOnlineMatch({ playerId: 'p1', playerName: 'Alice', settings: { turnSeconds: 9999 } });
+  joinOnlineMatch(created.code, { playerId: 'p2', playerName: 'Bob' });
+  const m = getOnlineMatch(created.code);
+  expect(m).not.toBeNull();
+  expect(m!.turn).toBe(1);
+  expect(m!.activeTeam).toBe(0);
+});
+
