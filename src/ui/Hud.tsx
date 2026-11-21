@@ -64,7 +64,9 @@ export function Hud({
   const canRope = canSteer;
   // Show the active human's ammo on their turn (hotseat); otherwise the player's team.
   const myTeam = activeIsHuman ? activeTeamSnap : snapshot.teams[0];
-  const enemy = snapshot.teams[1];
+  // Show the nearest alive opposing team so 3+ team matches and eliminated enemies are handled.
+  const opposingAlive = snapshot.teams.filter((t, i) => i !== snapshot.activeTeam && t.worms.some((w) => w.alive));
+  const enemy = opposingAlive[0] ?? snapshot.teams[1];
   const weapon = WEAPONS[snapshot.weapon];
   const ammo = myTeam?.ammo[snapshot.weapon] ?? 0;
   const timeRatio = snapshot.timeLeft / Math.max(1, snapshot.turnSeconds);
