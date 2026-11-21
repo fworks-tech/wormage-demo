@@ -5,12 +5,15 @@ import type {
   MatchRecord,
   MockScenario,
   NewMatchInput,
+  OnlineMatch,
+  OnlinePlayer,
   Paginated,
 } from './types';
 
 const DB_KEY = 'wormage.mockdb.v1';
 const SCENARIO_KEY = 'wormage.netScenario.v1';
 const DEBUG_LOG_KEY = 'wormage.debuglogs.v1';
+const ONLINE_KEY = 'wormage.onlinematches.v1';
 
 interface Db {
   matches: MatchRecord[];
@@ -243,6 +246,84 @@ function paginate<T>(rows: T[], page: number, pageSize: number): Paginated<T> {
 
 export const MOCK_TOTAL_FIXTURES = FIXTURE_PLAYERS.length;
 
+
+interface OnlineDb {
+  matches: Record<string, OnlineMatch>;
+}
+
+const onlineMemory: { current: OnlineDb | null } = { current: null };
+
+function getOnlineDb(): OnlineDb {
+  if (onlineMemory.current) return onlineMemory.current;
+  const loaded = safeRead<OnlineDb>(ONLINE_KEY);
+  if (loaded && loaded.matches && typeof loaded.matches === 'object') {
+    onlineMemory.current = loaded;
+    return loaded;
+  }
+  const fresh: OnlineDb = { matches: {} };
+  onlineMemory.current = fresh;
+  return fresh;
+}
+
+function persistOnline(db: OnlineDb): void {
+  onlineMemory.current = db;
+  safeWrite(ONLINE_KEY, db);
+}
+
+const ONLINE_CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+function genOnlineCode(): string {
+  let code = '';
+  for (let i = 0; i < 6; i++) code += ONLINE_CODE_ALPHABET[Math.floor(Math.random() * ONLINE_CODE_ALPHABET.length)];
+  return code;
+}
+
+export function createOnlineMatch(input: {
+  playerId: string;
+  playerName: string;
+  teamName?: string;
+  settings?: OnlineMatch['settings'];
+}): { code: string; link: string; match: OnlineMatch } {
+  const db = getOnlineDb();
+  let code = genOnlineCode();
+  while (db.matches[code]) code = genOnlineCode();
+  const match: OnlineMatch = {
+    code,
+    status: 'waiting',
+    createdAt: new Date().toISOString(),
+    maxPlayers: 2,
+    settings: input.settings ?? {},
+    players: [{ playerId: input.playerId, playerName: input.playerName, teamName: input.teamName ?? 'Ironclad' }],
+  };
+  db.matches[code] = match;
+  persistOnline(db);
+  return { code, link: `/online/${code}`, match };
+}
+
+export function joinOnlineMatch(code: string, input: { playerId: string; playerName: string; teamName?: string }): { code: string; match: OnlineMatch } | { error: 'not_found' | 'full' } {
+  const db = getOnlineDb();
+  const match = db.matches[code.toUpperCase()];
+  if (!match) return { error: 'not_found' };
+  if (match.players.some((p) => p.playerId === input.playerId)) {
+    return { code: match.code, match };
+  }
+  if (match.players.length >= match.maxPlayers) {
+    return { error: 'full' };
+  }
+  match.players.push({ playerId: input.playerId, playerName: input.playerName, teamName: input.teamName ?? 'Ironclad' });
+  if (match.players.length >= match.maxPlayers) match.status = 'ready';
+  persistOnline(db);
+  return { code: match.code, match };
+}
+
+export function getOnlineMatch(code: string): OnlineMatch | null {
+  const db = getOnlineDb();
+  return db.matches[code.toUpperCase()] ?? null;
+}
+
+export function resetOnlineMatches(): void {
+  onlineMemory.current = { matches: {} };
+  try { localStorage.removeItem(ONLINE_KEY); } catch { /* ignore */ }
+}
 
 export function registerDebugLog(payload: unknown): { stored: boolean; count: number } {
   const now = Date.now();

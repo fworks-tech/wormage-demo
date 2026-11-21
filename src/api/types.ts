@@ -59,3 +59,41 @@ export interface LeaderboardRow {
 }
 
 export type MockScenario = 'normal' | 'slow' | 'empty' | 'error';
+
+export interface OnlinePlayer {
+  playerId: string;
+  playerName: string;
+  teamName: string;
+}
+
+export interface OnlineMatchSettings {
+  turnSeconds?: number;
+  wind?: 'off' | 'light' | 'strong';
+  difficulty?: 'rookie' | 'veteran' | 'elite';
+  map?: string;
+  mode?: string;
+  wormsPerTeam?: number;
+  seed?: number;
+}
+
+export interface OnlineMatch {
+  code: string;
+  status: 'waiting' | 'ready';
+  createdAt: string;
+  maxPlayers: number;
+  settings: OnlineMatchSettings;
+  players: OnlinePlayer[];
+}
+
+export interface CreateOnlineMatchInput {
+  playerId: string;
+  playerName: string;
+  teamName?: string;
+  settings?: OnlineMatchSettings;
+}
+
+export interface JoinOnlineMatchInput {
+  playerId: string;
+  playerName: string;
+  teamName?: string;
+}
