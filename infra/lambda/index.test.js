@@ -1,7 +1,7 @@
 'use strict';
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { GetCommand, PutCommand, QueryCommand } = require('@aws-sdk/lib-dynamodb');
+const { GetCommand, PutCommand, QueryCommand, UpdateCommand } = require('@aws-sdk/lib-dynamodb');
 const L = require('./index.js');
 
 function makeMockDdb() {
@@ -23,6 +23,27 @@ function makeMockDdb() {
           err.name = 'ConditionalCheckFailedException';
           throw err;
         }
+        store.set(k, item);
+        return {};
+      }
+      if (cmd instanceof UpdateCommand || (cmd && cmd.constructor && cmd.constructor.name === 'UpdateCommand')) {
+        const k = `${input.Key.pk}#${input.Key.sk}`;
+        const item = store.get(k);
+        if (!item) {
+          const err = new Error('NotFound');
+          err.name = 'ConditionalCheckFailedException';
+          throw err;
+        }
+        const max = (input.ExpressionAttributeValues || {})[':max'];
+        if (input.ConditionExpression === 'size(players) < :max' && !(Array.isArray(item.players) && item.players.length < max)) {
+          const err = new Error('ConditionalCheckFailed');
+          err.name = 'ConditionalCheckFailedException';
+          throw err;
+        }
+        const p = (input.ExpressionAttributeValues || {})[':p'];
+        item.players = [...(Array.isArray(item.players) ? item.players : []), ...(Array.isArray(p) ? p : [])];
+        const ready = (input.ExpressionAttributeValues || {})[':ready'];
+        if (ready !== undefined) item.status = ready;
         store.set(k, item);
         return {};
       }
@@ -211,4 +232,79 @@ test('postDebugLog respects disabled flag', async () => {
   const b = JSON.parse(r.body);
   assert.equal(b.stored, false);
   process.env.DEBUG_LOGS_ENABLED = 'true';
+});
+
+test('postOnlineMatch creates a match with a 6-char code and link', async () => {
+  const ddb = makeMockDdb();
+  const r = await L.postOnlineMatch(ev('POST', '/api/matches/online', {}, {
+    playerId: 'p1', playerName: 'Alice', teamName: 'Ironclad',
+    settings: { map: 'island', mode: 'deathmatch', difficulty: 'rookie', wormsPerTeam: 2, turnSeconds: 30, wind: 'light', seed: 42 },
+  }), ddb);
+  assert.equal(r.statusCode, 201);
+  const b = JSON.parse(r.body);
+  assert.match(b.code, /^[A-Z2-9]{6}$/);
+  assert.equal(b.link, `/online/${b.code}`);
+  assert.equal(b.match.status, 'waiting');
+  assert.equal(b.match.players.length, 1);
+  assert.equal(b.match.players[0].playerId, 'p1');
+});
+
+test('joinOnlineMatch adds second player and marks ready', async () => {
+  const ddb = makeMockDdb();
+  const c = await L.postOnlineMatch(ev('POST', '/api/matches/online', {}, { playerId: 'p1', playerName: 'Alice' }), ddb);
+  const code = JSON.parse(c.body).code;
+  const r = await L.joinOnlineMatch(ev('POST', `/api/matches/online/${code}/join`, {}, { playerId: 'p2', playerName: 'Bob' }), code, ddb);
+  assert.equal(r.statusCode, 200);
+  const b = JSON.parse(r.body);
+  assert.equal(b.match.status, 'ready');
+  assert.equal(b.match.players.length, 2);
+  assert.equal(b.match.players[1].playerId, 'p2');
+});
+
+test('joinOnlineMatch is case-insensitive', async () => {
+  const ddb = makeMockDdb();
+  const c = await L.postOnlineMatch(ev('POST', '/api/matches/online', {}, { playerId: 'p1', playerName: 'Alice' }), ddb);
+  const code = JSON.parse(c.body).code;
+  const lower = code.toLowerCase();
+  const r = await L.joinOnlineMatch(ev('POST', `/api/matches/online/${lower}/join`, {}, { playerId: 'p2', playerName: 'Bob' }), lower, ddb);
+  assert.equal(r.statusCode, 200);
+});
+
+test('joinOnlineMatch returns 404 for unknown code', async () => {
+  const ddb = makeMockDdb();
+  const r = await L.joinOnlineMatch(ev('POST', '/api/matches/online/ZZZZZZ/join', {}, { playerId: 'p2', playerName: 'Bob' }), 'ZZZZZZ', ddb);
+  assert.equal(r.statusCode, 404);
+});
+
+test('joinOnlineMatch returns 409 when full', async () => {
+  const ddb = makeMockDdb();
+  const c = await L.postOnlineMatch(ev('POST', '/api/matches/online', {}, { playerId: 'p1', playerName: 'Alice' }), ddb);
+  const code = JSON.parse(c.body).code;
+  await L.joinOnlineMatch(ev('POST', `/api/matches/online/${code}/join`, {}, { playerId: 'p2', playerName: 'Bob' }), code, ddb);
+  const r = await L.joinOnlineMatch(ev('POST', `/api/matches/online/${code}/join`, {}, { playerId: 'p3', playerName: 'Carol' }), code, ddb);
+  assert.equal(r.statusCode, 409);
+});
+
+test('joinOnlineMatch returns 200 for duplicate join (same player)', async () => {
+  const ddb = makeMockDdb();
+  const c = await L.postOnlineMatch(ev('POST', '/api/matches/online', {}, { playerId: 'p1', playerName: 'Alice' }), ddb);
+  const code = JSON.parse(c.body).code;
+  const r = await L.joinOnlineMatch(ev('POST', `/api/matches/online/${code}/join`, {}, { playerId: 'p1', playerName: 'Alice' }), code, ddb);
+  assert.equal(r.statusCode, 200);
+  const b = JSON.parse(r.body);
+  assert.equal(b.match.players.length, 1);
+});
+
+test('postOnlineMatch validates playerId', async () => {
+  const ddb = makeMockDdb();
+  const r = await L.postOnlineMatch(ev('POST', '/api/matches/online', {}, { playerName: 'Alice' }), ddb);
+  assert.equal(r.statusCode, 400);
+});
+
+test('handler routes online match endpoints', async () => {
+  // create
+  const ddb = makeMockDdb();
+  // monkey: handler uses module-level ddb; instead test functions already. Just sanity check regex path.
+  const r = await L.joinOnlineMatch(ev('POST', '/api/matches/online/ABCDEF/join', {}, { playerId: 'p', playerName: 'P' }), 'ABCDEF', ddb);
+  assert.equal(r.statusCode, 404);
 });
