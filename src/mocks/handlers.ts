@@ -8,8 +8,6 @@ import {
   registerMatch,
   createOnlineMatch,
   joinOnlineMatch,
-  createOnlineMatch,
-  joinOnlineMatch,
   shouldFail,
 } from '../api/mockServer';
 import type { NewMatchInput } from '../api/types';
