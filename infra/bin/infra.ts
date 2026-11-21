@@ -10,4 +10,11 @@ new WormageStack(app, 'WormageStack', {
     region: process.env.CDK_DEFAULT_REGION ?? 'us-east-1',
   },
   description: 'Wormage AWS foundation (M3): API Gateway, Lambda, DynamoDB.',
+  hostedZoneId: process.env.WORMAGE_HOSTED_ZONE_ID,
+  hostedZoneName: process.env.WORMAGE_HOSTED_ZONE_NAME,
+  certificateArn: process.env.WORMAGE_CERTIFICATE_ARN,
+  apiDomainName: process.env.WORMAGE_API_DOMAIN,
+  corsOrigins: process.env.WORMAGE_CORS_ORIGINS
+    ? process.env.WORMAGE_CORS_ORIGINS.split(',').map((s) => s.trim()).filter(Boolean)
+    : undefined,
 });

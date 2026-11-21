@@ -1,0 +1,49 @@
+name: Deploy infra
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'infra/**'
+      - '.github/workflows/deploy-infra.yml'
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: us-east-1
+      - name: Install infra deps
+        working-directory: infra
+        run: npm ci
+      - name: Build
+        working-directory: infra
+        run: npm run build
+      - name: Synth
+        working-directory: infra
+        run: npm run synth
+        env:
+          WORMAGE_HOSTED_ZONE_ID: ${{ vars.WORMAGE_HOSTED_ZONE_ID }}
+          WORMAGE_HOSTED_ZONE_NAME: ${{ vars.WORMAGE_HOSTED_ZONE_NAME }}
+          WORMAGE_CERTIFICATE_ARN: ${{ secrets.WORMAGE_CERTIFICATE_ARN }}
+          WORMAGE_API_DOMAIN: ${{ vars.WORMAGE_API_DOMAIN }}
+      - name: Deploy
+        working-directory: infra
+        run: npx cdk deploy --require-approval never
+        env:
+          WORMAGE_HOSTED_ZONE_ID: ${{ vars.WORMAGE_HOSTED_ZONE_ID }}
+          WORMAGE_HOSTED_ZONE_NAME: ${{ vars.WORMAGE_HOSTED_ZONE_NAME }}
+          WORMAGE_CERTIFICATE_ARN: ${{ secrets.WORMAGE_CERTIFICATE_ARN }}
+          WORMAGE_API_DOMAIN: ${{ vars.WORMAGE_API_DOMAIN }}
