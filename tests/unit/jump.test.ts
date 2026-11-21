@@ -247,6 +247,9 @@ describe('jump physics', () => {
 
     step(engine, 5.2);
 
-    expect(engine.events.filter((event) => event.type === 'jump').length).toBeGreaterThan(2);
+    // Jumps are now bounded so a blocked AI falls back to a shot instead of
+    // hopping in place indefinitely.
+    expect(engine.events.filter((event) => event.type === 'jump').length).toBeLessThanOrEqual(2);
+    expect(engine.hasFired).toBe(true);
   });
 });
