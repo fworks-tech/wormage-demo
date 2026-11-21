@@ -697,7 +697,7 @@ export class GameEngine {
     worm.hp = Math.max(0, worm.hp - amount);
     this.events.push({ type: 'hurt', x: worm.x, y: worm.y - 26, amount: Math.round(amount) });
     const dx = worm.x - sourceX;
-    worm.x = worldClamp(worm.x + Math.sign(dx) * Math.min(14, amount * 0.18), 12, 1268);
+    worm.x = worldClamp(worm.x + Math.sign(dx) * Math.min(14, amount * 0.18), 12, WORLD_W - 12);
     worm.vy = Math.min(worm.vy, -Math.min(260, amount * 2.2));
     worm.onGround = false;
     worm.airborne = true;
@@ -836,7 +836,7 @@ export class GameEngine {
     if (canWalk) {
       const dir = this.moveDir;
       worm.vx = 0;
-      const nx = worldClamp(worm.x + dir * WORM.walkSpeed * dt, 12, 1268);
+      const nx = worldClamp(worm.x + dir * WORM.walkSpeed * dt, 12, WORLD_W - 12);
       const bodyBlocked = this.terrain.isSolid(nx, worm.y - 12);
       const ahead = this.terrain.groundY(nx, worm.y - 18, 42);
       const slope = ahead === null ? null : ahead - worm.y;
@@ -877,8 +877,8 @@ export class GameEngine {
       const steps = Math.max(1, Math.ceil(Math.max(Math.abs(dy), Math.abs(dx)) / 5));
       for (let i = 0; i < steps; i += 1) {
         if (worm.vx !== 0) {
-          const nextX = worldClamp(worm.x + dx / steps, 12, 1268);
-          if (nextX === 12 || nextX === 1268 || this.terrain.isSolid(nextX, worm.y - 12)) {
+          const nextX = worldClamp(worm.x + dx / steps, 12, WORLD_W - 12);
+          if (nextX === 12 || nextX === WORLD_W - 12 || this.terrain.isSolid(nextX, worm.y - 12)) {
             worm.vx = 0;
           } else {
             worm.x = nextX;
