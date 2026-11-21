@@ -1408,6 +1408,72 @@ html:fullscreen {
   color: var(--amber);
 }
 
+/* ---------------------------------------------------------------- stages */
+
+.stages-dialog {
+  width: min(460px, 100%);
+  text-align: left;
+  gap: 12px;
+}
+
+.stages-dialog .eyebrow,
+.stages-dialog h2,
+.stages-dialog > .muted {
+  text-align: center;
+}
+
+.stages-dialog h2 {
+  font-size: 40px;
+}
+
+.stage-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.stage-btn {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 14px;
+  border: 1px solid var(--line);
+  border-bottom-width: 2px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--bone);
+  font-family: var(--mono);
+  font-size: 13px;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+  transition: border-color 120ms ease, background 120ms ease;
+}
+
+.stage-btn:hover:not(:disabled) {
+  border-color: var(--amber);
+  background: rgba(232, 173, 104, 0.06);
+}
+
+.stage-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.stage-name {
+  font-weight: 600;
+}
+
+.stage-meta {
+  font-size: 10.5px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+}
+
 /* ---------------------------------------------------------------- result */
 
 .result-shell {
