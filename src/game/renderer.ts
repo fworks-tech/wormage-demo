@@ -114,6 +114,7 @@ class WormView {
 
   sync(worm: Worm, color: number, active: boolean, canAct: boolean, dt: number, weapon: WeaponId | null): void {
     this.root.position.set(worm.x, worm.y);
+    this.body.rotation = worm.rotation;
     this.heldWeapon.position.set(0, -16);
     this.heldWeapon.rotation = worm.aimAngle;
     if (weapon !== null && weapon !== this.lastWeapon) this.drawHeldWeapon(weapon);

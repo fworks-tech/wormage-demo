@@ -53,6 +53,13 @@ export const WORM = {
   maxHp: 100,
   fallSafePx: 150,
   fallDamagePerPx: 0.16,
+  /** Ragdoll tuning: impulse = (damage/100) * knockbackScale * impulseScale. */
+  knockbackScale: 260,
+  knockbackMax: 320,
+  restitution: 0.35,
+  wallRestitution: 0.4,
+  spinScale: 6,
+  landingStopSpeed: 60,
 } as const;
 
 /** Peak height of a jump, derived so planning and physics cannot drift. */
