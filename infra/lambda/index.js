@@ -2,7 +2,7 @@
 
 const crypto = require('crypto');
 const { DynamoDBClient } = require('@aws-sdk/client-dynamodb');
-const { DynamoDBDocumentClient, GetCommand, PutCommand, QueryCommand } = require('@aws-sdk/lib-dynamodb');
+const { DynamoDBDocumentClient, GetCommand, PutCommand, QueryCommand, UpdateCommand } = require('@aws-sdk/lib-dynamodb');
 const { S3Client, PutObjectCommand } = require('@aws-sdk/client-s3');
 
 const TABLE = process.env.TABLE_NAME;
@@ -306,6 +306,125 @@ function keySegment(value) {
     .slice(0, 128);
 }
 
+const ONLINE_CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+
+function generateOnlineCode() {
+  const bytes = crypto.randomBytes(6);
+  let code = '';
+  for (let i = 0; i < 6; i++) code += ONLINE_CODE_ALPHABET[bytes[i] % ONLINE_CODE_ALPHABET.length];
+  return code;
+}
+
+function toOnlineMatch(m) {
+  const seen = new Set();
+  const players = Array.isArray(m.players)
+    ? m.players.filter((p) => p && typeof p.playerId === 'string' && !seen.has(p.playerId) && seen.add(p.playerId))
+    : [];
+  return {
+    code: m.code,
+    status: m.status,
+    createdAt: m.createdAt,
+    maxPlayers: m.maxPlayers,
+    settings: m.settings || {},
+    players,
+  };
+}
+
+async function postOnlineMatch(event, ddbClient = ddb) {
+  const body = parseBody(event);
+  if (!isStr(body.playerId)) return json(400, { message: 'playerId is required' });
+  if (!isStr(body.playerName)) return json(400, { message: 'playerName is required' });
+  const teamName = isStr(body.teamName) ? body.teamName : 'Ironclad';
+  const settings = (body.settings && typeof body.settings === 'object' && !Array.isArray(body.settings)) ? body.settings : {};
+
+  for (let attempt = 0; attempt < 8; attempt++) {
+    const code = generateOnlineCode();
+    const now = new Date().toISOString();
+    const item = {
+      pk: `ONLINE#${code}`,
+      sk: 'META',
+      type: 'online-match',
+      code,
+      status: 'waiting',
+      createdAt: now,
+      maxPlayers: 2,
+      settings: {
+        turnSeconds: settings.turnSeconds,
+        wind: settings.wind,
+        difficulty: settings.difficulty,
+        map: settings.map,
+        mode: settings.mode,
+        wormsPerTeam: settings.wormsPerTeam,
+        seed: settings.seed,
+      },
+      players: [{ playerId: body.playerId, playerName: body.playerName, teamName }],
+    };
+    try {
+      await ddbClient.send(new PutCommand({
+        TableName: TABLE,
+        Item: item,
+        ConditionExpression: 'attribute_not_exists(pk)',
+      }));
+      return json(201, { code, link: `/online/${code}`, match: toOnlineMatch(item) });
+    } catch (err) {
+      if (err && err.name === 'ConditionalCheckFailedException') continue;
+      throw err;
+    }
+  }
+  return json(500, { message: 'could not allocate a unique code' });
+}
+
+async function joinOnlineMatch(event, rawCode, ddbClient = ddb) {
+  const code = String(rawCode || '').toUpperCase().trim();
+  const body = parseBody(event);
+  if (!isStr(body.playerId)) return json(400, { message: 'playerId is required' });
+  if (!isStr(body.playerName)) return json(400, { message: 'playerName is required' });
+  const teamName = isStr(body.teamName) ? body.teamName : 'Ironclad';
+
+  const got = await ddbClient.send(new GetCommand({
+    TableName: TABLE,
+    Key: { pk: `ONLINE#${code}`, sk: 'META' },
+  }));
+  if (!got.Item) return json(404, { message: 'match not found' });
+  const match = got.Item;
+
+  if (Array.isArray(match.players) && match.players.some((p) => p && p.playerId === body.playerId)) {
+    return json(200, { code: match.code, match: toOnlineMatch(match) });
+  }
+  if (!Array.isArray(match.players) || match.players.length >= (match.maxPlayers || 2)) {
+    return json(409, { message: 'match is full' });
+  }
+
+  const newPlayer = { playerId: body.playerId, playerName: body.playerName, teamName };
+  try {
+    await ddbClient.send(new UpdateCommand({
+      TableName: TABLE,
+      Key: { pk: `ONLINE#${code}`, sk: 'META' },
+      UpdateExpression: 'SET players = list_append(players, :p), #s = :ready',
+      ExpressionAttributeNames: { '#s': 'status' },
+      ExpressionAttributeValues: { ':p': [newPlayer], ':ready': 'ready', ':max': match.maxPlayers || 2 },
+      ConditionExpression: 'size(players) < :max',
+    }));
+  } catch (err) {
+    if (err && err.name === 'ConditionalCheckFailedException') {
+      const after = await ddbClient.send(new GetCommand({
+        TableName: TABLE,
+        Key: { pk: `ONLINE#${code}`, sk: 'META' },
+      }));
+      if (!after.Item) return json(404, { message: 'match not found' });
+      return json(409, { message: 'match is full' });
+    }
+    throw err;
+  }
+
+  const after = await ddbClient.send(new GetCommand({
+    TableName: TABLE,
+    Key: { pk: `ONLINE#${code}`, sk: 'META' },
+  }));
+  if (!after.Item) return json(404, { message: 'match not found' });
+  return json(200, { code: after.Item.code, match: toOnlineMatch(after.Item) });
+}
+
 exports.handler = async (event) => {
   const method = (event.requestContext && event.requestContext.http && event.requestContext.http.method) || event.httpMethod || 'GET';
   const path = (event.rawPath || event.path || '/').replace(/\/+$/, '') || '/';
@@ -314,6 +433,9 @@ exports.handler = async (event) => {
     if (method === 'GET' && path === '/api/leaderboard') return await getLeaderboard(event);
     if (method === 'GET' && path === '/api/matches') return await getMatches(event);
     if (method === 'POST' && path === '/api/matches') return await postMatch(event);
+    if (method === 'POST' && path === '/api/matches/online') return await postOnlineMatch(event);
+    const onlineJoin = path.match(/^\/api\/matches\/online\/([^/]+)\/join$/);
+    if (method === 'POST' && onlineJoin) return await joinOnlineMatch(event, decodeURIComponent(onlineJoin[1]));
     if (method === 'POST' && path === '/api/debug-logs') return await postDebugLog(event);
     return json(404, { message: 'Not found' });
   } catch (err) {
@@ -327,6 +449,9 @@ exports.health = health;
 exports.getLeaderboard = getLeaderboard;
 exports.getMatches = getMatches;
 exports.postMatch = postMatch;
+exports.postOnlineMatch = postOnlineMatch;
+exports.joinOnlineMatch = joinOnlineMatch;
+exports.generateOnlineCode = generateOnlineCode;
 exports.postDebugLog = postDebugLog;
 exports.validateDebugLogBody = validateDebugLogBody;
 exports.keyOf = keyOf;
