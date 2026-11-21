@@ -49,7 +49,7 @@ export class WormageStack extends cdk.Stack {
     });
 
     this.handler = new lambda.Function(this, 'WormageHandler', {
-      runtime: lambda.Runtime.NODEJS_20_X,
+      runtime: lambda.Runtime.NODEJS_22_X,
       handler: 'index.handler',
       code: lambda.Code.fromAsset('lambda'),
       environment: {
