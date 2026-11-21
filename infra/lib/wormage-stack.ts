@@ -14,6 +14,8 @@ export interface WormageStackProps extends cdk.StackProps {
   hostedZoneName?: string;
   certificateArn?: string;
   apiDomainName?: string;
+  /** CORS allowlist for the HTTP API. Defaults to production site + localhost dev. */
+  corsOrigins?: string[];
 }
 
 export class WormageStack extends cdk.Stack {
@@ -59,10 +61,13 @@ export class WormageStack extends cdk.Stack {
 
     this.table.grantReadWriteData(this.handler);
 
+    const corsOrigins = props?.corsOrigins && props.corsOrigins.length > 0
+      ? props.corsOrigins
+      : ['https://wormage.flabs.tech', 'http://localhost:5173'];
     this.httpApi = new apigwv2.HttpApi(this, 'WormageHttpApi', {
       apiName: 'wormage',
       corsPreflight: {
-        allowOrigins: ['https://wormage.flabs.tech', 'http://localhost:5173'],
+        allowOrigins: corsOrigins,
         allowMethods: [
           apigwv2.CorsHttpMethod.GET,
           apigwv2.CorsHttpMethod.POST,

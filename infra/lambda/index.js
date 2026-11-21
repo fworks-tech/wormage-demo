@@ -1,5 +1,6 @@
 'use strict';
 
+const crypto = require('crypto');
 const { DynamoDBClient } = require('@aws-sdk/client-dynamodb');
 const { DynamoDBDocumentClient, GetCommand, PutCommand, QueryCommand } = require('@aws-sdk/lib-dynamodb');
 
@@ -150,20 +151,20 @@ async function postMatch(event, ddbClient = ddb) {
   const now = new Date().toISOString();
   const configKey = keyOf(body.turnSeconds, body.wind, body.difficulty, body.map, body.mode, body.loadout);
   const record = {
-    id: `match-${Math.random().toString(36).slice(2, 10)}`,
+    id: `match-${crypto.randomUUID().slice(0, 8)}`,
     clientMatchId: body.clientMatchId,
     matchId: `M-${Date.now().toString(36).toUpperCase()}`,
     playerId: body.playerId,
     playerName: body.playerName,
     teamName: body.teamName,
-    score: Math.round(body.score || 0),
-    durationSeconds: Math.round(body.durationSeconds || 0),
+    score: Math.max(0, Math.round(Number(body.score) || 0)),
+    durationSeconds: Math.max(0, Math.round(Number(body.durationSeconds) || 0)),
     endReason: body.endReason,
     configKey,
     turnSeconds: body.turnSeconds,
     wind: body.wind,
     difficulty: body.difficulty,
-    kills: body.kills || 0,
+    kills: Math.max(0, Math.round(Number(body.kills) || 0)),
     createdAt: now,
   };
   const item = {

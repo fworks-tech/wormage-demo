@@ -55,7 +55,11 @@ async function main() {
         gsi1pk: `CONFIG#${configKey}`,
         gsi1sk: created,
       };
-      await ddb.send(new PutCommand({ TableName: TABLE, Item: item, ConditionExpression: 'attribute_not_exists(pk)' })).catch(() => {});
+      try {
+        await ddb.send(new PutCommand({ TableName: TABLE, Item: item, ConditionExpression: 'attribute_not_exists(pk)' }));
+      } catch (err) {
+        if (!err || err.name !== 'ConditionalCheckFailedException') throw err;
+      }
       count += 1;
     }
   }

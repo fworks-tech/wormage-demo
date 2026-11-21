@@ -85,6 +85,10 @@ export const api = {
  */
 export async function initApiLayer(): Promise<Mode> {
   if (import.meta.env.VITE_API_MODE === 'live' || import.meta.env.VITE_LIVE_API === 'true') {
+    if (!liveBase) {
+      mode = 'local';
+      return mode;
+    }
     mode = 'live';
     return mode;
   }
