@@ -68,7 +68,7 @@ export class GameEngine {
   winnerTeam: number | null = null;
   endReason: EndReason | null = null;
   hasFired = false;
-  kills = [0, 0];
+  kills: number[] = [];
   elapsed = 0;
   aiThinking = false;
   retreatTimer = 0;
@@ -152,6 +152,7 @@ export class GameEngine {
         },
       };
     });
+    this.kills = this.teams.map(() => 0);
 
     this.beginTurn(true);
   }
