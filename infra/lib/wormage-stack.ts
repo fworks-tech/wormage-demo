@@ -187,7 +187,7 @@ export class WormageStack extends cdk.Stack {
       alarmDescription: 'Lambda p99 duration above 8s',
     }).addAlarmAction(new cwActions.SnsAction(alarmTopic));
 
-    const tableThrottles = this.table.metricThrottledRequests({ period: cdk.Duration.minutes(5) });
+    const tableThrottles = this.table.metricThrottledRequestsForOperations({ period: cdk.Duration.minutes(5) });
     new cloudwatch.Alarm(this, 'DynamoThrottlesAlarm', {
       metric: tableThrottles,
       threshold: 1,
