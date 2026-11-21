@@ -293,8 +293,8 @@ function validateDebugLogBody(body) {
   if (body.snapshots.length > 10000) return 'too many snapshots';
   if (body.schemaVersion !== undefined && !isNum(body.schemaVersion, 1, 1000)) return 'invalid schemaVersion';
   if (body.flushId !== undefined && !isStr(body.flushId, 128)) return 'invalid flushId';
-  if (body.chunk !== undefined && !Number.isInteger(body.chunk)) return 'invalid chunk';
-  if (body.totalChunks !== undefined && !Number.isInteger(body.totalChunks)) return 'invalid totalChunks';
+  if (body.chunk !== undefined && (!Number.isInteger(body.chunk) || body.chunk < 1)) return 'invalid chunk';
+  if (body.totalChunks !== undefined && (!Number.isInteger(body.totalChunks) || body.totalChunks < 1)) return 'invalid totalChunks';
   return null;
 }
 

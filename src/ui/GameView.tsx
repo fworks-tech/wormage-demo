@@ -131,9 +131,13 @@ export function GameView({
       (window as unknown as { __WORMAGE__?: unknown }).__WORMAGE__ = {
         engine,
         snapshot: () => engine.snapshot(),
-        debugLog: () => engine.debugLog,
-        clearDebugLog: () => engine.clearDebugLog(),
-        flushDebugLog: () => flushDebugLog(engine),
+        ...(new URLSearchParams(window.location.search).get('debug') === '1'
+          ? {
+              debugLog: () => engine.debugLog,
+              clearDebugLog: () => engine.clearDebugLog(),
+              flushDebugLog: () => flushDebugLog(engine),
+            }
+          : {}),
         version: '1.0.0',
       };
     }

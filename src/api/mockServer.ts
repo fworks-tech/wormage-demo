@@ -26,11 +26,13 @@ function safeRead<T>(key: string): T | null {
   }
 }
 
-function safeWrite(key: string, value: unknown): void {
+function safeWrite(key: string, value: unknown): boolean {
   try {
     localStorage.setItem(key, JSON.stringify(value));
+    return true;
   } catch {
     // opaque-origin iframes cannot persist; in-memory state still works
+    return false;
   }
 }
 
@@ -253,6 +255,6 @@ export function registerDebugLog(payload: unknown): { stored: boolean; count: nu
   filtered.push(payload);
   const MAX_DEBUG_SESSIONS = 20;
   while (filtered.length > MAX_DEBUG_SESSIONS) filtered.shift();
-  safeWrite(DEBUG_LOG_KEY, filtered);
-  return { stored: true, count: filtered.length };
+  const stored = safeWrite(DEBUG_LOG_KEY, filtered);
+  return { stored, count: filtered.length };
 }
