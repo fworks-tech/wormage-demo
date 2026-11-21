@@ -50,10 +50,9 @@ export function OnlineMatchDialog({ player, onClose }: Props) {
       const res = await create.mutateAsync({
         playerId: player.id,
         playerName: player.name,
-        teamName: 'Ironclad',
       });
       setMatch(res.match);
-      saveOnlineSession({ code: res.match.code, playerId: player.id, playerName: player.name, teamName: 'Ironclad' });
+      saveOnlineSession({ code: res.match.code, playerId: player.id, playerName: player.name, teamName: res.match.players.find((pl) => pl.playerId === player.id)?.teamName ?? 'Team 1' });
       setView('create');
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Could not create match');
@@ -65,9 +64,9 @@ export function OnlineMatchDialog({ player, onClose }: Props) {
     const code = codeInput.trim().toUpperCase();
     if (!code) return;
     try {
-      const res = await join.mutateAsync({ code, input: { playerId: player.id, playerName: player.name, teamName: 'Ironclad' } });
+      const res = await join.mutateAsync({ code, input: { playerId: player.id, playerName: player.name } });
       setMatch(res.match);
-      saveOnlineSession({ code: res.match.code, playerId: player.id, playerName: player.name, teamName: 'Ironclad' });
+      saveOnlineSession({ code: res.match.code, playerId: player.id, playerName: player.name, teamName: res.match.players.find((pl) => pl.playerId === player.id)?.teamName ?? 'Team 1' });
       setView('join');
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Could not join match');
@@ -118,8 +117,8 @@ export function OnlineMatchDialog({ player, onClose }: Props) {
             Code: <strong data-testid="online-code">{match.code}</strong> · {match.players.length}/{match.maxPlayers} players · {match.status}
           </p>
           <ul style={{ listStyle: 'none', padding: 0, margin: '0.5rem 0' }}>
-            {match.players.map((p) => (
-              <li key={p.playerId} data-testid="online-player">{p.playerName} ({p.teamName})</li>
+            {match.players.map((p, i) => (
+              <li key={p.playerId} data-testid="online-player">{p.playerName} — Team {i + 1}</li>
             ))}
           </ul>
           {match.status === 'ready' && match.winnerTeam == null && (
