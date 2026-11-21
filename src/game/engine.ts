@@ -618,12 +618,28 @@ export class GameEngine {
       const dx = best.w.x - mob.x;
       const dy = best.w.y - mob.y;
       const dist = Math.hypot(dx, dy) || 1;
-      const step = Math.min(mob.speed * 0.5, dist);
-      mob.x += (dx / dist) * step;
-      // keep on ground (scan the full column so mobs track hills instead of floating)
+      // Move along the ground surface in small steps, stopping at walls/pits so
+      // mobs cannot pass through terrain.
+      const dir = dx >= 0 ? 1 : -1;
+      const budget = Math.min(mob.speed * 0.5, dist);
+      let moved = 0;
+      let x = mob.x;
+      while (moved < budget) {
+        const step = Math.min(8, budget - moved);
+        const nx = x + dir * step;
+        if (nx < 0 || nx > WORLD_W) break;
+        const g = this.terrain.groundY(nx, 120, WATER_Y - 120);
+        if (g === null) break;
+        // Too steep a climb (or a gap): treat as a wall.
+        const curG = this.terrain.groundY(x, 120, WATER_Y - 120);
+        if (curG === null || Math.abs(g - curG) > 40) break;
+        x = nx;
+        moved += step;
+      }
+      mob.x = x;
       const g = this.terrain.groundY(mob.x, 120, WATER_Y - 120);
       if (g !== null) mob.y = g - mob.radius;
-      if (dist <= 40) {
+      if (dist <= 50) {
         best.w.hp = Math.max(0, best.w.hp - mob.damage);
         if (best.w.hp <= 0) best.w.alive = false;
       }
@@ -642,7 +658,8 @@ export class GameEngine {
     this.clearRopes();
     this.activeTeam = this.nextAliveTeam(this.activeTeam);
     this.turn += 1;
-    if (this.turn % (this.config.wormsPerTeam * this.teams.length) === 0) this.hostilePhase();
+    // Mobs act every turn so they feel alive instead of once per full cycle.
+    this.hostilePhase();
     if (this.config.mode === 'sudden-death' && this.config.turnSeconds > 0) {
       // damage all alive worms per turn after threshold (threshold stored in config? use 6 turns)
       if (this.turn >= 6) {
