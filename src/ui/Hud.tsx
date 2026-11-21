@@ -433,7 +433,7 @@ export function Hud({
             )} seconds left`
           : ''}
       </div>
-      {snapshot.aiThinking && <div className="ai-banner">Rustbelt is ranging the shot…</div>}
+      {snapshot.aiThinking && <div className="ai-banner">{snapshot.teams[snapshot.activeTeam]?.name ?? 'CPU'} is ranging the shot…</div>}
       {paused && <div className="sr-only">Game paused</div>}
     </div>
   );
