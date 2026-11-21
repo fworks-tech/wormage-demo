@@ -86,6 +86,11 @@ const RULES = [
     e2e: ['tests/settings.spec.ts', 'tests/menu.spec.ts'],
   },
   {
+    files: ['src/state/stages.ts'],
+    unit: ['tests/unit/stages.test.ts'],
+    e2e: ['tests/stages.spec.ts'],
+  },
+  {
     dirs: ['src/api/', 'src/mocks/', 'src/state/'],
     unit: ['tests/unit/mockServer.test.ts'],
     e2e: ['tests/data.spec.ts', 'tests/menu.spec.ts'],

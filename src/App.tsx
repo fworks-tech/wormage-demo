@@ -16,7 +16,8 @@ import {
 import { useRegisterMatch } from './api/queries';
 import type { GameSettings } from './game/types';
 import type { Bindings } from './state/bindings';
-import { completeStage } from './state/stages';
+import { completeStage, nextStage } from './state/stages';
+import type { Stage } from './state/stages';
 import type { Screen, SessionResult } from './types';
 
 function newClientId(): string {
@@ -68,16 +69,41 @@ export default function App() {
 
   const handleFinish = useCallback(
     (finished: SessionResult) => {
-      setResult(finished);
-      saveLastResult(finished);
       const currentStage = localStorage.getItem('wormage.currentStage');
+      const withStage: SessionResult = currentStage
+        ? { ...finished, stageId: currentStage }
+        : finished;
       if (currentStage && finished.winnerTeam === 0) completeStage(currentStage);
       localStorage.removeItem('wormage.currentStage');
+      setResult(withStage);
+      saveLastResult(withStage);
       setScreen('result');
-      submitResult(finished);
+      submitResult(withStage);
     },
     [submitResult],
   );
+
+  const handleNextStage = useCallback(
+    (stage: Stage) => {
+      const nextSettings: GameSettings = {
+        ...settings,
+        map: stage.map,
+        mode: stage.mode,
+        difficulty: stage.difficulty,
+        wormsPerTeam: stage.wormsPerTeam,
+      };
+      setSettings(nextSettings);
+      saveSettings(nextSettings);
+      localStorage.setItem('wormage.currentStage', stage.id);
+      startMatch();
+    },
+    [settings, startMatch],
+  );
+
+  const handleNextStageClick = useCallback(() => {
+    const next = result?.stageId ? nextStage(result.stageId) : null;
+    if (next) handleNextStage(next);
+  }, [result, handleNextStage]);
 
   const handleSaveSettings = useCallback((next: GameSettings) => {
     setSettings(next);
@@ -139,6 +165,9 @@ export default function App() {
           onPlayAgain={startMatch}
           onChangeSetup={() => setScreen('menu')}
           onMenu={() => window.location.assign('/project')}
+          nextStage={result.stageId ? nextStage(result.stageId) : null}
+          isStage={Boolean(result.stageId)}
+          onNextStage={handleNextStageClick}
         />
       )}
     </div>

@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { DIFFICULTY } from '../game/config';
 import type { SessionResult } from '../types';
+import type { Stage } from '../state/stages';
 import { formatDuration } from './Leaderboard';
 import { resultLine } from './resultLines';
 
@@ -13,6 +14,9 @@ interface ResultScreenProps {
   onPlayAgain: () => void;
   onChangeSetup: () => void;
   onMenu: () => void;
+  nextStage: Stage | null;
+  isStage: boolean;
+  onNextStage?: () => void;
 }
 
 const REASON_COPY: Record<string, string> = {
@@ -30,6 +34,9 @@ export function ResultScreen({
   onPlayAgain,
   onChangeSetup,
   onMenu,
+  nextStage,
+  isStage,
+  onNextStage,
 }: ResultScreenProps) {
   const hotseat = Boolean(result.config.hotseat);
   const won = result.playerWon;
@@ -98,6 +105,16 @@ export function ResultScreen({
         </div>
 
         <div className="result-actions">
+          {isStage && won && nextStage && (
+            <button type="button" className="primary-btn big" onClick={onNextStage} data-testid="btn-next-stage">
+              Next stage
+            </button>
+          )}
+          {isStage && won && !nextStage && (
+            <p className="campaign-complete" data-testid="campaign-complete">
+              Campaign complete
+            </p>
+          )}
           <button type="button" className="primary-btn big" onClick={onPlayAgain} data-testid="btn-play-again">
             Play again
           </button>

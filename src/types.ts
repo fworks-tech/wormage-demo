@@ -25,6 +25,8 @@ export interface SessionResult {
   teamKills?: number[];
   config: SessionConfig;
   recordedAt: string;
+  /** Stage id when this match was played as a stage, if any. */
+  stageId?: string;
 }
 
 export type Screen = 'menu' | 'game' | 'result';
