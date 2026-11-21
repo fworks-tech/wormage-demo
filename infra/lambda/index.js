@@ -336,6 +336,11 @@ async function postOnlineMatch(event, ddbClient = ddb) {
   if (!isStr(body.playerName)) return json(400, { message: 'playerName is required' });
   const teamName = isStr(body.teamName) ? body.teamName : 'Ironclad';
   const settings = (body.settings && typeof body.settings === 'object' && !Array.isArray(body.settings)) ? body.settings : {};
+  // DynamoDB rejects `undefined` values; keep only defined keys.
+  const cleanSettings = {};
+  for (const k of ['turnSeconds', 'wind', 'difficulty', 'map', 'mode', 'wormsPerTeam', 'seed']) {
+    if (settings[k] !== undefined) cleanSettings[k] = settings[k];
+  }
 
   for (let attempt = 0; attempt < 8; attempt++) {
     const code = generateOnlineCode();
@@ -348,15 +353,7 @@ async function postOnlineMatch(event, ddbClient = ddb) {
       status: 'waiting',
       createdAt: now,
       maxPlayers: 2,
-      settings: {
-        turnSeconds: settings.turnSeconds,
-        wind: settings.wind,
-        difficulty: settings.difficulty,
-        map: settings.map,
-        mode: settings.mode,
-        wormsPerTeam: settings.wormsPerTeam,
-        seed: settings.seed,
-      },
+      settings: cleanSettings,
       players: [{ playerId: body.playerId, playerName: body.playerName, teamName }],
     };
     try {
