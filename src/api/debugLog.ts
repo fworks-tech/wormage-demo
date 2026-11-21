@@ -56,7 +56,9 @@ async function sendDebugLog(engine: GameEngine): Promise<boolean> {
   const expires = new Date(now.getTime() + RETENTION_DAYS * 24 * 60 * 60 * 1000);
   // A fresh id per flush keeps S3 keys unique across periodic and final uploads.
   // randomUUID needs a secure context; fall back for file:// and sandboxed previews.
-  const flushId = crypto.randomUUID?.() ?? `${now.getTime().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+  const flushId = (globalThis.crypto && typeof globalThis.crypto.randomUUID === 'function')
+    ? globalThis.crypto.randomUUID()
+    : `${now.getTime().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
   // Each request carries one entry slice and one snapshot slice, so the request
   // count is the larger of the two, not their sum.
   const totalChunks = Math.max(

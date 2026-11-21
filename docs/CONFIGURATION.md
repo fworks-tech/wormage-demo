@@ -125,6 +125,8 @@ Reset with **Reset demo data** in Options, or `localStorage.removeItem('wormage.
   - `/wormage/debug-logs/max-payload-bytes`
   - `/wormage/debug-logs/prefix`
 - Browser instrumentation: `window.__WORMAGE__.debugLog()`, `clearDebugLog()`, `flushDebugLog()`.
+- Note: SSM values are read at deploy time and baked into the Lambda's environment variables; changing a parameter requires a redeploy. `retention-days` is enforced by the S3 lifecycle rule (7 days), not by the Lambda.
+- CloudWatch Logs retention is also 7 days (Lambda log group retention set in CDK).
 
 ## Common tweaks
 

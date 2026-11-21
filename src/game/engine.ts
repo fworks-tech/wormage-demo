@@ -75,7 +75,7 @@ export class GameEngine {
   readonly sessionId = (globalThis.crypto && typeof globalThis.crypto.randomUUID === 'function')
     ? globalThis.crypto.randomUUID()
     : `s-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
-  readonly matchId = `M-${Date.now().toString(36).toUpperCase()}`;
+  readonly matchId = `M-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).slice(2, 6).toUpperCase()}`;
   debugLog: DebugLogEntry[] = [];
   private debugSeq = 0;
   private readonly debugLogLimit = 5000;
@@ -1331,14 +1331,14 @@ export class GameEngine {
       if (!this.aiBlockedLogged) {
         this.aiBlockedLogged = true;
         this.logDebug('ai.blocked', 'AI movement blocked', {
-        wormId: worm.id,
-        x: worm.x,
-        fireX: plan.fireX,
-        stall: Math.round(this.aiStall * 100) / 100,
-        planInReach,
-        ropeCount: this.aiRopeCount,
-        jumpCount: this.aiJumpCount,
-      }, 'cpu', worm.id, 'warn');
+          wormId: worm.id,
+          x: worm.x,
+          fireX: plan.fireX,
+          stall: Math.round(this.aiStall * 100) / 100,
+          planInReach,
+          ropeCount: this.aiRopeCount,
+          jumpCount: this.aiJumpCount,
+        }, 'cpu', worm.id, 'warn');
       }
 
       // A blocked AI walk climbs with the rope when the ledge is too high,

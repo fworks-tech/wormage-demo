@@ -4,6 +4,7 @@ import * as apigwv2 from 'aws-cdk-lib/aws-apigatewayv2';
 import { HttpLambdaIntegration } from 'aws-cdk-lib/aws-apigatewayv2-integrations';
 import * as lambda from 'aws-cdk-lib/aws-lambda';
 import * as dynamodb from 'aws-cdk-lib/aws-dynamodb';
+import * as logs from 'aws-cdk-lib/aws-logs';
 import * as s3 from 'aws-cdk-lib/aws-s3';
 import * as ssm from 'aws-cdk-lib/aws-ssm';
 import * as acm from 'aws-cdk-lib/aws-certificatemanager';
@@ -96,6 +97,7 @@ export class WormageStack extends cdk.Stack {
       },
       timeout: cdk.Duration.seconds(10),
       memorySize: 256,
+      logRetention: logs.RetentionDays.ONE_WEEK,
     });
 
     this.table.grantReadWriteData(this.handler);
