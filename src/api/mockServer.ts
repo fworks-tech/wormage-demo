@@ -286,13 +286,20 @@ export function createOnlineMatch(input: {
   const db = getOnlineDb();
   let code = genOnlineCode();
   while (db.matches[code]) code = genOnlineCode();
+  const now = new Date().toISOString();
   const match: OnlineMatch = {
     code,
     status: 'waiting',
-    createdAt: new Date().toISOString(),
+    createdAt: now,
     maxPlayers: 2,
     settings: input.settings ?? {},
     players: [{ playerId: input.playerId, playerName: input.playerName, teamName: input.teamName ?? 'Ironclad' }],
+    activeTeam: 0,
+    turn: 1,
+    turnStartedAt: now,
+    turnSeconds: input.settings?.turnSeconds ?? 45,
+    winnerTeam: null,
+    endReason: null,
   };
   db.matches[code] = match;
   persistOnline(db);
@@ -310,14 +317,40 @@ export function joinOnlineMatch(code: string, input: { playerId: string; playerN
     return { error: 'full' };
   }
   match.players.push({ playerId: input.playerId, playerName: input.playerName, teamName: input.teamName ?? 'Ironclad' });
-  if (match.players.length >= match.maxPlayers) match.status = 'ready';
+  if (match.players.length >= match.maxPlayers) {
+    match.status = 'ready';
+    match.activeTeam = 0;
+    match.turn = 1;
+    match.turnStartedAt = new Date().toISOString();
+    match.turnSeconds = match.turnSeconds ?? 45;
+  }
   persistOnline(db);
   return { code: match.code, match };
 }
 
 export function getOnlineMatch(code: string): OnlineMatch | null {
   const db = getOnlineDb();
-  return db.matches[code.toUpperCase()] ?? null;
+  const match = db.matches[code.toUpperCase()];
+  if (!match) return null;
+  // Server-side turn expiry advance.
+  if (match.status === 'ready' && match.winnerTeam == null && match.turnStartedAt) {
+    const elapsed = Date.now() - new Date(match.turnStartedAt).getTime();
+    const limit = (match.turnSeconds || 45) * 1000;
+    if (elapsed >= limit) {
+      const now = new Date().toISOString();
+      const n = match.players.length;
+      let nextTeam = match.activeTeam;
+      for (let i = 1; i <= n; i++) {
+        const idx = (match.activeTeam + i) % n;
+        if (match.players[idx]) { nextTeam = idx; break; }
+      }
+      match.activeTeam = nextTeam;
+      match.turn = (match.turn || 1) + 1;
+      match.turnStartedAt = now;
+      persistOnline(db);
+    }
+  }
+  return match;
 }
 
 export function resetOnlineMatches(): void {

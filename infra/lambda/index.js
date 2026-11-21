@@ -327,6 +327,12 @@ function toOnlineMatch(m) {
     maxPlayers: m.maxPlayers,
     settings: m.settings || {},
     players,
+    activeTeam: typeof m.activeTeam === 'number' ? m.activeTeam : 0,
+    turn: typeof m.turn === 'number' ? m.turn : 1,
+    turnStartedAt: m.turnStartedAt || m.createdAt,
+    turnSeconds: typeof m.turnSeconds === 'number' ? m.turnSeconds : (m.settings && m.settings.turnSeconds) || 45,
+    winnerTeam: m.winnerTeam != null ? m.winnerTeam : null,
+    endReason: m.endReason || null,
   };
 }
 
@@ -354,6 +360,12 @@ async function postOnlineMatch(event, ddbClient = ddb) {
       createdAt: now,
       maxPlayers: 2,
       settings: cleanSettings,
+      activeTeam: 0,
+      turn: 1,
+      turnStartedAt: now,
+      turnSeconds: (settings.turnSeconds != null ? settings.turnSeconds : 45),
+      winnerTeam: null,
+      endReason: null,
       players: [{ playerId: body.playerId, playerName: body.playerName, teamName }],
     };
     try {
@@ -393,13 +405,14 @@ async function joinOnlineMatch(event, rawCode, ddbClient = ddb) {
   }
 
   const newPlayer = { playerId: body.playerId, playerName: body.playerName, teamName };
+  const now = new Date().toISOString();
   try {
     await ddbClient.send(new UpdateCommand({
       TableName: TABLE,
       Key: { pk: `ONLINE#${code}`, sk: 'META' },
-      UpdateExpression: 'SET players = list_append(players, :p), #s = :ready',
+      UpdateExpression: 'SET players = list_append(players, :p), #s = :ready, activeTeam = :at, turn = :t, turnStartedAt = :ts',
       ExpressionAttributeNames: { '#s': 'status' },
-      ExpressionAttributeValues: { ':p': [newPlayer], ':ready': 'ready', ':max': match.maxPlayers || 2 },
+      ExpressionAttributeValues: { ':p': [newPlayer], ':ready': 'ready', ':max': match.maxPlayers || 2, ':at': 0, ':t': 1, ':ts': now },
       ConditionExpression: 'size(players) < :max',
     }));
   } catch (err) {
@@ -422,6 +435,51 @@ async function joinOnlineMatch(event, rawCode, ddbClient = ddb) {
   return json(200, { code: after.Item.code, match: toOnlineMatch(after.Item) });
 }
 
+async function getOnlineMatch(event, rawCode, ddbClient = ddb) {
+  const code = String(rawCode || '').toUpperCase().trim();
+  const got = await ddbClient.send(new GetCommand({
+    TableName: TABLE,
+    Key: { pk: `ONLINE#${code}`, sk: 'META' },
+  }));
+  if (!got.Item) return json(404, { message: 'match not found' });
+  let match = got.Item;
+
+  // Server-side turn expiry: if the active turn has run out, advance.
+  if (match.status === 'ready' && match.winnerTeam == null && match.turnStartedAt) {
+    const elapsed = Date.now() - new Date(match.turnStartedAt).getTime();
+    const limit = (match.turnSeconds || 45) * 1000;
+    if (elapsed >= limit) {
+      const now = new Date().toISOString();
+      const n = Array.isArray(match.players) ? match.players.length : 0;
+      let nextTeam = match.activeTeam;
+      for (let i = 1; i <= n; i++) {
+        const idx = (match.activeTeam + i) % n;
+        if (match.players[idx] && match.players[idx].playerId) { nextTeam = idx; break; }
+      }
+      const newTurn = (match.turn || 1) + 1;
+      try {
+        await ddbClient.send(new UpdateCommand({
+          TableName: TABLE,
+          Key: { pk: `ONLINE#${code}`, sk: 'META' },
+          UpdateExpression: 'SET activeTeam = :at, turn = :t, turnStartedAt = :ts',
+          ExpressionAttributeValues: { ':at': nextTeam, ':t': newTurn, ':ts': now, ':old': match.turnStartedAt },
+          ConditionExpression: 'turnStartedAt = :old',
+        }));
+        match = { ...match, activeTeam: nextTeam, turn: newTurn, turnStartedAt: now };
+      } catch (err) {
+        // Conditional check failed (concurrent advance) — re-read.
+        const after = await ddbClient.send(new GetCommand({
+          TableName: TABLE,
+          Key: { pk: `ONLINE#${code}`, sk: 'META' },
+        }));
+        if (after.Item) match = after.Item;
+      }
+    }
+  }
+
+  return json(200, { code: match.code, match: toOnlineMatch(match) });
+}
+
 exports.handler = async (event) => {
   const method = (event.requestContext && event.requestContext.http && event.requestContext.http.method) || event.httpMethod || 'GET';
   const path = (event.rawPath || event.path || '/').replace(/\/+$/, '') || '/';
@@ -434,6 +492,7 @@ exports.handler = async (event) => {
     if (method === 'GET' && path === '/api/leaderboard') return await getLeaderboard(event);
     if (method === 'GET' && path === '/api/matches') return await getMatches(event);
     if (method === 'POST' && path === '/api/matches') return await postMatch(event);
+    if (method === 'GET' && /^\/api\/matches\/online\/[^/]+$/.test(path)) { const c = path.match(/^\/api\/matches\/online\/([^/]+)$/)[1]; return await getOnlineMatch(event, decodeURIComponent(c)); }
     if (method === 'POST' && path === '/api/matches/online') return await postOnlineMatch(event);
     const onlineJoin = path.match(/^\/api\/matches\/online\/([^/]+)\/join$/);
     if (method === 'POST' && onlineJoin) return await joinOnlineMatch(event, decodeURIComponent(onlineJoin[1]));
@@ -452,6 +511,7 @@ exports.getMatches = getMatches;
 exports.postMatch = postMatch;
 exports.postOnlineMatch = postOnlineMatch;
 exports.joinOnlineMatch = joinOnlineMatch;
+exports.getOnlineMatch = getOnlineMatch;
 exports.generateOnlineCode = generateOnlineCode;
 exports.postDebugLog = postDebugLog;
 exports.validateDebugLogBody = validateDebugLogBody;

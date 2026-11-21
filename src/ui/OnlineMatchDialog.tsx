@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { useCreateOnlineMatch, useJoinOnlineMatch } from '../api/queries';
+import { useEffect, useState } from 'react';
+import { useCreateOnlineMatch, useJoinOnlineMatch, useOnlineMatch } from '../api/queries';
 import type { OnlineMatch } from '../api/types';
 import type { PlayerIdentity as Player } from '../state/storage';
 
@@ -15,8 +15,18 @@ export function OnlineMatchDialog({ player, onClose }: Props) {
   const [codeInput, setCodeInput] = useState('');
   const [match, setMatch] = useState<OnlineMatch | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [now, setNow] = useState(() => Date.now());
   const create = useCreateOnlineMatch();
   const join = useJoinOnlineMatch();
+  const polled = useOnlineMatch(match?.code ?? null, !!match?.code);
+  useEffect(() => {
+    if (polled.data) setMatch(polled.data);
+  }, [polled.data]);
+  useEffect(() => {
+    if (!match?.code || match.winnerTeam != null) return;
+    const id = window.setInterval(() => setNow(Date.now()), 250);
+    return () => window.clearInterval(id);
+  }, [match?.code, match?.winnerTeam]);
 
   const handleCreate = async () => {
     setError(null);
@@ -87,6 +97,9 @@ export function OnlineMatchDialog({ player, onClose }: Props) {
         <>
           <p className="muted">
             Code: <strong data-testid="online-code">{match.code}</strong> · {match.players.length}/{match.maxPlayers} players · {match.status}
+            {match.status === 'ready' && match.winnerTeam == null && (
+              <span data-testid="online-timeleft"> · {Math.max(0, Math.ceil((new Date(match.turnStartedAt).getTime() + match.turnSeconds * 1000 - now) / 1000))}s (team {match.activeTeam})</span>
+            )}
           </p>
           <ul style={{ listStyle: 'none', padding: 0, margin: '0.5rem 0' }}>
             {match.players.map((p) => (
