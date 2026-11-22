@@ -15,6 +15,7 @@ const GAME_UNIT = [
   'tests/unit/ragdoll.test.ts',
   'tests/unit/debugLog.test.ts',
   'tests/unit/jump.test.ts',
+  'tests/unit/lootPhysics.test.ts',
   'tests/unit/parity.test.ts',
   'tests/unit/replay.test.ts',
   'tests/unit/rope.test.ts',

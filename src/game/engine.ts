@@ -6,6 +6,7 @@ import {
   DIFFICULTY,
   GRAVITY,
   JUMP_REACH,
+  LOOT,
   PROJECTILE_GRAVITY,
   RETREAT_SECONDS,
   ROPE,
@@ -47,6 +48,18 @@ const WORM_NAMES = [
 /** Blast damage at a distance: linear falloff, floored at 22% inside the radius. */
 export function blastFalloff(distance: number, radius: number): number {
   return Math.max(0.22, 1 - distance / radius);
+}
+
+interface LootItem {
+  id: number;
+  x: number;
+  y: number;
+  vx: number;
+  vy: number;
+  kind: 'ammo' | 'mine' | 'secret';
+  armed: boolean;
+  fuse: number;
+  ammoGrant: number;
 }
 
 export class GameEngine {
@@ -100,7 +113,7 @@ export class GameEngine {
   private revengeFocusByTeam: Record<number, { x: number; y: number } | null> = {};
   private revengeTurnsByTeam: Record<number, number> = {};
   private readonly rng: () => number;
-  loot: Array<{ id: number; x: number; y: number; kind: 'ammo' | 'mine' | 'secret'; armed: boolean; fuse: number; ammoGrant: number }> = [];
+  loot: LootItem[] = [];
   mobs: Array<{ id: number; x: number; y: number; hp: number; maxHp: number; damage: number; speed: number; radius: number; alive: boolean }> = [];
   private mobId = 0;
   private lootId = 0;
@@ -640,21 +653,22 @@ export class GameEngine {
     const ground = (x: number) => this.terrain.groundY(x, 120, WATER_Y - 120) ?? 470;
     for (let i = 0; i < 6; i += 1) {
       const x = 200 + rng() * (WORLD_W - 400);
-      this.loot.push({ id: ++this.lootId, x, y: ground(x) - 12, kind: 'ammo', armed: false, fuse: 0, ammoGrant: 1 });
+      this.loot.push({ id: ++this.lootId, x, y: ground(x) - 12, vx: 0, vy: 0, kind: 'ammo', armed: false, fuse: 0, ammoGrant: 1 });
     }
     for (let i = 0; i < 4; i += 1) {
       const x = 200 + rng() * (WORLD_W - 400);
-      this.loot.push({ id: ++this.lootId, x, y: ground(x) - 12, kind: 'mine', armed: false, fuse: 1.5, ammoGrant: 0 });
+      this.loot.push({ id: ++this.lootId, x, y: ground(x) - 12, vx: 0, vy: 0, kind: 'mine', armed: false, fuse: 1.5, ammoGrant: 0 });
     }
     for (let i = 0; i < 3; i += 1) {
       const x = 200 + rng() * (WORLD_W - 400);
-      this.loot.push({ id: ++this.lootId, x, y: ground(x) - 12, kind: 'secret', armed: false, fuse: 0, ammoGrant: 2 });
+      this.loot.push({ id: ++this.lootId, x, y: ground(x) - 12, vx: 0, vy: 0, kind: 'secret', armed: false, fuse: 0, ammoGrant: 2 });
     }
   }
 
   private updateLoot(dt: number): void {
     const teamOf = (w: { teamId: number }) => this.teams[w.teamId];
     for (const item of this.loot) {
+      this.stepLoot(item, dt);
       if (item.kind === 'mine') {
         // arm when a worm is within proximity
         if (!item.armed) {
@@ -670,6 +684,7 @@ export class GameEngine {
             // Mine detonation: visible + audible (was silent before).
             this.events.push({ type: 'mineExplosion', x: item.x, y: item.y, radius: 60 });
             this.terrain.carve(item.x, item.y, 40);
+            this.blastLoot(item.x, item.y, 60, 0.8);
             outer: for (const t of this.teams) {
               for (const w of t.worms) {
                 if (!w.alive) continue;
@@ -715,6 +730,54 @@ export class GameEngine {
     }
     // remove consumed
     this.loot = this.loot.filter((l) => l.x >= 0);
+  }
+
+  /** Items obey gravity and settle on terrain, so a crater makes them drop. */
+  private stepLoot(item: LootItem, dt: number): void {
+    if (item.x < 0) return;
+    item.vy += LOOT.gravity * dt;
+    const steps = Math.max(1, Math.ceil(Math.max(Math.abs(item.vx * dt), Math.abs(item.vy * dt)) / 5));
+    for (let i = 0; i < steps; i += 1) {
+      const nextX = worldClamp(item.x + (item.vx * dt) / steps, LOOT.radius, WORLD_W - LOOT.radius);
+      if (nextX === LOOT.radius || nextX === WORLD_W - LOOT.radius || this.terrain.isSolid(nextX, item.y)) {
+        item.vx = 0;
+      } else {
+        item.x = nextX;
+      }
+      const nextY = item.y + (item.vy * dt) / steps;
+      if (this.terrain.isSolid(item.x, nextY + LOOT.radius)) {
+        const ground = this.terrain.groundY(item.x, nextY - 12, 24);
+        item.y = (ground ?? nextY + LOOT.radius) - LOOT.radius;
+        const impact = Math.abs(item.vy);
+        item.vy = impact > LOOT.bounceSpeed ? -item.vy * LOOT.restitution : 0;
+        if (item.vy === 0) {
+          item.vx *= LOOT.friction;
+          if (Math.abs(item.vx) < 4) item.vx = 0;
+        }
+        break;
+      }
+      item.y = nextY;
+      if (item.y > WATER_Y) {
+        item.x = -10000;
+        return;
+      }
+    }
+  }
+
+  /** Blasts throw nearby loot, same as worms. */
+  private blastLoot(x: number, y: number, radius: number, scale = 1): void {
+    for (const item of this.loot) {
+      if (item.x < 0) continue;
+      const dx = item.x - x;
+      const dy = item.y - y;
+      const distance = Math.hypot(dx, dy);
+      if (distance > radius) continue;
+      const dirX = distance === 0 ? 0 : dx / distance;
+      const dirY = distance === 0 ? -1 : dy / distance;
+      const push = LOOT.blastSpeed * scale * (1 - distance / radius);
+      item.vx += dirX * push;
+      item.vy += dirY * push - 60;
+    }
   }
 
   private spawnMobs(): void {
@@ -908,12 +971,13 @@ export class GameEngine {
     const def = WEAPONS[weapon];
     this.logDebug('combat.explosion', 'Explosion', { x: Math.round(x), y: Math.round(y), weapon, sourceTeam, terrainRadius: def.terrainRadius }, 'system');
     this.terrain.carve(x, y, def.terrainRadius);
+    this.blastLoot(x, y, def.radius);
     for (const mob of this.mobs) {
       if (!mob.alive) continue;
       const d = Math.hypot(mob.x - x, mob.y - y);
       if (d <= def.radius) {
         mob.hp = Math.max(0, mob.hp - def.damage);
-        if (mob.hp <= 0) { mob.alive = false; this.loot.push({ id: ++this.lootId, x: mob.x, y: mob.y - 12, kind: 'ammo', armed: false, fuse: 0, ammoGrant: 1 }); }
+        if (mob.hp <= 0) { mob.alive = false; this.loot.push({ id: ++this.lootId, x: mob.x, y: mob.y - 12, vx: 0, vy: 0, kind: 'ammo', armed: false, fuse: 0, ammoGrant: 1 }); }
       }
     }
     this.events.push({ type: 'explosion', x, y, radius: def.radius });

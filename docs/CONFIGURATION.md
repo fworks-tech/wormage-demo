@@ -29,6 +29,8 @@ Every gameplay number lives in `src/game/config.ts`. Balance changes should neve
 | `WORM.maxHp` | 100 | HP | per worm |
 | `WORM.fallSafePx` | 150 | px | free fall before damage |
 | `WORM.fallDamagePerPx` | 0.16 | HP/px | linear after the safe distance |
+| `LOOT.gravity` | 720 | px/s² | loot falls to the terrain and drops when a blast carves under it |
+| `LOOT.blastSpeed` | 260 | px/s | push at a blast centre, scaled down to 0 at the radius |
 | `AIM.min` / `AIM.max` | -3.04 / -0.1 | rad | upper half-plane only |
 | `AIM.radius` | 130 | px | the reticle never leaves this circle around the worm |
 | `FIXED_DT` | 1/60 | s | simulation step; rendering may run at any frame rate |

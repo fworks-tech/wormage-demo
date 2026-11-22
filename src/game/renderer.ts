@@ -71,7 +71,7 @@ class WormView {
       },
     });
     this.label.anchor.set(0.5, 1);
-    this.label.position.set(0, -46);
+    this.label.position.set(0, -58);
     this.root.addChild(this.label);
 
     this.hpText = new Text({
@@ -79,7 +79,7 @@ class WormView {
       style: { fontFamily: FONT_BODY, fontSize: 9, fontWeight: '700', fill: 0xf4ead7 },
     });
     this.hpText.anchor.set(0.5, 0);
-    this.hpText.position.set(0, -43);
+    this.hpText.position.set(0, -55);
     this.root.addChild(this.hpText);
 
     this.drawWorm(color, 1);
@@ -89,53 +89,60 @@ class WormView {
     const g = this.body;
     g.clear();
     // Ground shadow.
-    g.ellipse(2, 2, 14, 4).fill({ color: 0x000000, alpha: 0.3 });
+    g.ellipse(2, 2, 16, 4.5).fill({ color: 0x000000, alpha: 0.28 });
 
-    // L-shape body: base curves back on the ground, head/chest point up and forward.
-    // Built from overlapping ellipses for a smooth cylindrical read.
+    // Chubby, limbless tube: broad flat base rising into a slouched torso and a
+    // slightly bulbous head. Heavy overlap keeps the silhouette continuous.
     const segments: Array<{ x: number; y: number; rx: number; ry: number }> = launched
       ? [
-          // Flailing: stretched out.
-          { x: -6, y: -4, rx: 7, ry: 5 },
-          { x: 0, y: -10, rx: 6, ry: 5 },
-          { x: 6, y: -16, rx: 6, ry: 5 },
-          { x: 10, y: -22, rx: 5, ry: 5 },
+          // Flailing: stretched out, head thrown forward.
+          { x: -8, y: -4, rx: 9.5, ry: 7 },
+          { x: -2, y: -9, rx: 10, ry: 7.5 },
+          { x: 5, y: -13, rx: 10, ry: 8 },
+          { x: 12, y: -17, rx: 9, ry: 7.5 },
+          { x: 18, y: -20, rx: 7.5, ry: 7 },
         ]
       : [
-          // Resting L-shape: base back, head forward/up.
-          { x: -4, y: -2, rx: 7, ry: 5 },
-          { x: 0, y: -9, rx: 6, ry: 5 },
-          { x: 4, y: -17, rx: 6, ry: 5 },
-          { x: 6, y: -24, rx: 5, ry: 5 },
+          { x: -1, y: -2, rx: 12, ry: 7.5 },
+          { x: 0, y: -8, rx: 11, ry: 8 },
+          { x: 1, y: -14, rx: 10.5, ry: 8.2 },
+          { x: 2, y: -20, rx: 10.5, ry: 8.4 },
+          { x: 3, y: -26, rx: 10.8, ry: 8.6 },
         ];
 
     for (const seg of segments) {
       g.ellipse(seg.x, seg.y, seg.rx, seg.ry).fill(color);
-      g.ellipse(seg.x, seg.y, seg.rx, seg.ry).stroke({ width: 1.5, color: 0x15201f, alpha: 0.7 });
     }
-    // Soft highlight on top segments.
-    g.ellipse(2, -12, 4, 2).fill({ color: 0xffffff, alpha: 0.22 });
-    // Team-colored belt on the middle segment.
-    g.roundRect(-2, -12, 8, 3, 1.5).fill({ color, alpha: 0.92 });
-    // Tail coil on the ground.
-    g.ellipse(-9, -1, 5, 3).fill(color);
-    g.ellipse(-9, -1, 5, 3).stroke({ width: 1.2, color: 0x15201f, alpha: 0.7 });
-    // Head (bulbous front segment).
-    g.circle(6 + facing * 2, -26, 7).fill(color);
-    g.circle(6 + facing * 2, -26, 7).stroke({ width: 1.5, color: 0x15201f, alpha: 0.8 });
-    // Headband.
-    g.roundRect(0 + facing * 2, -31, 12, 4, 2).fill(0x101a1c);
-    // Large cartoon eyes, closely spaced, tiny pupils.
-    const eyeX = 4 + facing * 2;
-    g.circle(eyeX - 3, -27, 4.2).fill(0xfdf6e6);
-    g.circle(eyeX + 3, -27, 4.2).fill(0xfdf6e6);
-    g.circle(eyeX - 3 + facing * 1.2, -27, 1.4).fill(0x12181a);
-    g.circle(eyeX + 3 + facing * 1.2, -27, 1.4).fill(0x12181a);
+    // Segmentation creases read as shading, not hard outlines.
+    for (const seg of segments.slice(1)) {
+      g.moveTo(seg.x - seg.rx, seg.y).lineTo(seg.x + seg.rx, seg.y).stroke({ width: 1, color: 0x15201f, alpha: 0.18 });
+    }
+    // Flat base so the worm sits on the ground instead of balancing on a curve.
+    g.ellipse(-1, -1, 12.5, 4.5).fill(color);
+    g.ellipse(-1, -1, 12.5, 4.5).stroke({ width: 1.3, color: 0x15201f, alpha: 0.55 });
+    // Tail curl up and back.
+    g.moveTo(-8, -3).quadraticCurveTo(-16, -2, -15, -8).stroke({ width: 6.7, color: 0x15201f, alpha: 0.45, cap: 'round' });
+    g.moveTo(-8, -3).quadraticCurveTo(-16, -2, -15, -8).stroke({ width: 4.8, color, cap: 'round' });
+    // Soft highlight down the upper-left of the torso.
+    g.ellipse(-3, -20, 3.5, 9).fill({ color: 0xffffff, alpha: 0.16 });
+    // Team-colored belt on the lower torso.
+    g.roundRect(-9, -12, 20, 4, 2).fill({ color: 0x101a1c, alpha: 0.85 });
+    g.roundRect(-9, -12, 20, 4, 2).stroke({ width: 1, color, alpha: 0.9 });
+    // Head (bulbous, slightly forward of the torso).
+    g.circle(4, -34, 11.5).fill(color);
+    g.circle(4, -34, 11.5).stroke({ width: 1.5, color: 0x15201f, alpha: 0.8 });
+    // Large cartoon eyes, closely spaced, tiny pupils, both visible from the front.
+    g.circle(-0.8, -35.5, 4.4).fill(0xfdf6e6);
+    g.circle(8.8, -35.5, 4.4).fill(0xfdf6e6);
+    g.circle(-0.8, -35.5, 4.4).stroke({ width: 1, color: 0x15201f, alpha: 0.55 });
+    g.circle(8.8, -35.5, 4.4).stroke({ width: 1, color: 0x15201f, alpha: 0.55 });
+    g.circle(-0.8 + facing * 1.3, -35.5, 1.5).fill(0x12181a);
+    g.circle(8.8 + facing * 1.3, -35.5, 1.5).fill(0x12181a);
     // Catchlights.
-    g.circle(eyeX - 3.6 + facing * 1.2, -28, 0.6).fill(0xffffff);
-    g.circle(eyeX + 2.4 + facing * 1.2, -28, 0.6).fill(0xffffff);
+    g.circle(-1.4 + facing * 1.3, -36.6, 0.65).fill(0xffffff);
+    g.circle(8.2 + facing * 1.3, -36.6, 0.65).fill(0xffffff);
     // Small expressive mouth.
-    g.moveTo(eyeX - 2, -22).lineTo(eyeX, -21).lineTo(eyeX + 2, -22).stroke({ width: 1.2, color: 0x35231d, alpha: 0.8 });
+    g.moveTo(2.5, -28).lineTo(4, -27).lineTo(5.5, -28).stroke({ width: 1.2, color: 0x35231d, alpha: 0.8 });
     this.lastFacing = facing;
   }
 
@@ -161,17 +168,17 @@ class WormView {
       this.lastHp = worm.hp;
       this.lastActive = active;
       this.bar.clear();
-      this.bar.roundRect(-18, -38, 36, 4, 2).fill({ color: 0x0a0f10, alpha: 0.7 });
+      this.bar.roundRect(-19, -50, 38, 4, 2).fill({ color: 0x0a0f10, alpha: 0.7 });
       const ratio = Math.max(0, worm.hp / worm.maxHp);
       const color = ratio > 0.55 ? 0x9ee37d : ratio > 0.25 ? 0xffcf5c : 0xff6b5b;
-      this.bar.roundRect(-17, -37, 34 * ratio, 2, 1).fill(color);
+      this.bar.roundRect(-18, -49, 36 * ratio, 2, 1).fill(color);
       this.hpText.text = `${Math.ceil(worm.hp)}`;
       this.hpText.style.fill = ratio > 0.25 ? 0xf4ead7 : 0xff9a8f;
     }
 
     this.marker.clear();
     if (active) {
-      const y = -58 + Math.sin(this.bob) * 3;
+      const y = -66 + Math.sin(this.bob) * 3;
       this.marker.moveTo(-6, y).lineTo(6, y).lineTo(0, y + 8).closePath().fill(0xffe08a);
       this.marker.stroke({ width: 1.5, color: 0x1a1410, alpha: 0.8 });
     }
