@@ -799,7 +799,7 @@ export class GameEngine {
     };
     for (let i = 0; i < 3; i += 1) {
       const x = clearX(60);
-      this.mobs.push({ id: ++this.mobId, x, y: ground(x) - 12, hp: 60, maxHp: 60, damage: 15, speed: 80, radius: 18, alive: true });
+      this.mobs.push({ id: ++this.mobId, x, y: ground(x) - 12, hp: 60, maxHp: 60, damage: 20, speed: 160, radius: 18, alive: true });
     }
   }
 
@@ -826,7 +826,7 @@ export class GameEngine {
       const dy = best.w.y - mob.y;
       const dist = Math.hypot(dx, dy) || 1;
       const dir = dx >= 0 ? 1 : -1;
-      const budget = Math.min(mob.speed * 0.5, dist);
+      const budget = Math.min(mob.speed * 2, dist);
       let moved = 0;
       let x = mob.x;
       while (moved < budget) {
@@ -843,7 +843,7 @@ export class GameEngine {
       mob.x = x;
       const g = this.terrain.groundY(mob.x, 120, WATER_Y - 120);
       if (g !== null) mob.y = g - mob.radius;
-      const attacked = dist <= 50;
+      const attacked = dist <= 60;
       if (attacked) {
         best.w.hp = Math.max(0, best.w.hp - mob.damage);
         if (best.w.hp <= 0) {
