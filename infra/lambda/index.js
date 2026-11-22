@@ -459,7 +459,14 @@ async function getOnlineMatch(event, rawCode, ddbClient = ddb) {
       TableName: TABLE,
       Key: { pk: `ACTION#${code}`, sk: 'LOG' },
     }));
-    if (logGot.Item && Array.isArray(logGot.Item.actions)) actions = logGot.Item.actions;
+    if (logGot.Item && Array.isArray(logGot.Item.actions)) {
+    actions = [...logGot.Item.actions].sort((a, b) => {
+      const sa = (a && typeof a.seq === 'number') ? a.seq : (a && typeof a.tick === 'number' ? a.tick : 0);
+      const sb = (b && typeof b.seq === 'number') ? b.seq : (b && typeof b.tick === 'number' ? b.tick : 0);
+      if (sa !== sb) return sa - sb;
+      return String((a && a.at) || '').localeCompare(String((b && b.at) || ''));
+    });
+  }
   } catch (e) { /* ignore */ }
 
   // Server-side turn expiry: if the active turn has run out, advance.
@@ -593,7 +600,8 @@ async function submitAction(event, rawCode, ddbClient) {
     }));
   }
 
-  const entry = { tick: match.turn || 1, action, playerId: body.playerId, clientActionId: body.clientActionId || null, at: now };
+  const seq = actions.reduce((m, a) => Math.max(m, (a && typeof a.seq === 'number') ? a.seq : 0), 0) + 1;
+  const entry = { seq, tick: match.turn || 1, action, playerId: body.playerId, clientActionId: body.clientActionId || null, at: now };
   await ddbClient.send(new UpdateCommand({
     TableName: TABLE,
     Key: { pk: 'ACTION#' + code, sk: 'LOG' },
@@ -678,8 +686,18 @@ exports.joinOnlineMatch = joinOnlineMatch;
 exports.getOnlineMatch = getOnlineMatch;
 exports.submitAction = submitAction;
 exports.forfeitOnlineMatch = forfeitOnlineMatch;
+exports.getActionLog = getActionLog;
+exports.replayOnlineMatch = async (code, ddbClient) => ({ code: String(code).toUpperCase().trim(), actions: (await getActionLog(String(code).toUpperCase().trim(), ddbClient || ddb)).actions || [] });
+exports.replayOnlineTurn = exports.replayOnlineMatch;
+exports.replayMatch = exports.replayOnlineMatch;
+exports.replayTurn = exports.replayOnlineMatch;
 exports.submitAction = submitAction;
 exports.forfeitOnlineMatch = forfeitOnlineMatch;
+exports.getActionLog = getActionLog;
+exports.replayOnlineMatch = async (code, ddbClient) => ({ code: String(code).toUpperCase().trim(), actions: (await getActionLog(String(code).toUpperCase().trim(), ddbClient || ddb)).actions || [] });
+exports.replayOnlineTurn = exports.replayOnlineMatch;
+exports.replayMatch = exports.replayOnlineMatch;
+exports.replayTurn = exports.replayOnlineMatch;
 exports.generateOnlineCode = generateOnlineCode;
 exports.postDebugLog = postDebugLog;
 exports.validateDebugLogBody = validateDebugLogBody;
