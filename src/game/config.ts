@@ -65,6 +65,20 @@ export const WORM = {
 /** Peak height of a jump, derived so planning and physics cannot drift. */
 export const JUMP_REACH = (WORM.jumpVelocity * WORM.jumpVelocity) / (2 * GRAVITY);
 
+/** Loot physics: items fall, settle on terrain and get thrown by blasts. */
+export const LOOT = {
+  /** Half-height used to rest the item on the ground. */
+  radius: 5,
+  gravity: 720,
+  restitution: 0.3,
+  /** Speed above which a landing bounces instead of stopping. */
+  bounceSpeed: 90,
+  /** Ground friction per step while resting. */
+  friction: 0.7,
+  /** Push at the centre of a blast, scaled down with distance. */
+  blastSpeed: 260,
+} as const;
+
 /** Anchored rope. `angle` is measured from straight down; `range` is also the max length. */
 export const ROPE = {
   range: 220,
