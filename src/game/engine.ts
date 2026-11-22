@@ -695,9 +695,7 @@ export class GameEngine {
     for (const item of this.loot) {
       this.stepLoot(item, dt);
       if (item.kind === 'mine') {
-        // Arm only outside the aim phase (after a shot lands), but keep
-        // fusing for already-armed mines so they can actually detonate.
-        if (!item.armed && this.phase !== 'aim') {
+        if (!item.armed) {
           for (const t of this.teams) for (const w of t.worms) {
             if (!w.alive) continue;
             const dx = w.x - item.x; const dy = w.y - item.y;
@@ -706,9 +704,7 @@ export class GameEngine {
         }
         if (item.armed) {
           item.fuse -= dt;
-          // Keep fusing in the aim phase, but do not detonate until a shot
-          // is in flight so the player is never blown up mid-aim.
-          if (item.fuse <= 0 && this.phase !== 'aim') {
+          if (item.fuse <= 0) {
             this.detonateMine(item, new Set());
           }
         }
