@@ -90,6 +90,9 @@ export function GameView({
   const [ready, setReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const onlineMatch = useOnlineMatch(online ? (onlineCode ?? null) : null, online);
+  const onlineMatchRef = useRef(onlineMatch);
+  useEffect(() => { onlineMatchRef.current = onlineMatch; }, [onlineMatch]);
+  const cleanupRef = useRef<(() => void) | null>(null);
   const submitAction = useSubmitOnlineAction();
   const forfeit = useForfeitOnlineMatch();
   const lastServerActionCountRef = useRef(0);
@@ -130,11 +133,24 @@ export function GameView({
     const host = hostRef.current;
     if (!host) return;
 
+    let timer: number | null = null;
+    const start = async () => {
+      if (online) {
+        while (!disposed && !onlineMatchRef.current?.data) {
+          await new Promise<void>((resolve) => { timer = window.setTimeout(resolve, 100); });
+          if (disposed) return;
+        }
+      }
+      if (disposed) return;
+      const matchData = online ? onlineMatchRef.current?.data : undefined;
+      const resolvedSeed = (matchData?.settings?.seed != null) ? matchData.settings.seed : seedRef.current;
+      if (online && matchData?.settings?.seed != null) seedRef.current = matchData.settings.seed;
+
     const engine = new GameEngine({
       turnSeconds: settings.turnSeconds,
       wind: settings.wind,
       difficulty: settings.difficulty,
-      seed: seedRef.current,
+      seed: resolvedSeed,
       wormsPerTeam: settings.wormsPerTeam ?? 3,
       map: settings.map ?? 'island',
       mode: settings.mode ?? 'deathmatch',
@@ -352,11 +368,10 @@ export function GameView({
       if (engine) void flushDebugLog(engine);
     }, 30_000);
 
-    return () => {
-      disposed = true;
+    cleanupRef.current = () => {
       window.clearInterval(flushTimer);
       window.removeEventListener('blur', pauseAuto);
-      document.removeEventListener('visibilitychange', onVisibility);
+      window.removeEventListener('visibilitychange', onVisibility);
       const renderer = rendererRef.current;
       if (renderer) {
         renderer.app.ticker.remove(tick);
@@ -369,7 +384,16 @@ export function GameView({
       delete (window as unknown as { __WORMAGE__?: unknown }).__WORMAGE__;
       soundRef.current = null;
     };
-    // The match runs from a settings snapshot taken at mount.
+
+    };
+    void start();
+    return () => {
+      disposed = true;
+      if (timer) window.clearTimeout(timer);
+      cleanupRef.current?.();
+      cleanupRef.current = null;
+    };
+    // The match runs from a settings snapshot taken at mount.    // The match runs from a settings snapshot taken at mount.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
