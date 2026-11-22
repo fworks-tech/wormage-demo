@@ -426,15 +426,15 @@ export function GameView({
       }
       if (e.code === keys.fire) {
         keysRef.current.add(e.code);
-        if (!e.repeat && !snap.teams[snap.activeTeam]?.isAi) engine.startCharge();
+        if (!e.repeat && !snap.teams[snap.activeTeam]?.isAi) { if (online) engine.record({ type: 'startCharge' }); else engine.startCharge(); }
         return;
       }
       if (e.code === keys.jump) {
-        if (!e.repeat && !snap.teams[snap.activeTeam]?.isAi) engine.jump();
+        if (!e.repeat && !snap.teams[snap.activeTeam]?.isAi) { if (online) engine.record({ type: 'jump' }); else engine.jump(); }
         return;
       }
       if (e.code === keys.rope) {
-        if (!e.repeat && !snap.teams[snap.activeTeam]?.isAi) engine.useRope();
+        if (!e.repeat && !snap.teams[snap.activeTeam]?.isAi) { if (online) engine.record({ type: 'rope' }); else engine.useRope(); }
         return;
       }
       const weaponByKey: Record<string, WeaponId> = {
@@ -445,15 +445,15 @@ export function GameView({
       };
       const weapon = weaponByKey[e.code];
       if (weapon) {
-        engine.selectWeapon(weapon);
+        if (online) engine.record({ type: 'weapon', id: weapon }); else engine.selectWeapon(weapon);
         return;
       }
-      if (e.code === keys.endTurn && !snap.teams[snap.activeTeam]?.isAi) engine.endTurn();
+      if (e.code === keys.endTurn && !snap.teams[snap.activeTeam]?.isAi) { if (online) engine.record({ type: 'endTurn' }); else engine.endTurn(); }
     };
 
     const up = (e: KeyboardEvent) => {
       keysRef.current.delete(e.code);
-      if (e.code === bindingsRef.current.fire && engineRef.current) engineRef.current.releaseCharge();
+      if (e.code === bindingsRef.current.fire && engineRef.current) { if (online) engineRef.current.record({ type: 'releaseCharge' }); else engineRef.current.releaseCharge(); }
     };
 
     window.addEventListener('keydown', down);
@@ -474,6 +474,7 @@ export function GameView({
     const onDown = (e: PointerEvent) => {
       const engine = engineRef.current;
       if (!engine || pausedRef.current || finishedRef.current || handoffRef.current !== null) return;
+      if (online && !isMyTurnRef.current) return;
       const snap = engine.snapshot();
       if (snap.phase !== 'aim' || snap.teams[snap.activeTeam]?.isAi) return;
       const point = localPoint(e);
@@ -486,6 +487,7 @@ export function GameView({
       const engine = engineRef.current;
       const drag = dragRef.current;
       if (!engine || !drag.active) return;
+      if (online && !isMyTurnRef.current) return;
       const point = localPoint(e);
       const worm = engine.activeWorm;
       if (!worm) return;
@@ -507,7 +509,7 @@ export function GameView({
       if (!engine || !wasActive || !moved) return;
       // The other thumb may be holding FIRE; its release owns the shot.
       if (engine.charging) return;
-      engine.fire();
+      if (online) engine.record({ type: 'fire' }); else engine.fire();
     };
 
     const onCancel = () => {
@@ -602,14 +604,14 @@ export function GameView({
           }}
           onAim={(dir) => engineRef.current?.aimBy(dir * 0.06)}
           onAimStop={() => undefined}
-          onJump={() => engineRef.current?.jump()}
-          onRope={() => engineRef.current?.useRope()}
+          onJump={() => { const e = engineRef.current; if (!e) return; if (online) e.record({ type: 'jump' }); else e.jump(); }}
+          onRope={() => { const e = engineRef.current; if (!e) return; if (online) e.record({ type: 'rope' }); else e.useRope(); }}
           onReel={(dir) => engineRef.current?.setReel(dir)}
-          onChargeStart={() => engineRef.current?.startCharge()}
-          onChargeEnd={() => engineRef.current?.releaseCharge()}
+          onChargeStart={() => { const e = engineRef.current; if (!e) return; if (online) e.record({ type: 'startCharge' }); else e.startCharge(); }}
+          onChargeEnd={() => { const e = engineRef.current; if (!e) return; if (online) e.record({ type: 'releaseCharge' }); else e.releaseCharge(); }}
           onChargeCancel={() => engineRef.current?.cancelCharge()}
-          onSelectWeapon={(weapon) => engineRef.current?.selectWeapon(weapon)}
-          onEndTurn={() => engineRef.current?.endTurn()}
+          onSelectWeapon={(weapon) => { const e = engineRef.current; if (!e) return; if (online) e.record({ type: 'weapon', id: weapon }); else e.selectWeapon(weapon); }}
+          onEndTurn={() => { const e = engineRef.current; if (!e) return; if (online) e.record({ type: 'endTurn' }); else e.endTurn(); }}
           onPause={() => setPause(true)}
         />
       )}
