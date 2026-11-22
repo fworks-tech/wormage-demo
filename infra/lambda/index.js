@@ -459,7 +459,17 @@ async function getOnlineMatch(event, rawCode, ddbClient = ddb) {
       TableName: TABLE,
       Key: { pk: `ACTION#${code}`, sk: 'LOG' },
     }));
-    if (logGot.Item && Array.isArray(logGot.Item.actions)) actions = logGot.Item.actions;
+    if (logGot.Item && Array.isArray(logGot.Item.actions)) {
+    actions = [...logGot.Item.actions].sort((a, b) => {
+      const sa = (a && typeof a.seq === 'number') ? a.seq : 0;
+      const sb = (b && typeof b.seq === 'number') ? b.seq : 0;
+      if (sa !== sb) return sa - sb;
+      const ea = (a && typeof a.engineTick === 'number') ? a.engineTick : ((a && typeof a.tick === 'number') ? a.tick : 0);
+      const eb = (b && typeof b.engineTick === 'number') ? b.engineTick : ((b && typeof b.tick === 'number') ? b.tick : 0);
+      if (ea !== eb) return ea - eb;
+      return String((a && a.at) || '').localeCompare(String((b && b.at) || ''));
+    });
+  }
   } catch (e) { /* ignore */ }
 
   // Server-side turn expiry: if the active turn has run out, advance.
@@ -517,6 +527,7 @@ async function submitAction(event, rawCode, ddbClient) {
   if (!body.action || typeof body.action !== 'object' || Array.isArray(body.action)) return json(400, { message: 'action is required' });
   const action = body.action;
   if (!isStr(action.type)) return json(400, { message: 'action.type is required' });
+  const engineTick = (typeof body.tick === 'number' && Number.isFinite(body.tick)) ? body.tick : (typeof body.engineTick === 'number' && Number.isFinite(body.engineTick)) ? body.engineTick : null;
 
   const got = await ddbClient.send(new GetCommand({ TableName: TABLE, Key: { pk: 'ONLINE#' + code, sk: 'META' } }));
   if (!got.Item) return json(404, { message: 'match not found' });
@@ -534,6 +545,7 @@ async function submitAction(event, rawCode, ddbClient) {
   if (body.clientActionId && actions.some((a) => a && a.clientActionId === body.clientActionId)) {
     return json(200, { code, match: toOnlineMatch(match), duplicate: true });
   }
+
 
   if (players[match.activeTeam] && players[match.activeTeam].playerId !== body.playerId) return json(409, { message: 'not your turn' });
 
@@ -593,7 +605,8 @@ async function submitAction(event, rawCode, ddbClient) {
     }));
   }
 
-  const entry = { tick: match.turn || 1, action, playerId: body.playerId, clientActionId: body.clientActionId || null, at: now };
+  const seq = actions.reduce((m, a) => Math.max(m, (a && typeof a.seq === 'number') ? a.seq : 0), 0) + 1;
+  const entry = { seq, tick: (engineTick != null ? engineTick : (match.turn || 1)), turn: match.turn || 1, engineTick, action, playerId: body.playerId, clientActionId: body.clientActionId || null, at: now };
   await ddbClient.send(new UpdateCommand({
     TableName: TABLE,
     Key: { pk: 'ACTION#' + code, sk: 'LOG' },
@@ -678,8 +691,11 @@ exports.joinOnlineMatch = joinOnlineMatch;
 exports.getOnlineMatch = getOnlineMatch;
 exports.submitAction = submitAction;
 exports.forfeitOnlineMatch = forfeitOnlineMatch;
-exports.submitAction = submitAction;
-exports.forfeitOnlineMatch = forfeitOnlineMatch;
+exports.getActionLog = getActionLog;
+exports.replayOnlineMatch = async (code, ddbClient) => ({ code: String(code).toUpperCase().trim(), actions: (await getActionLog(String(code).toUpperCase().trim(), ddbClient || ddb)).actions || [] });
+exports.replayOnlineTurn = exports.replayOnlineMatch;
+exports.replayMatch = exports.replayOnlineMatch;
+exports.replayTurn = exports.replayOnlineMatch;
 exports.generateOnlineCode = generateOnlineCode;
 exports.postDebugLog = postDebugLog;
 exports.validateDebugLogBody = validateDebugLogBody;

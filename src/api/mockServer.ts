@@ -1,3 +1,6 @@
+import { GameEngine } from '../game/engine';
+import type { MatchConfig } from '../game/types';
+import type { OnlineActionLogEntry } from '../api/types';
 import { configKey } from '../game/types';
 import type { Difficulty, WindSetting } from '../game/types';
 import type {
@@ -249,7 +252,7 @@ export const MOCK_TOTAL_FIXTURES = FIXTURE_PLAYERS.length;
 
 interface OnlineDb {
   matches: Record<string, OnlineMatch>;
-  actionLogs?: Record<string, { actions: unknown[] }>;
+  actionLogs?: Record<string, { actions: OnlineActionLogEntry[] }>;
 }
 
 const onlineMemory: { current: OnlineDb | null } = { current: null };
@@ -334,7 +337,7 @@ export function joinOnlineMatch(code: string, input: { playerId: string; playerN
 }
 
 
-export function submitOnlineAction(code: string, input: { playerId: string; action: { type: string; [k: string]: unknown }; clientActionId?: string }): { code: string; match: OnlineMatch } | { error: string; status: number } {
+export function submitOnlineAction(code: string, input: { playerId: string; action: { type: string; [k: string]: unknown }; clientActionId?: string; tick?: number; engineTick?: number }): { code: string; match: OnlineMatch } | { error: string; status: number } {
   const db = getOnlineDb();
   const match = db.matches[code.toUpperCase()];
   if (!match) return { error: 'match not found', status: 404 };
@@ -348,6 +351,7 @@ export function submitOnlineAction(code: string, input: { playerId: string; acti
   if (input.clientActionId && log.actions.some((a) => (a as { clientActionId?: string }).clientActionId === input.clientActionId)) {
     return { code: match.code, match };
   }
+
 
   if (match.players[match.activeTeam]?.playerId !== input.playerId) return { error: 'not your turn', status: 409 };
 
@@ -388,7 +392,9 @@ export function submitOnlineAction(code: string, input: { playerId: string; acti
     match.weapon = input.action.id;
   }
 
-  log.actions.push({ tick: match.turn || 1, action: input.action, playerId: input.playerId, clientActionId: input.clientActionId || null, at: now });
+  const seq = ((log.actions as any[]).reduce((m: number, a: any) => Math.max(m, a?.seq ?? 0), 0) + 1);
+  const engineTick = typeof input.tick === 'number' ? input.tick : (typeof input.engineTick === 'number' ? input.engineTick : undefined);
+  (log.actions as any[]).push({ seq, tick: engineTick ?? (match.turn || 1), turn: match.turn || 1, engineTick, action: input.action, playerId: input.playerId, clientActionId: input.clientActionId || null, at: now });
   db.actionLogs[code.toUpperCase()] = log;
   persistOnline(db);
 
@@ -443,6 +449,64 @@ export function getOnlineMatch(code: string): OnlineMatch | null {
   }
   return match;
 }
+
+export function getActionLog(code: string): OnlineActionLogEntry[] {
+  const db = getOnlineDb();
+  const log = (db.actionLogs || {})[code.toUpperCase()];
+  const actions = Array.isArray(log?.actions) ? [...log.actions] : [];
+  return actions.sort((a, b) => {
+    const sa = typeof a?.seq === 'number' ? a.seq : 0;
+    const sb = typeof b?.seq === 'number' ? b.seq : 0;
+    if (sa !== sb) return sa - sb;
+    const ea = typeof a?.engineTick === 'number' ? a.engineTick : (typeof a?.tick === 'number' ? a.tick : 0);
+    const eb = typeof b?.engineTick === 'number' ? b.engineTick : (typeof b?.tick === 'number' ? b.tick : 0);
+    if (ea !== eb) return ea - eb;
+    return String(a?.at ?? '').localeCompare(String(b?.at ?? ''));
+  });
+}
+
+export function replayOnlineMatch(code: string): {
+  code: string;
+  tick: number;
+  snapshot: ReturnType<GameEngine['snapshot']>;
+  winnerTeam: number | null;
+  endReason: string | null;
+  kills: number[];
+} | null {
+  const match = getOnlineMatch(code);
+  if (!match) return null;
+  const settings = (match.settings ?? {}) as Record<string, unknown>;
+  const seed = typeof settings.seed === 'number' ? settings.seed : (match as { seed?: number }).seed ?? 0;
+  const turnSeconds = match.turnSeconds ?? (typeof settings.turnSeconds === 'number' ? settings.turnSeconds : 45);
+  const wind = (settings.wind as 'off' | 'light' | 'strong') ?? 'light';
+  const difficulty = (settings.difficulty as 'rookie' | 'veteran' | 'elite') ?? 'veteran';
+  const wormsPerTeam = typeof settings.wormsPerTeam === 'number' ? settings.wormsPerTeam : 3;
+  const map = (settings.map as MatchConfig['map']) ?? 'island';
+  const mode = (settings.mode as MatchConfig['mode']) ?? 'deathmatch';
+  const config: MatchConfig = { turnSeconds, wind, difficulty, seed, wormsPerTeam, map, mode };
+  const engine = new GameEngine(config);
+  const actions = getActionLog(code);
+  const DT = 1 / 60;
+  const MAX_TICKS = 60 * 300;
+  let cursor = 0;
+  while (engine.phase !== 'gameover' && engine.tick < MAX_TICKS) {
+    while (cursor < actions.length && ((actions[cursor] as any).engineTick ?? (actions[cursor] as any).tick) === engine.tick) {
+      engine.applyAction(actions[cursor].action as Parameters<GameEngine['applyAction']>[0]);
+      cursor += 1;
+    }
+    engine.update(DT);
+  }
+  while (cursor < actions.length) {
+    engine.applyAction(actions[cursor].action as Parameters<GameEngine['applyAction']>[0]);
+    cursor += 1;
+  }
+  return { code: match.code, tick: engine.tick, snapshot: engine.snapshot(), winnerTeam: engine.winnerTeam, endReason: engine.endReason, kills: engine.kills };
+}
+
+// Aliases for alternate naming.
+export const replayOnlineTurn = replayOnlineMatch;
+export const replayMatch = replayOnlineMatch;
+export const replayTurn = replayOnlineMatch;
 
 export function resetOnlineMatches(): void {
   onlineMemory.current = { matches: {} };

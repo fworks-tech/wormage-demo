@@ -76,8 +76,8 @@ export function useOnlineMatch(code: string | null, enabled = true) {
 
 export function useSubmitOnlineAction() {
   return useMutation({
-    mutationFn: async ({ code, playerId, action, clientActionId }: { code: string; playerId: string; action: { type: string; [k: string]: unknown }; clientActionId?: string }) => {
-      const { data } = await api.post<{ code: string; match: import('./types').OnlineMatch }>(`/api/matches/online/${encodeURIComponent(code)}/action`, { playerId, action, clientActionId });
+    mutationFn: async ({ code, playerId, action, clientActionId, tick }: { code: string; playerId: string; action: { type: string; [k: string]: unknown }; clientActionId?: string; tick?: number }) => {
+      const { data } = await api.post<{ code: string; match: import('./types').OnlineMatch }>(`/api/matches/online/${encodeURIComponent(code)}/action`, { playerId, action, clientActionId, tick });
       return data;
     },
     retry: 0,

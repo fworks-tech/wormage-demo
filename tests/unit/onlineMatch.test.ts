@@ -5,6 +5,8 @@ import {
   getOnlineMatch,
   submitOnlineAction,
   forfeitOnlineMatch,
+  getActionLog,
+  replayOnlineMatch,
   resetOnlineMatches,
 } from '../../src/api/mockServer';
 
@@ -168,3 +170,25 @@ test('getOnlineMatch does not advance when not expired', () => {
   expect(m!.activeTeam).toBe(0);
 });
 
+
+test('getActionLog returns entries in seq order', () => {
+  const created = createOnlineMatch({ playerId: 'p1', playerName: 'Alice' });
+  joinOnlineMatch(created.code, { playerId: 'p2', playerName: 'Bob' });
+  submitOnlineAction(created.code, { playerId: 'p1', action: { type: 'weapon', id: 'grenade' }, clientActionId: 'a1', tick: 5 });
+  submitOnlineAction(created.code, { playerId: 'p1', action: { type: 'endTurn' }, clientActionId: 'a2', tick: 6 });
+  const log = getActionLog(created.code);
+  expect(log).toHaveLength(2);
+  expect(log[0].seq).toBe(1);
+  expect(log[1].seq).toBe(2);
+  expect((log[0].action as { type: string }).type).toBe('weapon');
+});
+
+test('replayOnlineMatch returns a snapshot', () => {
+  const created = createOnlineMatch({ playerId: 'p1', playerName: 'Alice', settings: { seed: 777, wormsPerTeam: 2 } });
+  joinOnlineMatch(created.code, { playerId: 'p2', playerName: 'Bob' });
+  submitOnlineAction(created.code, { playerId: 'p1', action: { type: 'endTurn' }, clientActionId: 'e1' });
+  const r = replayOnlineMatch(created.code);
+  expect(r).not.toBeNull();
+  expect(r!.snapshot).toBeTruthy();
+  expect(typeof r!.tick).toBe('number');
+});

@@ -92,7 +92,18 @@ export interface OnlineMatch {
   phase?: string;
   hasFired?: boolean;
   weapon?: string;
-  actions?: unknown[];
+  actions?: OnlineActionLogEntry[];
+}
+
+export interface OnlineActionLogEntry {
+  seq?: number;
+  tick?: number;
+  engineTick?: number;
+  turn?: number;
+  action: { type: string; [k: string]: unknown };
+  playerId: string;
+  clientActionId?: string | null;
+  at?: string;
 }
 
 export interface CreateOnlineMatchInput {

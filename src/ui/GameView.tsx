@@ -589,6 +589,7 @@ export function GameView({
             playerId,
             action: entry.action as { type: string; [k: string]: unknown },
             clientActionId: `${entry.tick}-${entry.action.type}`,
+            tick: entry.tick,
           }).catch(() => { /* ignore */ });
         }
       }
