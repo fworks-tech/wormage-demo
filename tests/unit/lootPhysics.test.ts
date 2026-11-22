@@ -35,6 +35,17 @@ describe('loot physics', () => {
     expect(item.vy).toBeLessThan(0);
   });
 
+  test('initial loot spawns clear of worm spawn positions', () => {
+    for (const seed of [4242, 7, 99, 2024]) {
+      const engine = new GameEngine(config({ seed }));
+      for (const item of engine.loot) {
+        for (const team of engine.teams) for (const worm of team.worms) {
+          expect(Math.abs(item.x - worm.x)).toBeGreaterThanOrEqual(60);
+        }
+      }
+    }
+  });
+
   test('loot far from a blast is untouched', () => {
     const engine = new GameEngine(config());
     const item = engine.loot[0];

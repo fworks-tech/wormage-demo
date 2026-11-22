@@ -47,16 +47,34 @@ describe('ragdoll knockback', () => {
     expect(worm.onGround).toBe(true);
   });
 
-  test('spin integrates while airborne', () => {
+  test('hurt cancels charging on the active worm', () => {
+    const engine = new GameEngine(config());
+    engine.startCharge();
+    const worm = engine.activeWorm!;
+    (engine as any).hurt(worm, 40, worm.x - 50, worm.y, 1, 1.0);
+    expect(engine.charging).toBe(false);
+    expect(engine.power).toBe(0);
+  });
+
+  test('a launched worm cannot fire', () => {
     const engine = new GameEngine(config());
     const worm = engine.activeWorm!;
     (engine as any).hurt(worm, 40, worm.x - 50, worm.y, 1, 1.0);
-    expect(worm.spin).not.toBe(0);
-    const rotBefore = worm.rotation;
-    engine.update(1 / 60);
-    if (worm.airborne) {
-      expect(worm.rotation).not.toBe(rotBefore);
-    }
+    expect(worm.launched).toBe(true);
+    engine.fire();
+    expect(engine.hasFired).toBe(false);
+  });
+
+  test('beginTurn settles a worm that is still mid-flight', () => {
+    const engine = new GameEngine(config());
+    const worm = engine.activeWorm!;
+    (engine as any).hurt(worm, 40, worm.x - 50, worm.y, 1, 1.0);
+    expect(worm.onGround).toBe(false);
+    (engine as any).beginTurn();
+    expect(worm.vx).toBe(0);
+    expect(worm.vy).toBe(0);
+    expect(worm.launched).toBe(false);
+    expect(worm.onGround).toBe(true);
   });
 
   test('shotgun fires two projectiles', () => {

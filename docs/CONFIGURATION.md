@@ -29,6 +29,9 @@ Every gameplay number lives in `src/game/config.ts`. Balance changes should neve
 | `WORM.maxHp` | 100 | HP | per worm |
 | `WORM.fallSafePx` | 150 | px | free fall before damage |
 | `WORM.fallDamagePerPx` | 0.16 | HP/px | linear after the safe distance |
+| `WORM.knockbackScale` / `knockbackMax` | 260 / 320 | px/s | ragdoll impulse = (damage/100) * scale * per-source scale, capped |
+| `WORM.restitution` / `wallRestitution` | 0.35 / 0.4 | - | bounce off ground and walls while launched |
+| `WORM.spinScale` / `landingStopSpeed` | 6 / 60 | px/s | tumble spin and the speed above which a landing bounces |
 | `LOOT.gravity` | 720 | px/s² | loot falls to the terrain and drops when a blast carves under it |
 | `LOOT.blastSpeed` | 260 | px/s | push at a blast centre, scaled down to 0 at the radius |
 | `AIM.min` / `AIM.max` | -3.04 / -0.1 | rad | upper half-plane only |
