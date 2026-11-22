@@ -46,7 +46,6 @@ const setup = (t: AiTerrain = wall(520)) => {
   worm.vx = 0;
   worm.vy = 0;
   worm.onGround = true;
-  worm.airborne = false;
   worm.fallDistance = 0;
   worm.facing = 1;
   worm.aimAngle = -0.9;
@@ -199,7 +198,6 @@ describe('anchored rope', () => {
     worm.y = 500;
     worm.vy = 0;
     worm.onGround = true;
-    worm.airborne = false;
     worm.fallDistance = 0;
 
     const internals = engine as unknown as {

@@ -155,7 +155,6 @@ export class GameEngine {
           aimAngle: facing === 1 ? -0.55 : mirrorAngle(-0.55),
           onGround: true,
           fallDistance: 0,
-          airborne: false,
           rope: null,
           launched: false,
           rotation: 0,
@@ -295,7 +294,6 @@ export class GameEngine {
         worm.spin = 0;
         worm.rotation = 0;
         worm.launched = false;
-        worm.airborne = false;
         worm.onGround = true;
         worm.fallDistance = 0;
         worm.rope = null;
@@ -431,7 +429,6 @@ export class GameEngine {
     worm.vx = 0;
     worm.vy = 0;
     worm.onGround = false;
-    worm.airborne = true;
     worm.fallDistance = 0;
     this.reelDir = 0;
     this.events.push({ type: 'rope', x: anchor.x, y: anchor.y });
@@ -457,7 +454,6 @@ export class GameEngine {
     const rope = worm.rope;
     worm.rope = null;
     worm.onGround = false;
-    worm.airborne = true;
     worm.fallDistance = 0;
     worm.vx = rope.length * Math.cos(rope.angle) * rope.angularVelocity;
     worm.vy = -rope.length * Math.sin(rope.angle) * rope.angularVelocity;
@@ -576,7 +572,6 @@ export class GameEngine {
     }
     worm.onGround = false;
     worm.fallDistance = 0;
-    worm.airborne = true;
     this.events.push({ type: 'jump', x: worm.x, y: worm.y });
   }
 
@@ -764,9 +759,13 @@ export class GameEngine {
         break;
       }
       item.y = nextY;
-      if (item.y > WATER_Y) {
-        item.x = -10000;
-        return;
+      if (item.y > WATER_Y - LOOT.radius) {
+        // Rest on the water surface instead of sinking.
+        item.y = WATER_Y - LOOT.radius;
+        item.vy = 0;
+        item.vx *= LOOT.friction;
+        if (Math.abs(item.vx) < 4) item.vx = 0;
+        break;
       }
     }
   }
@@ -953,7 +952,6 @@ export class GameEngine {
     // Launch state: disables air-steering, enables bounce, drives spin.
     worm.rope = null;
     worm.onGround = false;
-    worm.airborne = true;
     worm.launched = true;
     worm.fallDistance = 0;
     worm.spin = bx * WORM.spinScale;
@@ -1078,6 +1076,7 @@ export class GameEngine {
       worm.hp = 0;
       worm.alive = false;
       this.events.push({ type: 'splash', x: worm.x, y: WATER_Y });
+      this.events.push({ type: 'death', x: worm.x, y: worm.y, color: this.teams[worm.teamId].color });
       this.checkWipeout();
       return;
     }
@@ -1091,7 +1090,6 @@ export class GameEngine {
       worm.x = previous.x;
       worm.y = previous.y;
       worm.onGround = false;
-      worm.airborne = true;
       worm.fallDistance = 0;
       return;
     }
@@ -1101,7 +1099,6 @@ export class GameEngine {
     worm.vx = rope.length * Math.cos(rope.angle) * rope.angularVelocity;
     worm.vy = -rope.length * Math.sin(rope.angle) * rope.angularVelocity;
     worm.onGround = false;
-    worm.airborne = true;
     worm.fallDistance = 0;
   }
 
@@ -1137,7 +1134,6 @@ export class GameEngine {
           worm.y = ahead;
           worm.vy = 0;
           worm.onGround = true;
-          worm.airborne = false;
           worm.fallDistance = 0;
         } else {
           worm.onGround = false;
@@ -1159,7 +1155,7 @@ export class GameEngine {
       worm.vx = this.moveDir * WORM.jumpPush;
     }
 
-    // Ragdoll spin integration while airborne.
+    // Ragdoll spin integration while off the ground.
     if (!worm.onGround) {
       worm.rotation += worm.spin * dt;
       worm.spin *= 0.985;
@@ -1194,14 +1190,12 @@ export class GameEngine {
             worm.vy = -worm.vy * WORM.restitution;
             worm.vx *= 0.55;
             worm.onGround = false;
-            worm.airborne = true;
             worm.fallDistance = 0;
             // keep launched true
           } else {
             worm.vy = 0;
             worm.vx = 0;
             worm.onGround = true;
-            worm.airborne = false;
             worm.launched = false;
             worm.spin = 0;
             worm.rotation = 0;

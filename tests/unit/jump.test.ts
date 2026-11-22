@@ -26,7 +26,6 @@ const flatEngine = () => {
   worm.y = 500;
   worm.vy = 0;
   worm.onGround = true;
-  worm.airborne = false;
   worm.fallDistance = 0;
   return { engine, worm };
 };
@@ -137,7 +136,6 @@ describe('jump physics', () => {
     worm.y = 500;
     worm.vy = 0;
     worm.onGround = true;
-    worm.airborne = false;
     worm.fallDistance = 0;
 
     const internals = engine as unknown as {
@@ -179,7 +177,6 @@ describe('jump physics', () => {
     worm.y = 500;
     worm.vy = 0;
     worm.onGround = true;
-    worm.airborne = false;
     worm.fallDistance = 0;
 
     const internals = engine as unknown as {
@@ -220,7 +217,6 @@ describe('jump physics', () => {
     worm.y = 500;
     worm.vy = 0;
     worm.onGround = true;
-    worm.airborne = false;
     worm.fallDistance = 0;
 
     // A plan beyond the wall forces the AI to walk into it and stall.
