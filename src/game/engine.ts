@@ -699,8 +699,8 @@ export class GameEngine {
     const teamOf = (w: { teamId: number }) => this.teams[w.teamId];
     for (const item of this.loot) {
       this.stepLoot(item, dt);
-      if (item.kind === 'mine') {
-        // arm when a worm is within proximity
+      if (item.kind === 'mine' && this.phase !== 'aim') {
+        // arm when a worm is within proximity (only after a shot lands)
         if (!item.armed) {
           for (const t of this.teams) for (const w of t.worms) {
             if (!w.alive) continue;
@@ -750,7 +750,8 @@ export class GameEngine {
         if (d <= 28) {
           if (item.kind === 'ammo') {
             const ammo = teamOf(w).ammo;
-            ammo.bazooka = ammo.bazooka + item.ammoGrant;
+            // Grant a finite weapon (grenade) so crates are not a no-op.
+            ammo.grenade = ammo.grenade + item.ammoGrant;
           } else if (item.kind === 'secret') {
             w.hp = Math.min(w.maxHp, w.hp + 20);
           }
@@ -869,7 +870,10 @@ export class GameEngine {
       const attacked = dist <= 50;
       if (attacked) {
         best.w.hp = Math.max(0, best.w.hp - mob.damage);
-        if (best.w.hp <= 0) best.w.alive = false;
+        if (best.w.hp <= 0) {
+          best.w.alive = false;
+          this.events.push({ type: 'death', x: best.w.x, y: best.w.y, color: this.teams[best.w.teamId].color });
+        }
       }
       this.logDebug('mob.move', 'Mob moved', {
         mobId: mob.id,
@@ -924,7 +928,7 @@ export class GameEngine {
       // damage all alive worms per turn after threshold (threshold stored in config? use 6 turns)
       if (this.turn >= 6) {
         for (const t of this.teams) for (const w of t.worms) {
-          if (w.alive) { w.hp = Math.max(0, w.hp - 5); if (w.hp <= 0) w.alive = false; }
+          if (w.alive) { w.hp = Math.max(0, w.hp - 5); if (w.hp <= 0) { w.alive = false; this.events.push({ type: 'death', x: w.x, y: w.y, color: t.color }); } }
         }
         this.checkWipeout();
       }
@@ -1186,6 +1190,7 @@ export class GameEngine {
             worm.vx *= 0.55;
             worm.onGround = false;
             worm.airborne = true;
+            worm.fallDistance = 0;
             // keep launched true
           } else {
             worm.vy = 0;
@@ -1212,6 +1217,7 @@ export class GameEngine {
           worm.hp = 0;
           worm.alive = false;
           this.events.push({ type: 'splash', x: worm.x, y: WATER_Y });
+          this.events.push({ type: 'death', x: worm.x, y: worm.y, color: this.teams[worm.teamId].color });
           this.checkWipeout();
           return;
         }

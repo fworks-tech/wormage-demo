@@ -36,6 +36,7 @@ describe('mine detonation feedback', () => {
     mine!.y = worm.y;
     mine!.armed = true;
     mine!.fuse = 0.05;
+    (engine as any).phase = 'projectile';
 
     const eventsBefore = engine.events.length;
     step(engine, 0.2);
@@ -55,6 +56,7 @@ describe('mine detonation feedback', () => {
     mine.y = worm.y;
     mine.armed = true;
     mine.fuse = 0.05;
+    (engine as any).phase = 'projectile';
     step(engine, 0.2);
     // Worm should have taken damage (unless it died and hp=0, which is fine).
     expect(worm.hp).toBeLessThanOrEqual(beforeHp);
@@ -68,8 +70,23 @@ describe('mine detonation feedback', () => {
     mine.y = worm.y;
     mine.armed = true;
     mine.fuse = 0.05;
+    (engine as any).phase = 'projectile';
     // Drop worm HP so the mine kills it.
     worm.hp = 10;
     expect(() => step(engine, 0.2)).not.toThrow();
   });
+  test('mines do not arm or detonate during the aim phase', () => {
+    const engine = new GameEngine(config());
+    const worm = engine.activeWorm!;
+    const mine = engine.loot.find((l) => l.kind === 'mine')!;
+    mine.x = worm.x;
+    mine.y = worm.y;
+    mine.fuse = 0.05;
+    // Stay in aim phase for the whole step.
+    step(engine, 0.2);
+    expect(mine.armed).toBe(false);
+    expect(engine.events.filter((e) => e.type === 'mineExplosion')).toHaveLength(0);
+  });
 });
+
+// appended

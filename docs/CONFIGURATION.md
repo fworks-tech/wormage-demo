@@ -34,6 +34,8 @@ Every gameplay number lives in `src/game/config.ts`. Balance changes should neve
 | `WORM.spinScale` / `landingStopSpeed` | 6 / 60 | px/s | tumble spin and the speed above which a landing bounces |
 | `LOOT.gravity` | 720 | px/s² | loot falls to the terrain and drops when a blast carves under it |
 | `LOOT.blastSpeed` | 260 | px/s | push at a blast centre, scaled down to 0 at the radius |
+| `LOOT.radius` / `restitution` | 5 / 0.3 | px / - | item half-height and bounce off ground |
+| `LOOT.bounceSpeed` / `friction` | 90 / 0.7 | px/s / - | speed above which a landing bounces; ground friction while resting |
 | `AIM.min` / `AIM.max` | -3.04 / -0.1 | rad | upper half-plane only |
 | `AIM.radius` | 130 | px | the reticle never leaves this circle around the worm |
 | `FIXED_DT` | 1/60 | s | simulation step; rendering may run at any frame rate |
