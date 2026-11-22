@@ -17,10 +17,11 @@ interface NewGameMenuProps {
   bindings: Bindings;
   onSaveBindings: (bindings: Bindings) => void;
   player: import('../state/storage').PlayerIdentity;
+  onStartOnline?: (code: string, playerIndex: number) => void;
 }
 
 /** Landing dialog for /demo: the game is one click away, the project page one link away. */
-export function NewGameMenu({ onStart, settings, onSaveSettings, bindings, onSaveBindings, player }: NewGameMenuProps) {
+export function NewGameMenu({ onStart, settings, onSaveSettings, bindings, onSaveBindings, player, onStartOnline }: NewGameMenuProps) {
   // The single-file build has no routes, so /project would leave the app.
   const hasRoutes = import.meta.env.MODE !== 'single';
   const [panel, setPanel] = useState<MenuPanel>(null);
@@ -55,7 +56,7 @@ export function NewGameMenu({ onStart, settings, onSaveSettings, bindings, onSav
         ) : panel === 'controls' ? (
           <ControlsDialog bindings={bindings} onSave={onSaveBindings} onClose={() => setPanel(null)} />
         ) : panel === 'online' ? (
-          <OnlineMatchDialog player={player} onClose={() => setPanel(null)} />
+          <OnlineMatchDialog player={player} onClose={() => setPanel(null)} onStart={onStartOnline} />
         ) : (
           <div className="overlay-card">
             <p className="eyebrow">

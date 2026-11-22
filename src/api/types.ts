@@ -92,6 +92,7 @@ export interface OnlineMatch {
   phase?: string;
   hasFired?: boolean;
   weapon?: string;
+  actions?: unknown[];
 }
 
 export interface CreateOnlineMatchInput {

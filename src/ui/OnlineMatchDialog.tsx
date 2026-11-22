@@ -7,11 +7,12 @@ import { loadOnlineSession, saveOnlineSession, clearOnlineSession } from '../sta
 interface Props {
   player: Player;
   onClose: () => void;
+  onStart?: (code: string, playerIndex: number) => void;
 }
 
 type View = 'home' | 'create' | 'join';
 
-export function OnlineMatchDialog({ player, onClose }: Props) {
+export function OnlineMatchDialog({ player, onClose, onStart }: Props) {
   const [view, setView] = useState<View>('home');
   const [codeInput, setCodeInput] = useState('');
   const [teamName, setTeamName] = useState('');
@@ -133,7 +134,17 @@ export function OnlineMatchDialog({ player, onClose }: Props) {
             ))}
           </ul>
           {match.status === 'ready' && match.winnerTeam == null && (
-            <p className="muted" data-testid="online-ready-msg">Both players connected. Gameplay coming in the next update.</p>
+            <>
+              <p className="muted" data-testid="online-ready-msg">Both players connected.</p>
+              {onStart && (
+                <button type="button" className="primary-btn" onClick={() => {
+                  const idx = match.players.findIndex((p) => p.playerId === player.id);
+                  onStart(match.code, idx >= 0 ? idx : 0);
+                }} data-testid="btn-start-online">
+                  Start game
+                </button>
+              )}
+            </>
           )}
           {view === 'create' && (
             <button type="button" className="ghost-btn" onClick={copyLink} data-testid="btn-copy-link">
