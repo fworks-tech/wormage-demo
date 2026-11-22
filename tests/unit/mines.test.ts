@@ -88,7 +88,7 @@ describe('mine detonation feedback', () => {
     expect(engine.events.filter((e) => e.type === 'mineExplosion')).toHaveLength(0);
   });
 
-  test('an already-armed mine does not detonate while in the aim phase', () => {
+  test('an already-armed mine detonates even in the aim phase', () => {
     const engine = new GameEngine(config());
     const worm = engine.activeWorm!;
     const mine = engine.loot.find((l) => l.kind === 'mine')!;
@@ -97,7 +97,7 @@ describe('mine detonation feedback', () => {
     mine.armed = true;
     mine.fuse = 0;
     step(engine, 0.2);
-    expect(engine.events.filter((e) => e.type === 'mineExplosion')).toHaveLength(0);
+    expect(engine.events.filter((e) => e.type === 'mineExplosion')).toHaveLength(1);
   });
 
   test('a detonating mine triggers nearby mines (chain reaction)', () => {
