@@ -45,4 +45,14 @@ describe('loot physics', () => {
       }
     }
   });
+
+  test('loot far from a blast is untouched', () => {
+    const engine = new GameEngine(config());
+    const item = engine.loot[0];
+    item.x = 600;
+    item.y = 400;
+    (engine as any).blastLoot(1500, 400, 100);
+    expect(item.vx).toBe(0);
+    expect(item.vy).toBe(0);
+  });
 });
