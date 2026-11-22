@@ -274,6 +274,8 @@ export class ArenaRenderer {
   private cameraX = 0;
   private cameraY = 0;
   private lastSnapshot: GameSnapshot | null = null;
+  private mobFocusTimer = 0;
+  private lastPhase: string = 'aim';
 
   private constructor(app: Application, engine: GameEngine) {
     this.app = app;
@@ -599,6 +601,8 @@ export class ArenaRenderer {
     this.time += dt;
     const snapshot = this.engine.snapshot();
     this.lastSnapshot = snapshot;
+    if (this.engine.phase === 'aim' && this.lastPhase !== 'aim') this.mobFocusTimer = 1.4;
+    if (this.mobFocusTimer > 0) this.mobFocusTimer = Math.max(0, this.mobFocusTimer - dt);
 
     // Camera follow with dead-zone, clamped to world bounds.
     const { width, height } = this.app.screen;
@@ -627,11 +631,20 @@ export class ArenaRenderer {
         }
       }
     }
+    if (this.mobFocusTimer > 0) {
+      const mobs = this.engine.mobs.filter((m) => m.alive);
+      if (mobs.length) {
+        let nearest = mobs[0]; let best = Math.hypot(mobs[0].x - targetX, mobs[0].y - targetY);
+        for (const m of mobs.slice(1)) { const d = Math.hypot(m.x - targetX, m.y - targetY); if (d < best) { best = d; nearest = m; } }
+        targetX = nearest.x; targetY = nearest.y;
+      }
+    }
     const desiredX = Math.max(0, Math.min(WORLD_W - viewW, targetX - viewW / 2));
     const desiredY = Math.max(0, Math.min(WORLD_H - viewH, targetY - viewH / 2));
     const dz = 60;
     if (Math.abs(desiredX - this.cameraX) > dz) this.cameraX += (desiredX - this.cameraX) * 0.12;
     if (Math.abs(desiredY - this.cameraY) > dz) this.cameraY += (desiredY - this.cameraY) * 0.12;
+    this.lastPhase = this.engine.phase;
     this.root.position.set(-this.cameraX * this.baseScale, -this.cameraY * this.baseScale);
 
     for (const team of this.engine.teams) {
