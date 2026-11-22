@@ -694,9 +694,10 @@ export class GameEngine {
     const teamOf = (w: { teamId: number }) => this.teams[w.teamId];
     for (const item of this.loot) {
       this.stepLoot(item, dt);
-      if (item.kind === 'mine' && this.phase !== 'aim') {
-        // arm when a worm is within proximity (only after a shot lands)
-        if (!item.armed) {
+      if (item.kind === 'mine') {
+        // Arm only outside the aim phase (after a shot lands), but keep
+        // fusing for already-armed mines so they can actually detonate.
+        if (!item.armed && this.phase !== 'aim') {
           for (const t of this.teams) for (const w of t.worms) {
             if (!w.alive) continue;
             const dx = w.x - item.x; const dy = w.y - item.y;
