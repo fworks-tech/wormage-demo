@@ -344,6 +344,9 @@ async function postOnlineMatch(event, ddbClient = ddb) {
   if (!isStr(body.playerName)) return json(400, { message: 'playerName is required' });
   const teamName = isStr(body.teamName) ? body.teamName : 'Team 1';
   const settings = (body.settings && typeof body.settings === 'object' && !Array.isArray(body.settings)) ? body.settings : {};
+  if (settings.seed === undefined) {
+    settings.seed = Math.floor(Math.random() * 1_000_000_000);
+  }
   // DynamoDB rejects `undefined` values; keep only defined keys.
   const cleanSettings = {};
   for (const k of ['turnSeconds', 'wind', 'difficulty', 'map', 'mode', 'wormsPerTeam', 'seed']) {

@@ -288,12 +288,16 @@ export function createOnlineMatch(input: {
   let code = genOnlineCode();
   while (db.matches[code]) code = genOnlineCode();
   const now = new Date().toISOString();
+  const settings = { ...(input.settings ?? {}) };
+  if (typeof settings.seed !== 'number' || !Number.isFinite(settings.seed)) {
+    settings.seed = Math.floor(Math.random() * 1_000_000_000);
+  }
   const match: OnlineMatch = {
     code,
     status: 'waiting',
     createdAt: now,
     maxPlayers: 2,
-    settings: input.settings ?? {},
+    settings,
     players: [{ playerId: input.playerId, playerName: input.playerName, teamName: input.teamName ?? 'Team 1' }],
     activeTeam: 0,
     turn: 1,
