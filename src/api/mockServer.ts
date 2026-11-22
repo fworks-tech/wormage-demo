@@ -413,6 +413,11 @@ export function getOnlineMatch(code: string): OnlineMatch | null {
   const db = getOnlineDb();
   const match = db.matches[code.toUpperCase()];
   if (!match) return null;
+  // Attach action log for replay.
+  const log = (db.actionLogs || {})[code.toUpperCase()];
+  if (log && Array.isArray(log.actions)) {
+    (match as OnlineMatch & { actions?: unknown[] }).actions = log.actions;
+  }
   // Server-side turn expiry advance.
   if (match.status === 'ready' && match.winnerTeam == null && match.turnStartedAt) {
     const elapsed = Date.now() - new Date(match.turnStartedAt).getTime();

@@ -12,6 +12,9 @@ import { Hud } from './Hud';
 import { SettingsDialog } from './SettingsDialog';
 import { enterDemoFullscreen, useFullscreen } from './fullscreen';
 import { useDialogFocus } from './useDialogFocus';
+import { useOnlineMatch, useSubmitOnlineAction, useForfeitOnlineMatch } from '../api/queries';
+import type { OnlineMatch } from '../api/types';
+import { loadOnlineSession } from '../state/storage';
 
 /** Screen-space slop so finger jitter on a tap is not treated as a shot. */
 const DRAG_SLOP_PX = 8;
@@ -28,6 +31,10 @@ interface GameViewProps {
   onFinish: (result: SessionResult) => void;
   onRestart: () => void;
   onExit: () => void;
+  online?: boolean;
+  onlineCode?: string;
+  playerId?: string;
+  playerTeamIndex?: number;
 }
 
 /**
@@ -42,6 +49,10 @@ export function GameView({
   onFinish,
   onRestart,
   onExit,
+  online = false,
+  onlineCode,
+  playerId,
+  playerTeamIndex = 0,
 }: GameViewProps) {
   const hostRef = useRef<HTMLDivElement | null>(null);
   const engineRef = useRef<GameEngine | null>(null);
@@ -78,6 +89,14 @@ export function GameView({
   const dialogRef = useDialogFocus<HTMLDivElement>(paused, pausePanel ?? 'root');
   const [ready, setReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const onlineMatch = useOnlineMatch(online ? (onlineCode ?? null) : null, online);
+  const submitAction = useSubmitOnlineAction();
+  const forfeit = useForfeitOnlineMatch();
+  const lastServerActionCountRef = useRef(0);
+  const lastLocalActionCountRef = useRef(0);
+  const isMyTurn = online ? (onlineMatch.data?.activeTeam === playerTeamIndex) : true;
+  const isMyTurnRef = useRef(isMyTurn);
+  isMyTurnRef.current = isMyTurn;
   const fullscreen = useFullscreen();
 
   // `?seed=123` makes terrain and AI jitter reproducible for E2E runs.
@@ -357,6 +376,7 @@ export function GameView({
   useEffect(() => {
     const down = (e: KeyboardEvent) => {
       if (handoffRef.current !== null) return;
+      if (online && !isMyTurnRef.current) return;
       const target = e.target as HTMLElement | null;
       if (e.ctrlKey || e.metaKey || e.altKey) return;
       const keys = bindingsRef.current;
@@ -509,6 +529,48 @@ export function GameView({
     };
   }, [ready]);
 
+  // Online: apply opponent actions from polled server state.
+  useEffect(() => {
+    if (!online || !onlineMatch.data || !engineRef.current) return;
+    const engine = engineRef.current;
+    const serverActions = (onlineMatch.data as { actions?: Array<{ tick: number; action: { type: string; [k: string]: unknown }; playerId: string }> }).actions ?? [];
+    if (serverActions.length <= lastServerActionCountRef.current) return;
+    const newActions = serverActions.slice(lastServerActionCountRef.current);
+    for (const entry of newActions) {
+      // Only apply opponent's actions (local player's were already applied).
+      if (entry.playerId !== playerId) {
+        engine.applyAction(entry.action as Parameters<typeof engine.applyAction>[0]);
+      }
+    }
+    lastServerActionCountRef.current = serverActions.length;
+  }, [online, onlineMatch.data, playerId]);
+
+  // Online: submit local commit actions to server.
+  useEffect(() => {
+    if (!online || !onlineCode || !playerId || !engineRef.current) return;
+    const engine = engineRef.current;
+    const interval = window.setInterval(() => {
+      const log = engine.log;
+      const count = lastLocalActionCountRef.current;
+      if (log.length <= count) return;
+      const newEntries = log.slice(count);
+      for (const entry of newEntries) {
+        // Only submit commit actions (not move/aim which are local-only).
+        const commitTypes = ['fire', 'endTurn', 'jump', 'rope', 'weapon', 'startCharge', 'releaseCharge'];
+        if (commitTypes.includes(entry.action.type)) {
+          void submitAction.mutateAsync({
+            code: onlineCode,
+            playerId,
+            action: entry.action as { type: string; [k: string]: unknown },
+            clientActionId: `${entry.tick}-${entry.action.type}`,
+          }).catch(() => { /* ignore */ });
+        }
+      }
+      lastLocalActionCountRef.current = log.length;
+    }, 200);
+    return () => window.clearInterval(interval);
+  }, [online, onlineCode, playerId, submitAction]);
+
   const engine = engineRef.current;
 
   return (
@@ -616,6 +678,18 @@ export function GameView({
         </div>
       )}
 
+
+      {online && (
+        <div style={{ position: 'absolute', top: 8, left: '50%', transform: 'translateX(-50%)', zIndex: 5, display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+          <span style={{ color: '#f4ead7', fontSize: 12, fontWeight: 700 }}>
+            {isMyTurn ? 'Your turn' : "Opponent's turn"}
+            {onlineMatch.data && ` · ${Math.max(0, Math.ceil((new Date(onlineMatch.data.turnStartedAt).getTime() + onlineMatch.data.turnSeconds * 1000 - Date.now()) / 1000))}s`}
+          </span>
+          <button type="button" className="ghost-btn" style={{ fontSize: 11 }} onClick={() => forfeit.mutateAsync({ code: onlineCode!, playerId: playerId! }).then(() => onExit()).catch(() => {})} data-testid="btn-forfeit">
+            Forfeit
+          </button>
+        </div>
+      )}
 
       {handoff !== null && (
         <div className="overlay handoff-overlay" data-testid="handoff-overlay" role="dialog" aria-modal="true" aria-label="Pass the device">

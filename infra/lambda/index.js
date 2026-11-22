@@ -449,6 +449,16 @@ async function getOnlineMatch(event, rawCode, ddbClient = ddb) {
   if (!got.Item) return json(404, { message: 'match not found' });
   let match = got.Item;
 
+  // Fetch action log (for replay).
+  let actions = [];
+  try {
+    const logGot = await ddbClient.send(new GetCommand({
+      TableName: TABLE,
+      Key: { pk: `ACTION#${code}`, sk: 'LOG' },
+    }));
+    if (logGot.Item && Array.isArray(logGot.Item.actions)) actions = logGot.Item.actions;
+  } catch (e) { /* ignore */ }
+
   // Server-side turn expiry: if the active turn has run out, advance.
   if (match.status === 'ready' && match.winnerTeam == null && match.turnStartedAt) {
     const elapsed = Date.now() - new Date(match.turnStartedAt).getTime();
@@ -483,7 +493,9 @@ async function getOnlineMatch(event, rawCode, ddbClient = ddb) {
     }
   }
 
-  return json(200, { code: match.code, match: toOnlineMatch(match) });
+  const out = toOnlineMatch(match);
+  out.actions = actions;
+  return json(200, { code: match.code, match: out });
 }
 
 

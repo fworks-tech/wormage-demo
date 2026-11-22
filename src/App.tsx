@@ -30,10 +30,18 @@ export default function App() {
   const [bindings, setBindings] = useState<Bindings>(() => loadBindings());
   const [player] = useState(() => loadPlayer());
   const [screen, setScreen] = useState<Screen>('menu');
+  const [onlineCode, setOnlineCode] = useState<string | null>(null);
+  const [onlinePlayerIndex, setOnlinePlayerIndex] = useState(0);
   const [matchKey, setMatchKey] = useState(0);
   const [result, setResult] = useState<SessionResult | null>(() => loadLastResult<SessionResult>());
   const clientMatchId = useRef<string>('');
   const register = useRegisterMatch();
+
+  const startOnlineMatch = useCallback((code: string, playerIndex: number) => {
+    setOnlineCode(code);
+    setOnlinePlayerIndex(playerIndex);
+    setScreen('online-game');
+  }, []);
 
   const startMatch = useCallback(() => {
     // Start and Play Again are the user gesture the Fullscreen API requires.
@@ -140,6 +148,24 @@ export default function App() {
           bindings={bindings}
           onSaveBindings={handleSaveBindings}
           player={player}
+          onStartOnline={startOnlineMatch}
+        />
+      )}
+
+      {screen === 'online-game' && onlineCode && (
+        <GameView
+          key={onlineCode}
+          settings={settings}
+          bindings={bindings}
+          onSaveSettings={handleSaveSettings}
+          onSaveBindings={handleSaveBindings}
+          onFinish={() => setScreen('menu')}
+          onRestart={() => setScreen('menu')}
+          onExit={() => setScreen('menu')}
+          online
+          onlineCode={onlineCode}
+          playerId={player.id}
+          playerTeamIndex={onlinePlayerIndex}
         />
       )}
 

@@ -29,4 +29,4 @@ export interface SessionResult {
   stageId?: string;
 }
 
-export type Screen = 'menu' | 'game' | 'result';
+export type Screen = 'menu' | 'game' | 'result' | 'online-game';
