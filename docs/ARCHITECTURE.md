@@ -71,7 +71,7 @@ Destruction (`Terrain.carve`) zeroes the mask circle, then fires `onCarve`. The 
 - Wind: `-max..max` units per ruleset, applied as horizontal acceleration scaled per weapon (`windScale`); the AI and the aim preview use the same value.
 - Aiming is an absolute world angle stored in `[AIM.min, AIM.max]` (`-3.04` to `-0.1`); facing is derived from `cos(angle)`. Walking flips the angle with `mirrorAngle` so the barrel stays on the leading side.
 - Damage falls off linearly with distance, floored at 22% of the weapon's base damage inside the blast radius.
-- Every worm in radius takes damage, including the shooter. Knockback is applied as a small horizontal shove plus upward velocity, which can push worms into water or off ledges.
+- Every worm in radius takes damage, including the shooter. Knockback is a radial impulse along the blast vector (amount and per-source scale in `config.ts`), with bounce, wall reflection, spin and a `launched` state; it can push worms into water or off ledges.
 - Fall damage starts above 150 px and costs 0.16 HP per extra pixel.
 - A team loses when every worm is dead; the match ends for the last surviving team. Water kills instantly.
 
@@ -99,7 +99,7 @@ Because the solver and the game share one integrator, the CPU never "cheats" —
 
 ## 6. Rendering
 
-`ArenaRenderer` builds, in order: sky canvas (gradient, sun, hills, industrial skyline, water reflection), water graphics, terrain sprite, projectile graphics, worms, FX, aim layer, vignette and drifting clouds. `paintSky` also backs the menu backdrop, which adds the static cloud bands the match replaces with drifting ones.
+`ArenaRenderer` builds, in order: sky canvas (gradient, sun, hills, industrial skyline, water reflection), water graphics, terrain sprite, projectile graphics, mob graphics, loot graphics, worms, FX, aim layer, vignette and drifting clouds. `paintSky` also backs the menu backdrop, which adds the static cloud bands the match replaces with drifting ones.
 
 - Worms are `Graphics` built once per worm, with a redrawn HP bar only when HP or active state changes. The rope is a single line from the chest to the anchor, drawn in the aim layer; the aim preview hides while the worm is attached, and during a CPU turn it stays hidden until the worm stops walking and starts aiming.
 - The active worm holds its selected weapon along the aim angle; the draw switch is exhaustive over `WeaponId`, non-active worms carry a bazooka silhouette, and the sprite hides while the worm hangs from the rope. Airborne shelves are painted by `TerrainPainter` as miniature islands: a soil gradient, clipped strata, a grass cap on the collision ellipse and seeded blades.

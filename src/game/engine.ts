@@ -124,10 +124,6 @@ export class GameEngine {
     this.terrain = new Terrain(config.seed, config.map);
     this.rng = mulberry32(config.seed ^ 0x9e3779b9);
     this.timeLeft = config.turnSeconds;
-    this.spawnLoot();
-    this.spawnMobs();
-    this.logDebug('loot.spawn', 'Loot spawned', { items: this.loot.map((l) => ({ id: l.id, x: Math.round(l.x), y: Math.round(l.y), kind: l.kind })) }, 'system');
-    this.logDebug('mob.spawn', 'Mobs spawned', { mobs: this.mobs.map((m) => ({ id: m.id, x: Math.round(m.x), y: Math.round(m.y), hp: m.hp })) }, 'system');
 
     const teamCount = Math.min(4, Math.max(2, config.teamCount ?? 2));
     const margin = 120;
@@ -186,6 +182,12 @@ export class GameEngine {
       };
     });
     this.kills = this.teams.map(() => 0);
+
+    // Spawn after the teams so loot and mobs can stay clear of worm spawns.
+    this.spawnLoot();
+    this.spawnMobs();
+    this.logDebug('loot.spawn', 'Loot spawned', { items: this.loot.map((l) => ({ id: l.id, x: Math.round(l.x), y: Math.round(l.y), kind: l.kind })) }, 'system');
+    this.logDebug('mob.spawn', 'Mobs spawned', { mobs: this.mobs.map((m) => ({ id: m.id, x: Math.round(m.x), y: Math.round(m.y), hp: m.hp })) }, 'system');
 
     this.logDebug('match.start', 'Match started', {
       seed: config.seed,
@@ -282,7 +284,27 @@ export class GameEngine {
     this.debugSnapshots = [];
   }
 
+  private settleWorms(): void {
+    for (const team of this.teams) {
+      for (const worm of team.worms) {
+        if (!worm.alive || worm.onGround) continue;
+        const ground = this.terrain.groundY(worm.x, worm.y - 6, Math.max(0, WATER_Y - worm.y));
+        if (ground !== null) worm.y = ground;
+        worm.vx = 0;
+        worm.vy = 0;
+        worm.spin = 0;
+        worm.rotation = 0;
+        worm.launched = false;
+        worm.airborne = false;
+        worm.onGround = true;
+        worm.fallDistance = 0;
+        worm.rope = null;
+      }
+    }
+  }
   private beginTurn(first = false): void {
+    // A turn never starts with a worm still mid-flight: land it where it stands.
+    this.settleWorms();
     // Skip eliminated teams (no alive worms).
     if (!this.teams[this.activeTeam].worms.some((w) => w.alive)) {
       this.logDebug('turn.skip', 'Skipped eliminated team', { teamId: this.activeTeam }, 'system');
@@ -560,7 +582,7 @@ export class GameEngine {
 
   fire(): void {
     const worm = this.activeWorm;
-    if (!worm || this.phase !== 'aim' || this.hasFired) return;
+    if (!worm || this.phase !== 'aim' || this.hasFired || worm.launched) return;
     if (worm.rope) this.releaseRope();
     const team = this.teams[this.activeTeam];
     const weapon = WEAPONS[this.weapon];
@@ -651,16 +673,24 @@ export class GameEngine {
   private spawnLoot(): void {
     const rng = this.rng;
     const ground = (x: number) => this.terrain.groundY(x, 120, WATER_Y - 120) ?? 470;
+    // Keep loot clear of worm spawn bands so mines cannot arm on turn 1.
+    const clearX = (minDist: number) => {
+      for (let tries = 0; tries < 40; tries += 1) {
+        const x = 200 + rng() * (WORLD_W - 400);
+        if (this.teams.every((t) => t.worms.every((w) => Math.abs(w.x - x) >= minDist))) return x;
+      }
+      return 200 + rng() * (WORLD_W - 400);
+    };
     for (let i = 0; i < 6; i += 1) {
-      const x = 200 + rng() * (WORLD_W - 400);
+      const x = clearX(70);
       this.loot.push({ id: ++this.lootId, x, y: ground(x) - 12, vx: 0, vy: 0, kind: 'ammo', armed: false, fuse: 0, ammoGrant: 1 });
     }
     for (let i = 0; i < 4; i += 1) {
-      const x = 200 + rng() * (WORLD_W - 400);
+      const x = clearX(70);
       this.loot.push({ id: ++this.lootId, x, y: ground(x) - 12, vx: 0, vy: 0, kind: 'mine', armed: false, fuse: 1.5, ammoGrant: 0 });
     }
     for (let i = 0; i < 3; i += 1) {
-      const x = 200 + rng() * (WORLD_W - 400);
+      const x = clearX(70);
       this.loot.push({ id: ++this.lootId, x, y: ground(x) - 12, vx: 0, vy: 0, kind: 'secret', armed: false, fuse: 0, ammoGrant: 2 });
     }
   }
@@ -783,8 +813,15 @@ export class GameEngine {
   private spawnMobs(): void {
     const rng = this.rng;
     const ground = (x: number) => this.terrain.groundY(x, 120, WATER_Y - 120) ?? 470;
+    const clearX = (minDist: number) => {
+      for (let tries = 0; tries < 40; tries += 1) {
+        const x = 300 + rng() * (WORLD_W - 600);
+        if (this.teams.every((t) => t.worms.every((w) => Math.abs(w.x - x) >= minDist))) return x;
+      }
+      return 300 + rng() * (WORLD_W - 600);
+    };
     for (let i = 0; i < 3; i += 1) {
-      const x = 300 + rng() * (WORLD_W - 600);
+      const x = clearX(60);
       this.mobs.push({ id: ++this.mobId, x, y: ground(x) - 12, hp: 60, maxHp: 60, damage: 15, speed: 80, radius: 18, alive: true });
     }
   }
@@ -918,6 +955,11 @@ export class GameEngine {
     worm.hp = Math.max(0, worm.hp - amount);
     this.events.push({ type: 'hurt', x: worm.x, y: worm.y - 26, amount: Math.round(amount) });
     this.logDebug('combat.hurt', 'Worm hurt', { wormId: worm.id, teamId: worm.teamId, amount: Math.round(amount), sourceTeam, x: worm.x, y: worm.y }, 'system');
+    // A hit cancels any in-progress charge so it is not released while tumbling.
+    if (worm.id === this.activeWormId) {
+      this.charging = false;
+      this.power = 0;
+    }
     // Ragdoll impulse: throw the worm along the blast vector (replaces the old
     // <=14 px teleport). impulseScale tunes per-source feel (shotgun < mine < explosion).
     const dx = worm.x - sourceX;

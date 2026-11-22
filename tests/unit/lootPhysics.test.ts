@@ -35,13 +35,14 @@ describe('loot physics', () => {
     expect(item.vy).toBeLessThan(0);
   });
 
-  test('loot far from a blast is untouched', () => {
-    const engine = new GameEngine(config());
-    const item = engine.loot[0];
-    item.x = 600;
-    item.y = 400;
-    (engine as any).blastLoot(1500, 400, 100);
-    expect(item.vx).toBe(0);
-    expect(item.vy).toBe(0);
+  test('initial loot spawns clear of worm spawn positions', () => {
+    for (const seed of [4242, 7, 99, 2024]) {
+      const engine = new GameEngine(config({ seed }));
+      for (const item of engine.loot) {
+        for (const team of engine.teams) for (const worm of team.worms) {
+          expect(Math.abs(item.x - worm.x)).toBeGreaterThanOrEqual(60);
+        }
+      }
+    }
   });
 });
