@@ -99,4 +99,17 @@ describe('mine detonation feedback', () => {
     step(engine, 0.2);
     expect(engine.events.filter((e) => e.type === 'mineExplosion')).toHaveLength(0);
   });
+
+  test('a detonating mine triggers nearby mines (chain reaction)', () => {
+    const engine = new GameEngine(config());
+    const worm = engine.activeWorm!;
+    const mines = engine.loot.filter((l) => l.kind === 'mine');
+    const m1 = mines[0]; const m2 = mines[1];
+    m1.x = worm.x; m1.y = worm.y; m1.armed = true; m1.fuse = 0.05;
+    m2.x = worm.x + 20; m2.y = worm.y; m2.armed = false; m2.fuse = 10;
+    for (let i = 2; i < mines.length; i++) mines[i].x = -9999;
+    (engine as any).phase = 'projectile';
+    step(engine, 0.2);
+    expect(engine.loot.filter((l) => l.kind === 'mine')).toHaveLength(0);
+  });
 });

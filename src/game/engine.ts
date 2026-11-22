@@ -711,31 +711,7 @@ export class GameEngine {
         if (item.armed) {
           item.fuse -= dt;
           if (item.fuse <= 0) {
-            // Mine detonation: visible + audible (was silent before).
-            this.events.push({ type: 'mineExplosion', x: item.x, y: item.y, radius: 60 });
-            this.terrain.carve(item.x, item.y, 40);
-            this.blastLoot(item.x, item.y, 60, 0.8);
-            outer: for (const t of this.teams) {
-              for (const w of t.worms) {
-                if (!w.alive) continue;
-                const d = Math.hypot(w.x - item.x, w.y - item.y);
-                if (d <= 60) {
-                  this.hurt(w, 40, item.x, item.y, null, 0.9);
-                  if (this.phase === 'gameover') break outer;
-                }
-              }
-            }
-            // Mob damage from mine blast.
-            for (const mob of this.mobs) {
-              if (!mob.alive) continue;
-              const d = Math.hypot(mob.x - item.x, mob.y - item.y);
-              if (d <= 60) {
-                mob.hp = Math.max(0, mob.hp - 40);
-                if (mob.hp <= 0) mob.alive = false;
-              }
-            }
-            item.kind = 'ammo'; // mark consumed (will be removed)
-            item.x = -10000;
+            this.detonateMine(item, new Set());
           }
         }
       }
@@ -1016,27 +992,56 @@ export class GameEngine {
   private explode(x: number, y: number, weapon: WeaponId, sourceTeam: number | null): void {
     const def = WEAPONS[weapon];
     this.logDebug('combat.explosion', 'Explosion', { x: Math.round(x), y: Math.round(y), weapon, sourceTeam, terrainRadius: def.terrainRadius }, 'system');
-    this.terrain.carve(x, y, def.terrainRadius);
-    this.blastLoot(x, y, def.radius);
+    this.blast(x, y, def.damage, def.radius, def.terrainRadius, sourceTeam, 'explosion');
+    this.chainMines(x, y, def.radius, new Set());
+  }
+
+  /** Shared blast logic used by weapons and mines. */
+  private blast(x: number, y: number, damage: number, radius: number, terrainRadius: number, sourceTeam: number | null, eventType: 'explosion' | 'mineExplosion'): void {
+    this.terrain.carve(x, y, terrainRadius);
+    this.blastLoot(x, y, radius);
     for (const mob of this.mobs) {
       if (!mob.alive) continue;
       const d = Math.hypot(mob.x - x, mob.y - y);
-      if (d <= def.radius) {
-        mob.hp = Math.max(0, mob.hp - def.damage);
+      if (d <= radius) {
+        mob.hp = Math.max(0, mob.hp - damage);
         if (mob.hp <= 0) { mob.alive = false; this.loot.push({ id: ++this.lootId, x: mob.x, y: mob.y - 12, vx: 0, vy: 0, kind: 'ammo', armed: false, fuse: 0, ammoGrant: 1 }); }
       }
     }
-    this.events.push({ type: 'explosion', x, y, radius: def.radius });
+    this.events.push({ type: eventType, x, y, radius });
     for (const team of this.teams) {
       for (const worm of team.worms) {
         if (!worm.alive) continue;
         const dx = worm.x - x;
         const dy = worm.y - 13 - y;
         const distance = Math.hypot(dx, dy);
-        if (distance > def.radius + WORM.radius) continue;
-        this.hurt(worm, def.damage * blastFalloff(distance, def.radius + WORM.radius), x, y, sourceTeam);
+        if (distance > radius + WORM.radius) continue;
+        this.hurt(worm, damage * blastFalloff(distance, radius + WORM.radius), x, y, sourceTeam);
       }
     }
+  }
+
+  /** Detonate any mine within radius of a blast (chain reaction). */
+  private chainMines(x: number, y: number, radius: number, visited: Set<number>): void {
+    for (const item of this.loot) {
+      if (item.kind !== 'mine' || item.x < 0) continue;
+      if (visited.has(item.id)) continue;
+      if (Math.hypot(item.x - x, item.y - y) > radius) continue;
+      this.detonateMine(item, visited);
+    }
+  }
+
+  private detonateMine(item: LootItem, visited: Set<number>): void {
+    if (item.x < 0 || item.kind !== 'mine') return;
+    if (visited.has(item.id)) return;
+    visited.add(item.id);
+    const x = item.x; const y = item.y;
+    // consume first to prevent re-entry
+    item.kind = 'ammo';
+    item.x = -10000;
+    const sourceTeam = this.activeTeam;
+    this.blast(x, y, 40, 60, 40, sourceTeam, 'mineExplosion');
+    this.chainMines(x, y, 60, visited);
   }
 
   /** Pendulum around the anchor, with gravity pulling the worm toward straight down. */
