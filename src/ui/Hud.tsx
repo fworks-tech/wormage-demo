@@ -145,7 +145,7 @@ export function Hud({
           <div className="team-bar">
             <div
               className="team-bar-fill"
-              style={{ width: `${((myTeam?.hp ?? 0) / (myTeam?.maxHp || 1)) * 100}%`, background: myTeam?.accent }}
+              style={{ width: `${Math.min(100, ((myTeam?.hp ?? 0) / (myTeam?.maxHp || 1)) * 100)}%`, background: myTeam?.accent }}
             />
           </div>
           <div className="worm-pips">
@@ -210,7 +210,7 @@ export function Hud({
             <div className="team-bar">
               <div
                 className="team-bar-fill"
-                style={{ width: `${((enemy?.hp ?? 0) / (enemy?.maxHp || 1)) * 100}%`, background: enemy?.accent }}
+                style={{ width: `${Math.min(100, ((enemy?.hp ?? 0) / (enemy?.maxHp || 1)) * 100)}%`, background: enemy?.accent }}
               />
             </div>
             <div className="worm-pips">
