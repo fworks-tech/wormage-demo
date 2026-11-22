@@ -706,7 +706,9 @@ export class GameEngine {
         }
         if (item.armed) {
           item.fuse -= dt;
-          if (item.fuse <= 0) {
+          // Keep fusing in the aim phase, but do not detonate until a shot
+          // is in flight so the player is never blown up mid-aim.
+          if (item.fuse <= 0 && this.phase !== 'aim') {
             this.detonateMine(item, new Set());
           }
         }
@@ -794,8 +796,13 @@ export class GameEngine {
     const count = teamSize * 4;
     const center = WORLD_W / 2;
     for (let i = 0; i < count; i += 1) {
-      const spread = (rng() - 0.5) * 400;
-      const x = Math.max(60, Math.min(WORLD_W - 60, center + spread));
+      let x = center;
+      for (let tries = 0; tries < 20; tries += 1) {
+        const cand = center + (rng() - 0.5) * 400;
+        if (this.teams.every((t) => t.worms.every((w) => Math.abs(w.x - cand) >= 60))) { x = cand; break; }
+        x = cand;
+      }
+      x = Math.max(60, Math.min(WORLD_W - 60, x));
       this.mobs.push({ id: ++this.mobId, x, y: ground(x) - 12, hp: 60, maxHp: 60, damage: 5, speed: 160, radius: 18, alive: true });
     }
   }

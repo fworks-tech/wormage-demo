@@ -621,8 +621,9 @@ export class ArenaRenderer {
           if (d < best) { best = d; nearest = m; }
         }
         if (best < 900) {
-          targetX = (w.x + nearest.x) / 2;
-          targetY = (w.y + nearest.y) / 2;
+          // Nudge the camera toward the mob without dropping the worm from view.
+          targetX = w.x + (nearest.x - w.x) * 0.3;
+          targetY = w.y + (nearest.y - w.y) * 0.3;
         }
       }
     }

@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'vitest';
+import { GameEngine } from '../../src/game/engine';
 import { blastFalloff, GameEngine } from '../../src/game/engine';
 import { AI, WIND_ACCEL, WEAPONS, WORM } from '../../src/game/config';
 import type { MatchConfig } from '../../src/game/types';
@@ -214,5 +215,17 @@ describe('multi-team matches', () => {
     const engine = new GameEngine(cfg());
     engine.endTurn(); // AI turn
     expect(engine.phase).toBe('aim');
+  });
+});
+
+
+describe('mob layout', () => {
+  test('spawns four times the team size near the center', () => {
+    const engine = new GameEngine({ turnSeconds: 30, wind: 'light', difficulty: 'veteran', seed: 777, wormsPerTeam: 3 });
+    expect(engine.mobs.length).toBe(12);
+    const center = 3840 / 2;
+    for (const m of engine.mobs) {
+      expect(Math.abs(m.x - center)).toBeLessThanOrEqual(250);
+    }
   });
 });
