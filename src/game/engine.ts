@@ -790,16 +790,13 @@ export class GameEngine {
   private spawnMobs(): void {
     const rng = this.rng;
     const ground = (x: number) => this.terrain.groundY(x, 120, WATER_Y - 120) ?? 470;
-    const clearX = (minDist: number) => {
-      for (let tries = 0; tries < 40; tries += 1) {
-        const x = 300 + rng() * (WORLD_W - 600);
-        if (this.teams.every((t) => t.worms.every((w) => Math.abs(w.x - x) >= minDist))) return x;
-      }
-      return 300 + rng() * (WORLD_W - 600);
-    };
-    for (let i = 0; i < 3; i += 1) {
-      const x = clearX(60);
-      this.mobs.push({ id: ++this.mobId, x, y: ground(x) - 12, hp: 60, maxHp: 60, damage: 20, speed: 160, radius: 18, alive: true });
+    const teamSize = this.config.wormsPerTeam ?? 3;
+    const count = teamSize * 4;
+    const center = WORLD_W / 2;
+    for (let i = 0; i < count; i += 1) {
+      const spread = (rng() - 0.5) * 400;
+      const x = Math.max(60, Math.min(WORLD_W - 60, center + spread));
+      this.mobs.push({ id: ++this.mobId, x, y: ground(x) - 12, hp: 60, maxHp: 60, damage: 5, speed: 160, radius: 18, alive: true });
     }
   }
 
@@ -1428,7 +1425,7 @@ export class GameEngine {
       this.aiPlan = planAiTurn({
         terrain: this.terrain,
         worm: { id: worm.id, teamId: worm.teamId, x: worm.x, y: worm.y, hp: worm.hp },
-        worms: [...worms, ...this.mobs.filter(m=>m.alive).map(m=>({id:'mob-'+m.id,teamId:-1,x:m.x,y:m.y,hp:m.hp}))],
+        worms: worms,
         ammo: { ...this.teams[this.activeTeam].ammo },
         wind: this.wind,
         timeLeft: this.timeLeft,
