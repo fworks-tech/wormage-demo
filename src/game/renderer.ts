@@ -612,6 +612,19 @@ export class ArenaRenderer {
     } else {
       const w = this.engine.activeWorm;
       if (w) { targetX = w.x; targetY = w.y; }
+      // Keep nearby hostile mobs in frame so their movement is visible.
+      const mobs = this.engine.mobs.filter((m) => m.alive);
+      if (w && mobs.length) {
+        let nearest = mobs[0]; let best = Math.hypot(mobs[0].x - w.x, mobs[0].y - w.y);
+        for (const m of mobs.slice(1)) {
+          const d = Math.hypot(m.x - w.x, m.y - w.y);
+          if (d < best) { best = d; nearest = m; }
+        }
+        if (best < 900) {
+          targetX = (w.x + nearest.x) / 2;
+          targetY = (w.y + nearest.y) / 2;
+        }
+      }
     }
     const desiredX = Math.max(0, Math.min(WORLD_W - viewW, targetX - viewW / 2));
     const desiredY = Math.max(0, Math.min(WORLD_H - viewH, targetY - viewH / 2));
