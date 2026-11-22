@@ -6,7 +6,6 @@ type RopeWorm = {
   vx: number;
   vy: number;
   onGround: boolean;
-  airborne: boolean;
   fallDistance: number;
   aimAngle: number;
   facing: 1 | -1;
@@ -55,7 +54,6 @@ test('the rope card anchors, reels in and lets go', async ({ page }) => {
     worm.vx = 0;
     worm.vy = 0;
     worm.onGround = true;
-    worm.airborne = false;
     worm.fallDistance = 0;
     worm.aimAngle = -Math.PI / 2;
     worm.facing = 1;
