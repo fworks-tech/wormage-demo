@@ -1,5 +1,4 @@
 import { describe, expect, test } from 'vitest';
-import { GameEngine } from '../../src/game/engine';
 import { blastFalloff, GameEngine } from '../../src/game/engine';
 import { AI, WIND_ACCEL, WEAPONS, WORM } from '../../src/game/config';
 import type { MatchConfig } from '../../src/game/types';
