@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest';
 import { blastFalloff, GameEngine } from '../../src/game/engine';
-import { AI, WIND_ACCEL, WEAPONS, WORM } from '../../src/game/config';
+import { AI, WATER_Y, WIND_ACCEL, WEAPONS, WORM, WORLD_W } from '../../src/game/config';
 import type { MatchConfig } from '../../src/game/types';
 
 const config = (overrides: Partial<MatchConfig> = {}): MatchConfig => ({
@@ -282,5 +282,39 @@ describe('mob combat', () => {
     (engine as any).updateLoot(DT);
 
     expect(engine.loot.find((item) => item.id === 9999)?.armed).toBe(false);
+  });
+});
+
+describe('terrain and water share one surface', () => {
+  test('the painted surface never drops past the water clamp', () => {
+    // At the map edges the raw noise passes the water line; painting the raw
+    // value left the island visibly below the sand the worm stands on.
+    for (const seed of [1, 2, 13, 114, 777]) {
+      const { terrain } = new GameEngine(config({ seed }));
+      for (let x = 2; x < WORLD_W; x += 32) {
+        expect(terrain.surfaceY(x), `seed ${seed} x ${x}`).toBeLessThanOrEqual(WATER_Y - 26);
+      }
+    }
+  });
+
+  test('no walkable ground exists below the water line', () => {
+    for (const seed of [1, 2, 13, 114, 777]) {
+      const { terrain } = new GameEngine(config({ seed }));
+      for (let x = 2; x < WORLD_W; x += 32) {
+        expect(terrain.groundY(x, WATER_Y, 200), `seed ${seed} x ${x}`).toBeNull();
+      }
+    }
+  });
+
+  test('a worm at the water line drowns on the next step', () => {
+    const engine = new GameEngine(config());
+    const worm = engine.activeWorm!;
+    worm.y = WATER_Y + 20;
+    worm.onGround = true;
+
+    step(engine, DT);
+
+    expect(worm.alive).toBe(false);
+    expect(worm.y).toBe(WATER_Y);
   });
 });

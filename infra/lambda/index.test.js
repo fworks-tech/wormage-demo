@@ -262,7 +262,7 @@ test('replayOnlineMatch returns a deterministic snapshot', async () => {
   assert.ok(first.snapshot);
   assert.equal(first.tick, second.tick);
   assert.deepEqual(first.snapshot, second.snapshot);
-  assert.equal(first.engineVersion, 1);
+  assert.equal(first.engineVersion, 2);
 });
 
 test('submitAction clamps a far-future tick to one turn of replay', async () => {
