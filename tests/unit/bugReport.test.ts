@@ -131,7 +131,7 @@ describe('bug report payload', () => {
       const last = engine.debugSnapshots.at(-1);
       if (last) (last as { blob?: string }).blob = 'y'.repeat(60000);
     }
-    engine.log = Array.from({ length: 5000 }, (_, i) => ({ tick: i, action: { type: 'endTurn' as const } }));
+    for (let i = 0; i < 5000; i += 1) engine.log.push({ tick: i, action: { type: 'endTurn' } });
 
     await sendBugReport({
       engine,
