@@ -1,4 +1,4 @@
-import type { Difficulty, EndReason, WindSetting } from '../game/types';
+import type { Difficulty, EndReason, GameSnapshot, WindSetting } from '../game/types';
 
 export interface MatchRecord {
   id: string;
@@ -72,7 +72,10 @@ export interface OnlineMatchSettings {
   difficulty?: 'rookie' | 'veteran' | 'elite';
   map?: string;
   mode?: string;
+  loadout?: string;
   wormsPerTeam?: number;
+  teamCount?: number;
+  teamNames?: string[];
   seed?: number;
 }
 
@@ -93,6 +96,10 @@ export interface OnlineMatch {
   hasFired?: boolean;
   weapon?: string;
   actions?: OnlineActionLogEntry[];
+  engineVersion?: number | null;
+  /** Last canonical engine state persisted by the server. */
+  snapshot?: GameSnapshot | null;
+  snapshotTick?: number | null;
 }
 
 export interface OnlineActionLogEntry {

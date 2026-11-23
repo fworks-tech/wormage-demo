@@ -456,12 +456,13 @@ export function getActionLog(code: string): OnlineActionLogEntry[] {
   const log = (db.actionLogs || {})[code.toUpperCase()];
   const actions = Array.isArray(log?.actions) ? [...log.actions] : [];
   return actions.sort((a, b) => {
-    const sa = typeof a?.seq === 'number' ? a.seq : 0;
-    const sb = typeof b?.seq === 'number' ? b.seq : 0;
-    if (sa !== sb) return sa - sb;
+    // Same order as the Lambda replay: tick decides, seq breaks ties.
     const ea = typeof a?.engineTick === 'number' ? a.engineTick : (typeof a?.tick === 'number' ? a.tick : 0);
     const eb = typeof b?.engineTick === 'number' ? b.engineTick : (typeof b?.tick === 'number' ? b.tick : 0);
     if (ea !== eb) return ea - eb;
+    const sa = typeof a?.seq === 'number' ? a.seq : 0;
+    const sb = typeof b?.seq === 'number' ? b.seq : 0;
+    if (sa !== sb) return sa - sb;
     return String(a?.at ?? '').localeCompare(String(b?.at ?? ''));
   });
 }
@@ -484,11 +485,14 @@ export function replayOnlineMatch(code: string): {
   const wormsPerTeam = typeof settings.wormsPerTeam === 'number' ? settings.wormsPerTeam : 3;
   const map = (settings.map as MatchConfig['map']) ?? 'island';
   const mode = (settings.mode as MatchConfig['mode']) ?? 'deathmatch';
-  const config: MatchConfig = { turnSeconds, wind, difficulty, seed, wormsPerTeam, map, mode };
+  const loadout = (settings.loadout as MatchConfig['loadout']) ?? 'default';
+  const teamNames = Array.isArray(settings.teamNames) ? settings.teamNames as string[] : undefined;
+  const config: MatchConfig = { turnSeconds, wind, difficulty, seed, wormsPerTeam, map, mode, loadout, hotseat: false, teamCount: 2, teamNames };
   const engine = new GameEngine(config);
   const actions = getActionLog(code);
   const DT = 1 / 60;
-  const MAX_TICKS = 60 * 300;
+  // Keep in sync with MAX_TICKS in infra/lambda/replay.js; the parity test fails on drift.
+  const MAX_TICKS = 60 * 60 * 30;
   let cursor = 0;
   while (engine.phase !== 'gameover' && engine.tick < MAX_TICKS) {
     while (cursor < actions.length) {

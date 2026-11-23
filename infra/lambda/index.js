@@ -4,6 +4,8 @@ const crypto = require('crypto');
 const { DynamoDBClient } = require('@aws-sdk/client-dynamodb');
 const { DynamoDBDocumentClient, GetCommand, PutCommand, QueryCommand, UpdateCommand } = require('@aws-sdk/lib-dynamodb');
 const { S3Client, PutObjectCommand } = require('@aws-sdk/client-s3');
+const { GameEngine } = require('./engine.cjs');
+const { replayActionLog, ENGINE_VERSION } = require('./replay.js');
 
 const TABLE = process.env.TABLE_NAME;
 const ddb = DynamoDBDocumentClient.from(new DynamoDBClient({}));
@@ -335,6 +337,9 @@ function toOnlineMatch(m) {
     endReason: m.endReason || null,
     phase: m.phase || 'aim',
     hasFired: !!m.hasFired,
+    engineVersion: m.engineVersion || null,
+    snapshot: m.snapshot || null,
+    snapshotTick: typeof m.snapshotTick === 'number' ? m.snapshotTick : null,
   };
 }
 
@@ -349,7 +354,7 @@ async function postOnlineMatch(event, ddbClient = ddb) {
   }
   // DynamoDB rejects `undefined` values; keep only defined keys.
   const cleanSettings = {};
-  for (const k of ['turnSeconds', 'wind', 'difficulty', 'map', 'mode', 'wormsPerTeam', 'seed']) {
+  for (const k of ['turnSeconds', 'wind', 'difficulty', 'map', 'mode', 'loadout', 'wormsPerTeam', 'teamCount', 'teamNames', 'seed']) {
     if (settings[k] !== undefined) cleanSettings[k] = settings[k];
   }
 
@@ -373,6 +378,7 @@ async function postOnlineMatch(event, ddbClient = ddb) {
       endReason: null,
       phase: 'aim',
       hasFired: false,
+      engineVersion: ENGINE_VERSION,
       ammo: [{ bazooka: 999, grenade: 3, shotgun: 4, dynamite: 2, medkit: 2, shield: 1 },
              { bazooka: 999, grenade: 3, shotgun: 4, dynamite: 2, medkit: 2, shield: 1 }],
       players: [{ playerId: body.playerId, playerName: body.playerName, teamName }],
@@ -519,6 +525,15 @@ async function getActionLog(code, ddbClient) {
   return got.Item || { pk: 'ACTION#' + code, sk: 'LOG', actions: [] };
 }
 
+async function replayOnlineMatch(code, ddbClient) {
+  const client = ddbClient || ddb;
+  const normalized = String(code).toUpperCase().trim();
+  const got = await client.send(new GetCommand({ TableName: TABLE, Key: { pk: 'ONLINE#' + normalized, sk: 'META' } }));
+  if (!got.Item) return null;
+  const log = await getActionLog(normalized, client);
+  return replayActionLog({ GameEngine, match: got.Item, actions: log.actions || [] });
+}
+
 async function submitAction(event, rawCode, ddbClient) {
   if (!ddbClient) ddbClient = ddb;
   const code = String(rawCode || '').toUpperCase().trim();
@@ -567,26 +582,62 @@ async function submitAction(event, rawCode, ddbClient) {
   if (actions.length >= ACTION_CAP) return json(409, { message: 'action log full' });
 
   const now = new Date().toISOString();
-  const updates = {};
-  if (type === 'endTurn') {
-    const n = players.length;
-    let nextTeam = match.activeTeam;
-    for (let i = 1; i <= n; i++) {
-      const idx = (match.activeTeam + i) % n;
-      if (players[idx]) { nextTeam = idx; break; }
-    }
-    updates.activeTeam = nextTeam;
-    updates.turn = (match.turn || 1) + 1;
+  const seq = actions.reduce((m, a) => Math.max(m, (a && typeof a.seq === 'number') ? a.seq : 0), 0) + 1;
+  const currentTick = typeof match.snapshotTick === 'number' ? match.snapshotTick : 0;
+  // The client stamps its own engine tick, which keeps running between turns.
+  // Never let one action fast-forward more than a turn of simulation: a stale
+  // or hostile tick could otherwise end the match by replaying to MAX_TICKS.
+  const turnSeconds = typeof match.turnSeconds === 'number' && match.turnSeconds > 0 ? match.turnSeconds : 45;
+  const turnTicks = turnSeconds * 60;
+  const requestedTick = engineTick != null ? engineTick : currentTick;
+  const actionTick = Math.max(currentTick, Math.min(requestedTick, currentTick + turnTicks));
+  const entry = { seq, tick: actionTick, turn: match.turn || 1, engineTick: actionTick, action, playerId: body.playerId, clientActionId: body.clientActionId || null, at: now };
+
+  // Replay before writing anything: an action the engine cannot apply must
+  // leave both the match item and the action log untouched. Stop at the
+  // action's tick so submitting an action does not fast-forward the match.
+  let replay;
+  try {
+    replay = replayActionLog({
+      GameEngine,
+      match,
+      actions: [...actions, entry],
+      stopTick: actionTick,
+    });
+  } catch (err) {
+    console.error('replay failed', err);
+    return json(409, { message: 'illegal action' });
+  }
+  const snap = replay.snapshot;
+  const matchTurn = match.turn || 1;
+  const updates = {
+    turnSeconds: snap.turnSeconds,
+    phase: snap.phase,
+    weapon: snap.weapon,
+    winnerTeam: snap.winnerTeam,
+    endReason: snap.endReason,
+    engineVersion: replay.engineVersion,
+    snapshot: snap,
+    snapshotTick: replay.tick,
+  };
+  // getOnlineMatch advances an expired turn on its own. A replay that stopped
+  // at an earlier tick must not drag the match back to the previous team.
+  if (snap.turn > matchTurn) {
+    updates.turn = snap.turn;
+    updates.activeTeam = snap.activeTeam;
     updates.turnStartedAt = now;
-    updates.phase = 'aim';
-    updates.hasFired = false;
-  } else if (type === 'fire') {
-    updates.phase = 'projectile';
-    updates.hasFired = true;
   }
-  if (type === 'weapon' && isStr(action.id)) {
-    updates.weapon = action.id;
-  }
+  if (snap.winnerTeam != null) updates.status = 'finished';
+  if (type === 'endTurn') updates.hasFired = false;
+  if (type === 'fire') updates.hasFired = true;
+
+  // Log first: the action log is the source of truth for the next replay.
+  await ddbClient.send(new UpdateCommand({
+    TableName: TABLE,
+    Key: { pk: 'ACTION#' + code, sk: 'LOG' },
+    UpdateExpression: 'SET actions = list_append(if_not_exists(actions, :empty), :e)',
+    ExpressionAttributeValues: { ':empty': [], ':e': [entry] },
+  }));
 
   const exprParts = [];
   const names = {};
@@ -596,23 +647,12 @@ async function submitAction(event, rawCode, ddbClient) {
     names['#' + k] = k;
     values[':' + k] = v;
   }
-  if (exprParts.length > 0) {
-    await ddbClient.send(new UpdateCommand({
-      TableName: TABLE,
-      Key: { pk: 'ONLINE#' + code, sk: 'META' },
-      UpdateExpression: 'SET ' + exprParts.join(', '),
-      ExpressionAttributeNames: names,
-      ExpressionAttributeValues: values,
-    }));
-  }
-
-  const seq = actions.reduce((m, a) => Math.max(m, (a && typeof a.seq === 'number') ? a.seq : 0), 0) + 1;
-  const entry = { seq, tick: (engineTick != null ? engineTick : (match.turn || 1)), turn: match.turn || 1, engineTick, action, playerId: body.playerId, clientActionId: body.clientActionId || null, at: now };
   await ddbClient.send(new UpdateCommand({
     TableName: TABLE,
-    Key: { pk: 'ACTION#' + code, sk: 'LOG' },
-    UpdateExpression: 'SET actions = list_append(if_not_exists(actions, :empty), :e)',
-    ExpressionAttributeValues: { ':empty': [], ':e': [entry] },
+    Key: { pk: 'ONLINE#' + code, sk: 'META' },
+    UpdateExpression: 'SET ' + exprParts.join(', '),
+    ExpressionAttributeNames: names,
+    ExpressionAttributeValues: values,
   }));
 
   const after = await ddbClient.send(new GetCommand({ TableName: TABLE, Key: { pk: 'ONLINE#' + code, sk: 'META' } }));
@@ -672,8 +712,11 @@ exports.handler = async (event) => {
     if (method === 'POST' && onlineAction) return await submitAction(event, decodeURIComponent(onlineAction[1]));
     const onlineForfeit = path.match(/^\/api\/matches\/online\/([^/]+)\/forfeit$/);
     if (method === 'POST' && onlineForfeit) return await forfeitOnlineMatch(event, decodeURIComponent(onlineForfeit[1]));
-    if (method === 'POST' && onlineAction) return await submitAction(event, decodeURIComponent(onlineAction[1]));
-    if (method === 'POST' && onlineForfeit) return await forfeitOnlineMatch(event, decodeURIComponent(onlineForfeit[1]));
+    const onlineReplay = path.match(/^\/api\/matches\/online\/([^/]+)\/replay$/);
+    if (method === 'GET' && onlineReplay) {
+      const replay = await replayOnlineMatch(decodeURIComponent(onlineReplay[1]));
+      return replay ? json(200, replay) : json(404, { message: 'match not found' });
+    }
     if (method === 'POST' && path === '/api/debug-logs') return await postDebugLog(event);
     return json(404, { message: 'Not found' });
   } catch (err) {
@@ -693,9 +736,8 @@ exports.getOnlineMatch = getOnlineMatch;
 exports.submitAction = submitAction;
 exports.forfeitOnlineMatch = forfeitOnlineMatch;
 exports.getActionLog = getActionLog;
-// Full replay stays client-side/mock-only; Lambda exposes the sorted log.
-exports.replayOnlineMatch = async (code, ddbClient) => ({ code: String(code).toUpperCase().trim(), actions: (await getActionLog(String(code).toUpperCase().trim(), ddbClient || ddb)).actions || [] });
-exports.replayOnlineTurn = exports.replayOnlineMatch;
+exports.replayOnlineMatch = replayOnlineMatch;
+exports.replayOnlineTurn = replayOnlineMatch;
 exports.replayMatch = exports.replayOnlineMatch;
 exports.replayTurn = exports.replayOnlineMatch;
 exports.generateOnlineCode = generateOnlineCode;

@@ -143,21 +143,22 @@ export function GameView({
       }
       if (disposed) return;
       const matchData = online ? onlineMatchRef.current?.data : undefined;
-      const resolvedSeed = (matchData?.settings?.seed != null) ? matchData.settings.seed : seedRef.current;
-      if (online && matchData?.settings?.seed != null) seedRef.current = matchData.settings.seed;
+      const serverSettings = matchData?.settings;
+      const resolvedSeed = (serverSettings?.seed != null) ? serverSettings.seed : seedRef.current;
+      if (online && serverSettings?.seed != null) seedRef.current = serverSettings.seed;
 
     const engine = new GameEngine({
-      turnSeconds: settings.turnSeconds,
-      wind: settings.wind,
-      difficulty: settings.difficulty,
+      turnSeconds: serverSettings?.turnSeconds ?? settings.turnSeconds,
+      wind: serverSettings?.wind ?? settings.wind,
+      difficulty: serverSettings?.difficulty ?? settings.difficulty,
       seed: resolvedSeed,
-      wormsPerTeam: settings.wormsPerTeam ?? 3,
-      map: settings.map ?? 'island',
-      mode: settings.mode ?? 'deathmatch',
-      loadout: settings.loadout ?? 'default',
-      hotseat: settings.hotseat ?? false,
-      teamCount: settings.teamCount ?? 2,
-      teamNames: settings.teamNames,
+      wormsPerTeam: serverSettings?.wormsPerTeam ?? settings.wormsPerTeam ?? 3,
+      map: (serverSettings?.map as GameSettings['map']) ?? settings.map ?? 'island',
+      mode: (serverSettings?.mode as GameSettings['mode']) ?? settings.mode ?? 'deathmatch',
+      loadout: (serverSettings?.loadout as GameSettings['loadout']) ?? settings.loadout ?? 'default',
+      hotseat: online ? false : settings.hotseat ?? false,
+      teamCount: online ? 2 : settings.teamCount ?? 2,
+      teamNames: online ? serverSettings?.teamNames ?? settings.teamNames?.slice(0, 2) : settings.teamNames,
     });
     engineRef.current = engine;
     // E2E instrumentation: lets Playwright observe the authoritative simulation
@@ -556,6 +557,9 @@ export function GameView({
   }, [ready]);
 
   // Online: apply opponent actions from polled server state.
+  // shortcut: the action lands at this client's tick, not the sender's, so the
+  // local engine can drift from the server snapshot; add a snapshot re-sync
+  // before online play leaves the prototype (M4b).
   useEffect(() => {
     if (!online || !onlineMatch.data || !engineRef.current) return;
     const engine = engineRef.current;

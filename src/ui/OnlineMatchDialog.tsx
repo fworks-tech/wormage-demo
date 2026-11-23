@@ -1,18 +1,20 @@
 import { useEffect, useState } from 'react';
 import { useCreateOnlineMatch, useJoinOnlineMatch, useOnlineMatch } from '../api/queries';
 import type { OnlineMatch } from '../api/types';
+import type { GameSettings } from '../game/types';
 import type { PlayerIdentity as Player } from '../state/storage';
 import { loadOnlineSession, saveOnlineSession, clearOnlineSession } from '../state/storage';
 
 interface Props {
   player: Player;
+  settings: GameSettings;
   onClose: () => void;
   onStart?: (code: string, playerIndex: number) => void;
 }
 
 type View = 'home' | 'create' | 'join';
 
-export function OnlineMatchDialog({ player, onClose, onStart }: Props) {
+export function OnlineMatchDialog({ player, settings, onClose, onStart }: Props) {
   const [view, setView] = useState<View>('home');
   const [codeInput, setCodeInput] = useState('');
   const [teamName, setTeamName] = useState('');
@@ -53,6 +55,17 @@ export function OnlineMatchDialog({ player, onClose, onStart }: Props) {
         playerId: player.id,
         playerName: player.name,
         teamName: teamName.trim() || undefined,
+        settings: {
+          turnSeconds: settings.turnSeconds,
+          wind: settings.wind,
+          difficulty: settings.difficulty,
+          map: settings.map,
+          mode: settings.mode,
+          loadout: settings.loadout,
+          wormsPerTeam: settings.wormsPerTeam ?? 3,
+          teamCount: 2,
+          teamNames: settings.teamNames?.slice(0, 2),
+        },
       });
       setMatch(res.match);
       saveOnlineSession({ code: res.match.code, playerId: player.id, playerName: player.name, teamName: res.match.players.find((pl) => pl.playerId === player.id)?.teamName ?? 'Team 1' });
