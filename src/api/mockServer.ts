@@ -393,7 +393,8 @@ export function submitOnlineAction(code: string, input: { playerId: string; acti
   }
 
   const seq = ((log.actions as any[]).reduce((m: number, a: any) => Math.max(m, a?.seq ?? 0), 0) + 1);
-  const engineTick = typeof input.tick === 'number' ? input.tick : (typeof input.engineTick === 'number' ? input.engineTick : undefined);
+  const rawTick = typeof input.tick === 'number' ? input.tick : (typeof input.engineTick === 'number' ? input.engineTick : undefined);
+  const engineTick = typeof rawTick === 'number' ? Math.max(0, Math.min(1_000_000, Math.floor(rawTick))) : undefined;
   (log.actions as any[]).push({ seq, tick: engineTick ?? (match.turn || 1), turn: match.turn || 1, engineTick, action: input.action, playerId: input.playerId, clientActionId: input.clientActionId || null, at: now });
   db.actionLogs[code.toUpperCase()] = log;
   persistOnline(db);
@@ -490,7 +491,9 @@ export function replayOnlineMatch(code: string): {
   const MAX_TICKS = 60 * 300;
   let cursor = 0;
   while (engine.phase !== 'gameover' && engine.tick < MAX_TICKS) {
-    while (cursor < actions.length && ((actions[cursor] as any).engineTick ?? (actions[cursor] as any).tick) === engine.tick) {
+    while (cursor < actions.length) {
+      const entryTick = (typeof actions[cursor].engineTick === 'number' ? actions[cursor].engineTick : (typeof actions[cursor].tick === 'number' ? actions[cursor].tick : 0)) as number;
+      if (entryTick !== engine.tick) break;
       engine.applyAction(actions[cursor].action as Parameters<GameEngine['applyAction']>[0]);
       cursor += 1;
     }

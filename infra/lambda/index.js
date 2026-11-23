@@ -527,7 +527,8 @@ async function submitAction(event, rawCode, ddbClient) {
   if (!body.action || typeof body.action !== 'object' || Array.isArray(body.action)) return json(400, { message: 'action is required' });
   const action = body.action;
   if (!isStr(action.type)) return json(400, { message: 'action.type is required' });
-  const engineTick = (typeof body.tick === 'number' && Number.isFinite(body.tick)) ? body.tick : (typeof body.engineTick === 'number' && Number.isFinite(body.engineTick)) ? body.engineTick : null;
+  const rawTick = (typeof body.tick === 'number' && Number.isFinite(body.tick)) ? body.tick : (typeof body.engineTick === 'number' && Number.isFinite(body.engineTick)) ? body.engineTick : null;
+  const engineTick = rawTick == null ? null : Math.max(0, Math.min(1000000, Math.floor(rawTick)));
 
   const got = await ddbClient.send(new GetCommand({ TableName: TABLE, Key: { pk: 'ONLINE#' + code, sk: 'META' } }));
   if (!got.Item) return json(404, { message: 'match not found' });
@@ -692,6 +693,7 @@ exports.getOnlineMatch = getOnlineMatch;
 exports.submitAction = submitAction;
 exports.forfeitOnlineMatch = forfeitOnlineMatch;
 exports.getActionLog = getActionLog;
+// Full replay stays client-side/mock-only; Lambda exposes the sorted log.
 exports.replayOnlineMatch = async (code, ddbClient) => ({ code: String(code).toUpperCase().trim(), actions: (await getActionLog(String(code).toUpperCase().trim(), ddbClient || ddb)).actions || [] });
 exports.replayOnlineTurn = exports.replayOnlineMatch;
 exports.replayMatch = exports.replayOnlineMatch;
