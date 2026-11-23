@@ -680,7 +680,11 @@ export function GameView({
           onChargeCancel={() => engineRef.current?.cancelCharge()}
           onSelectWeapon={(weapon) => { const e = engineRef.current; if (!e) return; if (online) e.record({ type: 'weapon', id: weapon }); else e.selectWeapon(weapon); }}
           onEndTurn={() => { const e = engineRef.current; if (!e) return; if (online) e.record({ type: 'endTurn' }); else e.endTurn(); }}
-          onPause={() => setPause(true)}
+          onPause={() => {
+            // The capture hides the overlay; the HUD is clickable during that
+            // window and must not close the report panel.
+            if (!capturingRef.current) setPause(true);
+          }}
         />
       )}
 
