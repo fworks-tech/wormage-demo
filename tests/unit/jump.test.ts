@@ -165,7 +165,7 @@ describe('jump physics', () => {
     expect(engine.hasFired).toBe(true);
   });
 
-  test('the AI fires instead of jumping when its firing spot vanished', () => {
+  test('the AI does not fire after drowning when its firing spot vanished', () => {
     const engine = new GameEngine(config());
     Object.assign(engine.terrain, {
       isSolid: (x: number) => x >= 430,
@@ -203,7 +203,8 @@ describe('jump physics', () => {
     step(engine, 2.5);
 
     expect(engine.events.filter((event) => event.type === 'jump')).toHaveLength(0);
-    expect(engine.hasFired).toBe(true);
+    expect(worm.alive).toBe(false);
+    expect(engine.hasFired).toBe(false);
   });
 
   test('the AI keeps jumping while its walk is blocked', () => {

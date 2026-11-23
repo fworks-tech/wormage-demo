@@ -350,4 +350,21 @@ describe('terrain and water share one surface', () => {
     expect(worm.y).toBe(WATER_Y);
     expect(worm.rope).toBeNull();
   });
+
+  test('drowning the active worm during aim ends the turn', () => {
+    const engine = new GameEngine(config());
+    const worm = engine.activeWorm!;
+    const turn = engine.turn;
+    worm.onGround = false;
+    worm.vy = 600;
+    worm.y = WATER_Y - 2;
+
+    step(engine, DT);
+
+    expect(worm.alive).toBe(false);
+    expect(engine.phase).toBe('aim');
+    expect(engine.turn).toBeGreaterThan(turn);
+    expect(engine.activeWorm?.id).not.toBe(worm.id);
+    expect(engine.activeWorm?.alive).toBe(true);
+  });
 });
