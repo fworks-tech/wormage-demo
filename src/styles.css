@@ -1741,6 +1741,11 @@ html:fullscreen {
     align-self: center;
   }
 
+  /* Clear the FIRE / End turn row; otherwise the Map button eats its clicks. */
+  .minimap-wrap {
+    bottom: calc(max(clamp(8px, 1.6vw, 18px), env(safe-area-inset-bottom)) + 74px);
+  }
+
   .action-cluster {
     grid-area: actions;
     justify-self: end;
