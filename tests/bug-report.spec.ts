@@ -54,10 +54,12 @@ test('a bug report carries a tab capture and leaves the pause menu out of it', a
         };
         paint();
         const stream = canvas.captureStream(30);
+        const track = stream.getVideoTracks()[0];
+        track.getSettings = () => ({ displaySurface: 'browser' } as MediaTrackSettings);
         // captureStream only emits when the canvas changes; keep painting so
         // requestVideoFrameCallback sees a frame in headless Chrome.
         const timer = window.setInterval(paint, 33);
-        stream.getTracks()[0].addEventListener('ended', () => window.clearInterval(timer));
+        track.addEventListener('ended', () => window.clearInterval(timer));
         (window as unknown as { __captureCanvas?: HTMLCanvasElement }).__captureCanvas = canvas;
         return stream;
       },
@@ -185,7 +187,9 @@ test('a failed send keeps the preview so the report can be retried', async ({ pa
         context.fillRect(0, 0, 640, 360);
         const timer = window.setInterval(() => context.fillRect(0, 0, 640, 360), 33);
         const stream = canvas.captureStream(30);
-        stream.getVideoTracks()[0].addEventListener('ended', () => window.clearInterval(timer));
+        const track = stream.getVideoTracks()[0];
+        track.getSettings = () => ({ displaySurface: 'browser' } as MediaTrackSettings);
+        track.addEventListener('ended', () => window.clearInterval(timer));
         return stream;
       },
     });
@@ -196,12 +200,12 @@ test('a failed send keeps the preview so the report can be retried', async ({ pa
   await page.getByTestId('btn-capture-report').click();
   await expect(page.getByTestId('report-preview')).toBeVisible();
 
-  await page.evaluate(() => localStorage.setItem('wormage.netScenario.v1', 'error'));
+  await page.evaluate(() => localStorage.setItem('wormage.netScenario.v1', JSON.stringify('error')));
   await page.getByTestId('btn-send-report').click();
   await expect(page.getByTestId('report-error')).toContainText('could not be sent');
   await expect(page.getByTestId('report-preview')).toBeVisible();
 
-  await page.evaluate(() => localStorage.setItem('wormage.netScenario.v1', 'normal'));
+  await page.evaluate(() => localStorage.setItem('wormage.netScenario.v1', JSON.stringify('normal')));
   await page.getByTestId('btn-send-report').click();
   await expect(page.getByTestId('report-sent')).toBeVisible();
 });
