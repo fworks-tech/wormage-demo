@@ -1102,13 +1102,8 @@ export class GameEngine {
 
     if (nextY > WATER_Y) {
       worm.x = chestX;
-      worm.y = WATER_Y;
-      worm.rope = null;
-      worm.hp = 0;
-      worm.alive = false;
-      this.events.push({ type: 'splash', x: worm.x, y: WATER_Y });
-      this.events.push({ type: 'death', x: worm.x, y: worm.y, color: this.teams[worm.teamId].color });
-      this.checkWipeout();
+      worm.y = nextY;
+      this.drown(worm);
       return;
     }
 
@@ -1243,12 +1238,7 @@ export class GameEngine {
         }
         if (stepDelta > 0) worm.fallDistance += stepDelta;
         if (worm.y > WATER_Y) {
-          worm.y = WATER_Y;
-          worm.hp = 0;
-          worm.alive = false;
-          this.events.push({ type: 'splash', x: worm.x, y: WATER_Y });
-          this.events.push({ type: 'death', x: worm.x, y: worm.y, color: this.teams[worm.teamId].color });
-          this.checkWipeout();
+          this.drown(worm);
           return;
         }
       }
@@ -1263,6 +1253,20 @@ export class GameEngine {
         worm.y = ground;
       }
     }
+    // Walking and rope swings can reach the water without the falling branch
+    // seeing it; the water is the one place a worm dies on contact.
+    if (worm.y >= WATER_Y) this.drown(worm);
+  }
+
+  private drown(worm: Worm): void {
+    if (!worm.alive) return;
+    worm.y = WATER_Y;
+    worm.rope = null;
+    worm.hp = 0;
+    worm.alive = false;
+    this.events.push({ type: 'splash', x: worm.x, y: WATER_Y });
+    this.events.push({ type: 'death', x: worm.x, y: worm.y, color: this.teams[worm.teamId].color });
+    this.checkWipeout();
   }
 
   private applyFallDamage(worm: Worm): void {

@@ -79,26 +79,33 @@ export class Terrain {
       const t = x / WORLD_W;
       const rise = Math.sin(t * Math.PI) * 42;
       const canyonNotch = theme === 'canyon' ? Math.sin(t * Math.PI * 3) * 60 : 0;
-      return (
+      const raw =
         baseHeight +
         big(t) * 110 * boost +
         medium(t) * 46 * boost +
         small(t) * 14 -
         rise +
         Math.abs(x - WORLD_W / 2) * 0.03 +
-        canyonNotch
-      );
+        canyonNotch;
+      // Clamping here (not only in the mask) keeps the drawn surface on the
+      // collision surface: at the map edges the raw height passes the water
+      // line, and the painter used to draw the island below the sand the worm
+      // stands on.
+      return Math.max(140, Math.min(WATER_Y - 26, raw));
     };
 
+    // Nothing below the water line is solid: the painter erases that area, so
+    // a solid seabed let worms stand on ground that was never drawn (and never
+    // drown) after a blast opened a path to it.
+    const waterRow = Math.floor(WATER_Y / CELL);
     for (let cx = 0; cx < COLS; cx += 1) {
       const x = cx * CELL + CELL / 2;
-      const top = Math.max(140, Math.min(WATER_Y - 26, this.surfaceAt(x)));
-      const startRow = Math.floor(top / CELL);
-      for (let cy = startRow; cy < ROWS; cy += 1) this.mask[cy * COLS + cx] = 1;
+      const startRow = Math.floor(this.surfaceAt(x) / CELL);
+      for (let cy = startRow; cy < waterRow; cy += 1) this.mask[cy * COLS + cx] = 1;
     }
 
     for (const s of this.shelves) {
-      for (let cy = 0; cy < ROWS; cy += 1) {
+      for (let cy = 0; cy < waterRow; cy += 1) {
         const y = cy * CELL + CELL / 2;
         for (let cx = 0; cx < COLS; cx += 1) {
           const x = cx * CELL + CELL / 2;
