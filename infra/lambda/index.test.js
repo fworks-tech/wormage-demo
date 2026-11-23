@@ -220,6 +220,51 @@ test('submitAction is idempotent on clientActionId', async () => {
   assert.equal(b.duplicate, true);
 });
 
+test('submitAction persists the engine snapshot and returns it', async () => {
+  const ddb = makeMockDdb();
+  const c = await L.postOnlineMatch(ev('POST', '/api/matches/online', {}, { playerId: 'p1', playerName: 'Alice', settings: { seed: 777, wormsPerTeam: 2 } }), ddb);
+  const code = JSON.parse(c.body).code;
+  await L.joinOnlineMatch(ev('POST', `/api/matches/online/${code}/join`, {}, { playerId: 'p2', playerName: 'Bob' }), code, ddb);
+  const r = await L.submitAction(ev('POST', `/api/matches/online/${code}/action`, {}, { playerId: 'p1', action: { type: 'endTurn' }, tick: 0 }), code, ddb);
+  assert.equal(r.statusCode, 200);
+  const b = JSON.parse(r.body);
+  assert.equal(b.match.activeTeam, 1);
+  assert.equal(b.match.turn, 2);
+  assert.equal(b.match.snapshotTick, 0);
+  assert.ok(b.match.snapshot);
+  assert.equal(b.match.snapshot.phase, 'aim');
+});
+
+test('submitAction rejects an engine-illegal action without mutating the match', async () => {
+  const ddb = makeMockDdb();
+  const c = await L.postOnlineMatch(ev('POST', '/api/matches/online', {}, { playerId: 'p1', playerName: 'Alice' }), ddb);
+  const code = JSON.parse(c.body).code;
+  await L.joinOnlineMatch(ev('POST', `/api/matches/online/${code}/join`, {}, { playerId: 'p2', playerName: 'Bob' }), code, ddb);
+
+  const r = await L.submitAction(ev('POST', `/api/matches/online/${code}/action`, {}, { playerId: 'p1', action: { type: 'weapon', id: 'no-such-weapon' }, tick: 0 }), code, ddb);
+  assert.equal(r.statusCode, 409);
+  const meta = await ddb.send(new GetCommand({ TableName: 't', Key: { pk: `ONLINE#${code}`, sk: 'META' } }));
+  assert.equal(meta.Item.snapshot, undefined);
+  assert.equal(meta.Item.weapon, undefined);
+  const log = await ddb.send(new GetCommand({ TableName: 't', Key: { pk: `ACTION#${code}`, sk: 'LOG' } }));
+  assert.equal(log.Item, undefined);
+});
+
+test('replayOnlineMatch returns a deterministic snapshot', async () => {
+  const ddb = makeMockDdb();
+  const c = await L.postOnlineMatch(ev('POST', '/api/matches/online', {}, { playerId: 'p1', playerName: 'Alice', settings: { seed: 777, wormsPerTeam: 2 } }), ddb);
+  const code = JSON.parse(c.body).code;
+  await L.joinOnlineMatch(ev('POST', `/api/matches/online/${code}/join`, {}, { playerId: 'p2', playerName: 'Bob' }), code, ddb);
+  await L.submitAction(ev('POST', `/api/matches/online/${code}/action`, {}, { playerId: 'p1', action: { type: 'endTurn' }, tick: 0 }), code, ddb);
+
+  const first = await L.replayOnlineMatch(code, ddb);
+  const second = await L.replayOnlineMatch(code, ddb);
+  assert.ok(first.snapshot);
+  assert.equal(first.tick, second.tick);
+  assert.deepEqual(first.snapshot, second.snapshot);
+  assert.equal(first.engineVersion, 1);
+});
+
 test('forfeitOnlineMatch ends match with opponent as winner', async () => {
   const ddb = makeMockDdb();
   const c = await L.postOnlineMatch(ev('POST', '/api/matches/online', {}, { playerId: 'p1', playerName: 'Alice' }), ddb);

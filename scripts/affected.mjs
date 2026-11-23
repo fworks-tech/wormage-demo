@@ -15,6 +15,7 @@ const GAME_UNIT = [
   'tests/unit/ragdoll.test.ts',
   'tests/unit/debugLog.test.ts',
   'tests/unit/jump.test.ts',
+  'tests/unit/lambdaReplay.test.ts',
   'tests/unit/lootPhysics.test.ts',
   'tests/unit/parity.test.ts',
   'tests/unit/replay.test.ts',
@@ -97,9 +98,10 @@ const RULES = [
   },
   {
     dirs: ['src/api/', 'src/mocks/', 'src/state/'],
-    unit: ['tests/unit/mockServer.test.ts', 'tests/unit/onlineMatch.test.ts'],
+    unit: ['tests/unit/mockServer.test.ts', 'tests/unit/onlineMatch.test.ts', 'tests/unit/lambdaReplay.test.ts'],
     e2e: ['tests/data.spec.ts', 'tests/menu.spec.ts'],
   },
+  { dirs: ['infra/'], unit: ['tests/unit/lambdaReplay.test.ts'], e2e: [] },
   // A new screen or component still runs every spec: over-selecting is cheap.
   { dirs: ['src/ui/'], unit: [], e2e: UI_E2E },
   { dirs: ['docs/'], unit: [], e2e: [] },

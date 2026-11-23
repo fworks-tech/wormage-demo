@@ -12,3 +12,4 @@ test-results
 infra/cdk.out
 infra/dist
 infra/node_modules
+infra/lambda/engine.cjs

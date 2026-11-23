@@ -137,6 +137,8 @@ Both paths share `src/api/types.ts` (contracts) and `src/api/mockServer.ts` (fix
 
 Match registration is idempotent on `clientMatchId`: a retry after a timeout returns the existing record, so the player never appears twice. The result screen keeps a retry action while the request is failing.
 
+Online matches keep the action log as the source of truth. The Lambda bundles the same engine (`infra/lambda/engine.cjs`) and replays the log to the submitted action tick, persists the resulting snapshot on the match item and returns it to both players. `GET /api/matches/online/:code/replay` runs the full-match replay; see [ADR 0007](adr/0007-lambda-engine-bundle.md).
+
 ## 9. Persistence
 
 `src/state/storage.ts` wraps localStorage with safe fallbacks (private mode, opaque iframe):
