@@ -99,6 +99,9 @@ export class WormageStack extends cdk.Stack {
         DEBUG_LOG_MAX_PAYLOAD_BYTES: debugLogsMaxPayloadBytes.stringValue,
         DEBUG_LOG_PREFIX: debugLogsPrefix.stringValue,
         DEBUG_LOG_ENV: 'prod',
+        BUG_REPORTS_ENABLED: 'true',
+        BUG_REPORT_MAX_BYTES: '4000000',
+        BUG_REPORT_PREFIX: 'bug-reports',
       },
       timeout: cdk.Duration.seconds(10),
       memorySize: 256,
@@ -144,8 +147,13 @@ export class WormageStack extends cdk.Stack {
       methods: [apigwv2.HttpMethod.POST],
       integration,
     });
+    this.httpApi.addRoutes({
+      path: '/api/bug-reports',
+      methods: [apigwv2.HttpMethod.POST],
+      integration,
+    });
 
-    // Basic throttle on the default stage to protect POST /api/matches.
+    // Default-stage throttle covers every route, including POST /api/bug-reports.
     const cfnStage = this.httpApi.defaultStage?.node.defaultChild as apigwv2.CfnStage | undefined;
     if (cfnStage) {
       cfnStage.defaultRouteSettings = {

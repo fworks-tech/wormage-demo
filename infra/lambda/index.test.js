@@ -2,6 +2,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { GetCommand, PutCommand, QueryCommand, UpdateCommand } = require('@aws-sdk/lib-dynamodb');
+const { PutObjectCommand, DeleteObjectCommand } = require('@aws-sdk/client-s3');
 const L = require('./index.js');
 
 function makeMockDdb() {
@@ -372,11 +373,16 @@ function makeMockS3() {
     store,
     async send(cmd) {
       const input = cmd.input || cmd;
-      if (cmd && cmd.constructor && cmd.constructor.name === 'PutObjectCommand') {
+      const name = cmd && cmd.constructor && cmd.constructor.name;
+      if (name === 'PutObjectCommand') {
         store.set(input.Key, { Bucket: input.Bucket, Body: input.Body, ContentType: input.ContentType });
         return {};
       }
-      throw new Error('Unknown command: ' + (cmd && cmd.constructor && cmd.constructor.name));
+      if (name === 'DeleteObjectCommand') {
+        store.delete(input.Key);
+        return {};
+      }
+      throw new Error('Unknown command: ' + name);
     },
   };
 }
@@ -435,6 +441,167 @@ test('postDebugLog respects disabled flag', async () => {
   const b = JSON.parse(r.body);
   assert.equal(b.stored, false);
   process.env.DEBUG_LOGS_ENABLED = 'true';
+});
+
+const TINY_PNG = Buffer.from('89504e470d0a1a0a0000000d49484452', 'hex').toString('base64');
+
+function bugReportBody(overrides = {}) {
+  return {
+    schemaVersion: 1,
+    reportId: 'report-1',
+    sessionId: 's1',
+    matchId: 'm1',
+    note: 'worm below the sea',
+    engine: { seed: 4242, config: { seed: 4242 }, tick: 12, snapshot: { phase: 'aim' } },
+    debug: { entries: [], snapshots: [] },
+    actionLog: [],
+    screenshot: { mime: 'image/png', width: 1280, height: 720, bytes: 8, method: 'tab', data: TINY_PNG },
+    ...overrides,
+  };
+}
+
+test('postBugReport stores metadata and the png in S3', async () => {
+  process.env.DEBUG_LOG_BUCKET = 'bucket';
+  process.env.BUG_REPORTS_ENABLED = 'true';
+  const s3 = makeMockS3();
+  const r = await L.postBugReport(ev('POST', '/api/bug-reports', {}, bugReportBody()), s3);
+
+  assert.equal(r.statusCode, 201);
+  const b = JSON.parse(r.body);
+  assert.equal(b.stored, true);
+  assert.equal(b.reportId, 'report-1');
+  assert.equal(s3.store.size, 2);
+  const pngKey = [...s3.store.keys()].find((key) => key.endsWith('.png'));
+  const jsonKey = [...s3.store.keys()].find((key) => key.endsWith('.json'));
+  assert.ok(pngKey.startsWith('bug-reports/prod/'));
+  assert.ok(jsonKey.startsWith('bug-reports/prod/'));
+  assert.equal(s3.store.get(pngKey).ContentType, 'image/png');
+  const stored = JSON.parse(s3.store.get(jsonKey).Body);
+  assert.equal(stored.note, 'worm below the sea');
+  assert.equal(stored.screenshot.key, pngKey);
+  assert.equal(stored.screenshot.bytes, 16);
+  assert.equal(stored.screenshot.data, undefined);
+});
+
+test('postBugReport keeps untrusted report ids inside the prefix', async () => {
+  process.env.DEBUG_LOG_BUCKET = 'bucket';
+  process.env.BUG_REPORTS_ENABLED = 'true';
+  const s3 = makeMockS3();
+  const r = await L.postBugReport(ev('POST', '/api/bug-reports', {}, bugReportBody({ reportId: '../../evil' })), s3);
+
+  assert.equal(r.statusCode, 201);
+  for (const key of s3.store.keys()) {
+    assert.ok(key.startsWith('bug-reports/'));
+    assert.ok(!key.includes('..'));
+  }
+});
+
+test('postBugReport validates the screenshot mime and magic bytes', async () => {
+  process.env.DEBUG_LOG_BUCKET = 'bucket';
+  process.env.BUG_REPORTS_ENABLED = 'true';
+  const s3 = makeMockS3();
+
+  const gif = await L.postBugReport(ev('POST', '/api/bug-reports', {}, bugReportBody({
+    screenshot: { mime: 'image/gif', width: 10, height: 10, data: TINY_PNG },
+  })), s3);
+  assert.equal(gif.statusCode, 400);
+
+  const magic = await L.postBugReport(ev('POST', '/api/bug-reports', {}, bugReportBody({
+    screenshot: { mime: 'image/png', width: 10, height: 10, data: Buffer.from('not a png').toString('base64') },
+  })), s3);
+  assert.equal(magic.statusCode, 400);
+  assert.equal(s3.store.size, 0);
+});
+
+test('postBugReport rejects oversized screenshots and bodies', async () => {
+  process.env.DEBUG_LOG_BUCKET = 'bucket';
+  process.env.BUG_REPORTS_ENABLED = 'true';
+  const s3 = makeMockS3();
+
+  const pixels = await L.postBugReport(ev('POST', '/api/bug-reports', {}, bugReportBody({
+    screenshot: { mime: 'image/png', width: 20000, height: 20000, data: TINY_PNG },
+  })), s3);
+  assert.equal(pixels.statusCode, 413);
+
+  const big = await L.postBugReport(ev('POST', '/api/bug-reports', {}, bugReportBody({
+    engine: { seed: 1, config: { seed: 1 }, snapshot: { blob: 'x'.repeat(5_100_000) } },
+    screenshot: null,
+  })), s3);
+  assert.equal(big.statusCode, 413);
+});
+
+test('postBugReport accepts a report without a screenshot', async () => {
+  process.env.DEBUG_LOG_BUCKET = 'bucket';
+  process.env.BUG_REPORTS_ENABLED = 'true';
+  const s3 = makeMockS3();
+  const r = await L.postBugReport(ev('POST', '/api/bug-reports', {}, bugReportBody({ screenshot: null })), s3);
+
+  assert.equal(r.statusCode, 201);
+  assert.equal(s3.store.size, 1);
+  const stored = JSON.parse([...s3.store.values()][0].Body);
+  assert.equal(stored.screenshot, null);
+});
+
+test('postBugReport respects the disabled flag', async () => {
+  process.env.BUG_REPORTS_ENABLED = 'false';
+  const s3 = makeMockS3();
+  const r = await L.postBugReport(ev('POST', '/api/bug-reports', {}, bugReportBody()), s3);
+  assert.equal(r.statusCode, 202);
+  assert.equal(JSON.parse(r.body).stored, false);
+  process.env.BUG_REPORTS_ENABLED = 'true';
+});
+
+test('postBugReport requires screenshot width and height', async () => {
+  process.env.DEBUG_LOG_BUCKET = 'bucket';
+  process.env.BUG_REPORTS_ENABLED = 'true';
+  const s3 = makeMockS3();
+
+  const missingWidth = await L.postBugReport(ev('POST', '/api/bug-reports', {}, bugReportBody({
+    screenshot: { mime: 'image/png', height: 10, data: TINY_PNG },
+  })), s3);
+  assert.equal(missingWidth.statusCode, 400);
+
+  const missingHeight = await L.postBugReport(ev('POST', '/api/bug-reports', {}, bugReportBody({
+    screenshot: { mime: 'image/png', width: 10, data: TINY_PNG },
+  })), s3);
+  assert.equal(missingHeight.statusCode, 400);
+
+  const missingBoth = await L.postBugReport(ev('POST', '/api/bug-reports', {}, bugReportBody({
+    screenshot: { mime: 'image/png', data: TINY_PNG },
+  })), s3);
+  assert.equal(missingBoth.statusCode, 400);
+  assert.equal(s3.store.size, 0);
+});
+
+test('postBugReport deletes the screenshot if metadata write fails', async () => {
+  process.env.DEBUG_LOG_BUCKET = 'bucket';
+  process.env.BUG_REPORTS_ENABLED = 'true';
+  let puts = 0;
+  const store = new Map();
+  const s3 = {
+    store,
+    async send(cmd) {
+      const input = cmd.input || cmd;
+      const name = cmd && cmd.constructor && cmd.constructor.name;
+      if (name === 'PutObjectCommand') {
+        puts += 1;
+        if (puts === 2) throw new Error('s3 down');
+        store.set(input.Key, { Bucket: input.Bucket, Body: input.Body, ContentType: input.ContentType });
+        return {};
+      }
+      if (name === 'DeleteObjectCommand') {
+        store.delete(input.Key);
+        return {};
+      }
+      throw new Error('Unknown command: ' + name);
+    },
+  };
+
+  await assert.rejects(
+    () => L.postBugReport(ev('POST', '/api/bug-reports', {}, bugReportBody()), s3),
+    /s3 down/,
+  );
+  assert.equal(store.size, 0);
 });
 
 test('postOnlineMatch creates a match with a 6-char code and link', async () => {

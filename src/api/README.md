@@ -6,6 +6,8 @@
 | `mockServer.ts` | fixtures, pagination, ranking tie-break, idempotent writes, latency/failure scenarios, localStorage persistence |
 | `client.ts` | Axios instances, in-process adapter, `initApiLayer()` transport selection |
 | `queries.ts` | TanStack Query hooks: `useLeaderboard`, `useMatchHistory`, `useRegisterMatch`, query keys |
+| `debugLog.ts` | chunked `POST /api/debug-logs` uploads, serialized per engine |
+| `bugReport.ts` | bug-report payload, caps and `POST /api/bug-reports` upload |
 
 ## Transport selection
 
@@ -25,6 +27,9 @@ GET  /api/matches?playerId=player-abc&page=1&pageSize=8
 POST /api/matches   { clientMatchId, playerId, playerName, teamName,
                       score, durationSeconds, endReason,
                       turnSeconds, wind, difficulty, kills }
+POST /api/debug-logs   { sessionId, matchId, schemaVersion, entries, snapshots, flushId, chunk }
+POST /api/bug-reports  { reportId, sessionId, matchId, note, url, engine, debug, actionLog,
+                         screenshot: { mime, width, height, data } }
 ```
 
 - Ranking: best match per player for the requested ruleset, sorted by score desc, duration asc, `createdAt` asc. Deterministic by construction.

@@ -60,6 +60,7 @@ Seeds: `/demo?seed=4242` fixes terrain generation and AI jitter so combat tests 
 | `unit/bindings.test.ts` | defaults, Zod sanitize (corrupt/old schema/reserved codes), arrow aliases, duplicate swap, rejection classes, labels |
 | `unit/wind.test.ts` | wind tier thresholds and direction labels used by the HUD gauge |
 | `unit/storage.test.ts` | empty, corrupt and old-schema localStorage fall back safely |
+| `unit/bugReport.test.ts` | report payload (seed, URL, viewport, caps), online action log, upload success/error |
 | `menu.spec.ts` | root redirect, demo/project routes, menu, tabs, options validation/persistence, empty and error states, ruleset-scoped board |
 | `fullscreen.spec.ts` | fullscreen after Start and Play Again, a deliberate exit plus pause-dialog re-entry, landscape lock/unlock on touch, `/project` stays windowed |
 | `pwa.spec.ts` | the manifest link and every icon are served on both routes |
@@ -70,6 +71,8 @@ Seeds: `/demo?seed=4242` fixes terrain generation and AI jitter so combat tests 
 | `rope.spec.ts` | HUD rope card anchors, reels in, and Jump lets go |
 | `data.spec.ts` | result screen, match registration, history/ranking visibility, persistence after refresh |
 | `settings.spec.ts` | Settings/Controls dialogs, persistence, rebind/swap/reset/cancel, reserved-key rejection, arrow aliases, paused settings apply to the next match, Restart Match, focus trap and restore, focus pulled back from behind the dialog, Escape/backdrop/fullscreen close rules |
+| `bug-report.spec.ts` | pause-card report, real frame preview without the menu, payload in mock storage, denied/unsupported/wrong-surface fallback, failed send retry |
+| `bug-report-real-capture.spec.ts` | opt-in real tab capture (`REAL_CAPTURE=1 npx playwright test tests/bug-report-real-capture.spec.ts`) |
 
 Each Playwright spec runs twice, once per project (`desktop` / `mobile`). There are no visual baselines yet; the suite asserts engine state through the instrumentation hook instead. Visual baselines are planned for M1.
 

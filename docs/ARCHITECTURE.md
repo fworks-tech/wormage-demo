@@ -156,6 +156,7 @@ Online matches keep the action log as the source of truth. The Lambda bundles th
 - Vitest runs browserless unit tests in `tests/unit/`: the engine in Node, ballistics/AI helpers and `mockServer` rules.
 - Playwright drives real clicks/keys and asserts engine state through `window.__WORMAGE__` (documented as instrumentation, not a gameplay shortcut).
 - Debug logging: the engine keeps a bounded in-memory log (`debugLog`) and turn snapshots (`debugSnapshots`), exposed through `window.__WORMAGE__` as `debugLog()`, `clearDebugLog()` and `flushDebugLog()`. Flushes are sent to `POST /api/debug-logs` and stored in S3 with a 7-day lifecycle; CloudWatch Logs carries the structured operational trail.
+- Bug reports: the pause card captures the current tab with `getDisplayMedia`, hides the pause overlay for the recorded frames, and posts the URL, seed, match config, snapshot, action log and debug tail to `POST /api/bug-reports`. The PNG is the real compositor output (game + HUD, no menu); browsers without tab capture send the report without an image. `bug-reports/<env>/<yyyy>/<mm>/<dd>/<reportId>.{json,png}` shares the debug-log bucket and lifecycle.
 - Deterministic seeds are passed via `?seed=123` (ruleset snapshot) so terrain and AI jitter are reproducible.
 - Visual baselines are planned for M1; the suite currently asserts state, not pixels.
 - The mock layer supports deterministic latency/failure scenarios, which is how the loading/empty/error and duplicate-write tests are written.

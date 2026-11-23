@@ -7,13 +7,17 @@ import { AIM, FIXED_DT } from '../game/config';
 import type { GameSettings, GameSnapshot, WeaponId } from '../game/types';
 import { MOVEMENT_ALIASES, type Bindings, type MovementAliasAction } from '../state/bindings';
 import type { SessionResult } from '../types';
+import { BugReportDialog } from './BugReportDialog';
 import { ControlsDialog } from './ControlsDialog';
 import { Hud } from './Hud';
 import { SettingsDialog } from './SettingsDialog';
+import type { GameScreenshot } from '../api/types';
+import { captureGameTab } from './screenCapture';
 import { enterDemoFullscreen, useFullscreen } from './fullscreen';
 import { useDialogFocus } from './useDialogFocus';
 import { useOnlineMatch, useSubmitOnlineAction, useForfeitOnlineMatch } from '../api/queries';
 import type { OnlineMatch } from '../api/types';
+import { sendBugReport } from '../api/bugReport';
 import { loadOnlineSession } from '../state/storage';
 
 /** Screen-space slop so finger jitter on a tap is not treated as a shot. */
@@ -21,7 +25,7 @@ const DRAG_SLOP_PX = 8;
 
 const MOVEMENT_ALIAS_CODES = new Set<string>(Object.values(MOVEMENT_ALIASES));
 
-type PausePanel = 'settings' | 'controls' | null;
+type PausePanel = 'settings' | 'controls' | 'report' | null;
 
 interface GameViewProps {
   settings: GameSettings;
@@ -67,6 +71,7 @@ export function GameView({
   const bindingsRef = useRef(bindings);
   bindingsRef.current = bindings;
   const pausePanelRef = useRef<PausePanel>(null);
+  const capturingRef = useRef(false);
   // HUD pointer input lives outside the keyboard set; the fixed-step loop reads it.
   const hudMoveRef = useRef<-1 | 0 | 1>(0);
   const lastUiPush = useRef(0);
@@ -80,13 +85,14 @@ export function GameView({
 
   const [snapshot, setSnapshot] = useState<GameSnapshot | null>(null);
   const [paused, setPaused] = useState(false);
+  const [capturing, setCapturing] = useState(false);
   const [handoff, setHandoff] = useState<number | null>(null);
   const [pausePanel, setPausePanel] = useState<PausePanel>(null);
   pausePanelRef.current = pausePanel;
   // The card unmounts while a panel is open; its button takes focus back afterwards.
   const lastPanel = useRef<PausePanel>(null);
   if (pausePanel) lastPanel.current = pausePanel;
-  const dialogRef = useDialogFocus<HTMLDivElement>(paused, pausePanel ?? 'root');
+  const dialogRef = useDialogFocus<HTMLDivElement>(paused && !capturing, pausePanel ?? 'root');
   const [ready, setReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const onlineMatch = useOnlineMatch(online ? (onlineCode ?? null) : null, online);
@@ -127,6 +133,34 @@ export function GameView({
     }
     hudMoveRef.current = 0;
   }, []);
+
+  const captureReport = useCallback(async () => {
+    if (capturingRef.current) throw new Error('Capture already in progress');
+    capturingRef.current = true;
+    setCapturing(true);
+    try {
+      // getDisplayMedia needs the click's user activation. The overlay hides on
+      // the next commit, before the stream delivers any frame.
+      return await captureGameTab();
+    } finally {
+      capturingRef.current = false;
+      setCapturing(false);
+    }
+  }, []);
+
+  const sendReport = useCallback(
+    async ({ note, screenshot }: { note: string; screenshot: GameScreenshot | null }) => {
+      const engine = engineRef.current;
+      if (!engine) throw new Error('No active match');
+      return sendBugReport({
+        engine,
+        note,
+        screenshot,
+        online: online && onlineCode && playerId ? { code: onlineCode, playerId } : null,
+      });
+    },
+    [online, onlineCode, playerId],
+  );
 
   useEffect(() => {
     let disposed = false;
@@ -354,7 +388,11 @@ export function GameView({
     };
     void attach();
 
-    const pauseAuto = () => setPause(true);
+    const pauseAuto = () => {
+      // Keep the current pause panel alive: the screen-capture picker blurs the
+      // window, and closing the report card there would lose the capture.
+      if (!pausedRef.current) setPause(true);
+    };
     const onVisibility = () => {
       if (document.hidden) {
         pauseAuto();
@@ -400,6 +438,7 @@ export function GameView({
 
   useEffect(() => {
     const down = (e: KeyboardEvent) => {
+      if (capturingRef.current) return;
       if (handoffRef.current !== null) return;
       if (online && !isMyTurnRef.current) return;
       const target = e.target as HTMLElement | null;
@@ -477,6 +516,7 @@ export function GameView({
     };
 
     const up = (e: KeyboardEvent) => {
+      if (capturingRef.current) return;
       keysRef.current.delete(e.code);
       if (e.code === bindingsRef.current.fire && engineRef.current) { if (online) engineRef.current.record({ type: 'releaseCharge' }); else engineRef.current.releaseCharge(); }
     };
@@ -641,17 +681,21 @@ export function GameView({
           onChargeCancel={() => engineRef.current?.cancelCharge()}
           onSelectWeapon={(weapon) => { const e = engineRef.current; if (!e) return; if (online) e.record({ type: 'weapon', id: weapon }); else e.selectWeapon(weapon); }}
           onEndTurn={() => { const e = engineRef.current; if (!e) return; if (online) e.record({ type: 'endTurn' }); else e.endTurn(); }}
-          onPause={() => setPause(true)}
+          onPause={() => {
+            // The capture hides the overlay; the HUD is clickable during that
+            // window and must not close the report panel.
+            if (!capturingRef.current) setPause(true);
+          }}
         />
       )}
 
       {paused && (
         <div
           ref={dialogRef}
-          className="overlay pause-overlay"
+          className={`overlay pause-overlay${capturing ? ' pause-overlay--capturing' : ''}`}
           role="dialog"
           aria-modal="true"
-          aria-label={pausePanel === 'settings' ? 'Settings' : pausePanel === 'controls' ? 'Controls' : 'Game paused'}
+          aria-label={pausePanel === 'settings' ? 'Settings' : pausePanel === 'controls' ? 'Controls' : pausePanel === 'report' ? 'Report a bug' : 'Game paused'}
           onClick={(event) => {
             if (event.target === event.currentTarget && pausePanel) setPausePanel(null);
           }}
@@ -660,6 +704,8 @@ export function GameView({
             <SettingsDialog settings={settings} onSave={onSaveSettings} onClose={() => setPausePanel(null)} />
           ) : pausePanel === 'controls' ? (
             <ControlsDialog bindings={bindings} onSave={onSaveBindings} onClose={() => setPausePanel(null)} />
+          ) : pausePanel === 'report' ? (
+            <BugReportDialog onCapture={captureReport} onSend={sendReport} onClose={() => setPausePanel(null)} />
           ) : (
             <div className="overlay-card">
               <p className="eyebrow">Truce</p>
@@ -686,6 +732,15 @@ export function GameView({
                   onClick={() => setPausePanel('settings')}
                 >
                   Settings
+                </button>
+                <button
+                  type="button"
+                  className="ghost-btn"
+                  data-testid="btn-report"
+                  autoFocus={lastPanel.current === 'report'}
+                  onClick={() => setPausePanel('report')}
+                >
+                  Report bug
                 </button>
                 {fullscreen.supported && !fullscreen.active && (
                   <button
