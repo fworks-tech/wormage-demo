@@ -326,7 +326,8 @@ function validateBugReportBody(body) {
     const shot = body.screenshot;
     if (typeof shot !== 'object' || Array.isArray(shot)) return 'invalid screenshot';
     if (shot.mime !== 'image/png' && shot.mime !== 'image/jpeg') return 'invalid screenshot mime';
-    if (typeof shot.data !== 'string' || shot.data.length === 0 || shot.data.length > 4500000) return 'invalid screenshot data';
+    // 2.6 MB raw = ~3.47M base64 chars.
+    if (typeof shot.data !== 'string' || shot.data.length === 0 || shot.data.length > 3500000) return 'invalid screenshot data';
     if (shot.width !== undefined && !isNum(shot.width, 1, 20000)) return 'invalid screenshot width';
     if (shot.height !== undefined && !isNum(shot.height, 1, 20000)) return 'invalid screenshot height';
   }

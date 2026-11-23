@@ -153,7 +153,7 @@ export class WormageStack extends cdk.Stack {
       integration,
     });
 
-    // Basic throttle on the default stage to protect POST /api/matches.
+    // Default-stage throttle covers every route, including POST /api/bug-reports.
     const cfnStage = this.httpApi.defaultStage?.node.defaultChild as apigwv2.CfnStage | undefined;
     if (cfnStage) {
       cfnStage.defaultRouteSettings = {
