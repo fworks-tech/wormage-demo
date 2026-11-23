@@ -466,7 +466,7 @@ export class GameEngine {
 
   aimBy(delta: number): void {
     const worm = this.activeWorm;
-    if (!worm || this.phase !== 'aim') return;
+    if (!worm || !worm.alive || this.phase !== 'aim') return;
     worm.aimAngle = clampAngle(worm.aimAngle + delta);
     worm.facing = Math.cos(worm.aimAngle) >= 0 ? 1 : -1;
   }
@@ -515,14 +515,15 @@ export class GameEngine {
 
   setAimFromPoint(x: number, y: number): void {
     const worm = this.activeWorm;
-    if (!worm || this.phase !== 'aim') return;
+    if (!worm || !worm.alive || this.phase !== 'aim') return;
     const angle = Math.atan2(y - (worm.y - 14), x - worm.x);
     worm.aimAngle = clampAngle(angle);
     worm.facing = Math.cos(worm.aimAngle) >= 0 ? 1 : -1;
   }
 
   startCharge(): void {
-    if (this.phase !== 'aim' || this.teams[this.activeTeam].isAi || this.hasFired || this.activeWorm?.rope) return;
+    const worm = this.activeWorm;
+    if (!worm?.alive || this.phase !== 'aim' || this.teams[this.activeTeam].isAi || this.hasFired || worm.rope) return;
     this.charging = true;
     this.power = Math.max(this.power, 0);
   }
@@ -577,7 +578,7 @@ export class GameEngine {
 
   fire(): void {
     const worm = this.activeWorm;
-    if (!worm || this.phase !== 'aim' || this.hasFired || worm.launched) return;
+    if (!worm || !worm.alive || this.phase !== 'aim' || this.hasFired || worm.launched) return;
     if (worm.rope) this.releaseRope();
     const team = this.teams[this.activeTeam];
     const weapon = WEAPONS[this.weapon];
@@ -1659,6 +1660,7 @@ export class GameEngine {
     if (this.teams[this.activeTeam].isAi) this.updateAi(dt);
 
     for (const t of this.teams) for (const w of t.worms) this.stepWorm(w, dt);
+    if (this.phase === 'aim' && this.activeWorm && !this.activeWorm.alive) this.finishTurn();
     this.updateLoot(dt);
 
     // Only aim once the CPU stops: the animation is the tell that it is about to fire.
