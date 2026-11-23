@@ -75,6 +75,10 @@ Destruction (`Terrain.carve`) zeroes the mask circle, then fires `onCarve`. The 
 - Fall damage starts above 150 px and costs 0.16 HP per extra pixel.
 - A team loses when every worm is dead; the match ends for the last surviving team. Water kills instantly.
 
+### Mobs
+
+Mobs are hazards, not a faction. `hostilePhase` selects targets only from `teams[*].worms`, so a mob never attacks another mob or itself. They spawn in a central band, at least 48 px apart and clear of worm spawns and mines, and they do not arm mines (only worms do). Blast damage to mobs uses the same `blastFalloff` as worms, so one bazooka hit leaves a full-health mob alive; a chained mine can still finish it. The engine resolves hostile movement once per turn; the renderer interpolates each mob toward its new position at `mob.speed` so the walk is visible instead of a teleport.
+
 ### Turn state machine
 
 ```

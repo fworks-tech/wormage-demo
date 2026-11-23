@@ -222,9 +222,9 @@ describe('mob layout', () => {
   test('spawns four times the team size away from worms and mines', () => {
     const engine = new GameEngine({ turnSeconds: 30, wind: 'light', difficulty: 'veteran', seed: 777, wormsPerTeam: 3 });
     expect(engine.mobs.length).toBe(12);
+    const center = 3840 / 2;
     for (const m of engine.mobs) {
-      expect(m.x).toBeGreaterThanOrEqual(60);
-      expect(m.x).toBeLessThanOrEqual(3840 - 60);
+      expect(Math.abs(m.x - center)).toBeLessThanOrEqual(600);
     }
     for (let i = 0; i < engine.mobs.length; i += 1) {
       for (let j = i + 1; j < engine.mobs.length; j += 1) {
@@ -268,5 +268,15 @@ describe('mob combat', () => {
     engine.endTurn();
 
     expect(engine.mobs.map((mob) => mob.hp)).toEqual(before);
+  });
+
+  test('mobs do not arm mines', () => {
+    const engine = new GameEngine(config());
+    const mob = engine.mobs[0];
+    engine.loot.push({ id: 9999, x: mob.x, y: mob.y, vx: 0, vy: 0, kind: 'mine', armed: false, fuse: 1.5, ammoGrant: 0 });
+
+    (engine as any).updateLoot(DT);
+
+    expect(engine.loot.find((item) => item.id === 9999)?.armed).toBe(false);
   });
 });

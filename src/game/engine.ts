@@ -804,7 +804,9 @@ export class GameEngine {
         if (isClear(cand)) { x = cand; break; }
       }
       if (!isClear(x)) {
-        for (let candidate = 60; candidate <= WORLD_W - 60; candidate += 48) {
+        // Keep the fallback inside the same central band; scanning the whole
+        // world can scatter a mob far from the encounter.
+        for (let candidate = center - 600; candidate <= center + 600; candidate += 48) {
           if (isClear(candidate)) { x = candidate; break; }
         }
       }
