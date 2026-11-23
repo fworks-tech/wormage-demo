@@ -7,7 +7,7 @@ const { post } = vi.hoisted(() => ({ post: vi.fn() }));
 
 vi.mock('../../src/api/client', () => ({ api: { post } }));
 
-import { buildBugReport, sendBugReport } from '../../src/api/bugReport';
+import { BugReportUnavailableError, ReportTooLargeError, buildBugReport, sendBugReport } from '../../src/api/bugReport';
 
 const config = (overrides: Partial<MatchConfig> = {}): MatchConfig => ({
   turnSeconds: 30,
@@ -150,5 +150,18 @@ describe('bug report payload', () => {
     expect(body.screenshot?.data).toBe('AAAA');
     expect(body.debug.snapshots).toHaveLength(0);
     expect(body.debug.entries.length).toBeLessThanOrEqual(200);
+  });
+
+  test('reports an oversized payload as too large', async () => {
+    const engine = new GameEngine(config());
+    const huge = { ...shot(), dataUrl: `data:image/png;base64,${'A'.repeat(4_200_000)}`, bytes: 3_150_000 };
+    await expect(sendBugReport({ engine, note: '', screenshot: huge })).rejects.toBeInstanceOf(ReportTooLargeError);
+    expect(post).not.toHaveBeenCalled();
+  });
+
+  test('treats a disabled endpoint as temporarily unavailable', async () => {
+    post.mockResolvedValue({ status: 202, data: { stored: false, reason: 'disabled' } });
+    const engine = new GameEngine(config());
+    await expect(sendBugReport({ engine, note: '', screenshot: null })).rejects.toBeInstanceOf(BugReportUnavailableError);
   });
 });

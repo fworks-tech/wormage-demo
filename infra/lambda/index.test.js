@@ -2,6 +2,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { GetCommand, PutCommand, QueryCommand, UpdateCommand } = require('@aws-sdk/lib-dynamodb');
+const { PutObjectCommand, DeleteObjectCommand } = require('@aws-sdk/client-s3');
 const L = require('./index.js');
 
 function makeMockDdb() {
@@ -372,11 +373,16 @@ function makeMockS3() {
     store,
     async send(cmd) {
       const input = cmd.input || cmd;
-      if (cmd && cmd.constructor && cmd.constructor.name === 'PutObjectCommand') {
+      const name = cmd && cmd.constructor && cmd.constructor.name;
+      if (name === 'PutObjectCommand') {
         store.set(input.Key, { Bucket: input.Bucket, Body: input.Body, ContentType: input.ContentType });
         return {};
       }
-      throw new Error('Unknown command: ' + (cmd && cmd.constructor && cmd.constructor.name));
+      if (name === 'DeleteObjectCommand') {
+        store.delete(input.Key);
+        return {};
+      }
+      throw new Error('Unknown command: ' + name);
     },
   };
 }
@@ -543,6 +549,59 @@ test('postBugReport respects the disabled flag', async () => {
   assert.equal(r.statusCode, 202);
   assert.equal(JSON.parse(r.body).stored, false);
   process.env.BUG_REPORTS_ENABLED = 'true';
+});
+
+test('postBugReport requires screenshot width and height', async () => {
+  process.env.DEBUG_LOG_BUCKET = 'bucket';
+  process.env.BUG_REPORTS_ENABLED = 'true';
+  const s3 = makeMockS3();
+
+  const missingWidth = await L.postBugReport(ev('POST', '/api/bug-reports', {}, bugReportBody({
+    screenshot: { mime: 'image/png', height: 10, data: TINY_PNG },
+  })), s3);
+  assert.equal(missingWidth.statusCode, 400);
+
+  const missingHeight = await L.postBugReport(ev('POST', '/api/bug-reports', {}, bugReportBody({
+    screenshot: { mime: 'image/png', width: 10, data: TINY_PNG },
+  })), s3);
+  assert.equal(missingHeight.statusCode, 400);
+
+  const missingBoth = await L.postBugReport(ev('POST', '/api/bug-reports', {}, bugReportBody({
+    screenshot: { mime: 'image/png', data: TINY_PNG },
+  })), s3);
+  assert.equal(missingBoth.statusCode, 400);
+  assert.equal(s3.store.size, 0);
+});
+
+test('postBugReport deletes the screenshot if metadata write fails', async () => {
+  process.env.DEBUG_LOG_BUCKET = 'bucket';
+  process.env.BUG_REPORTS_ENABLED = 'true';
+  let puts = 0;
+  const store = new Map();
+  const s3 = {
+    store,
+    async send(cmd) {
+      const input = cmd.input || cmd;
+      const name = cmd && cmd.constructor && cmd.constructor.name;
+      if (name === 'PutObjectCommand') {
+        puts += 1;
+        if (puts === 2) throw new Error('s3 down');
+        store.set(input.Key, { Bucket: input.Bucket, Body: input.Body, ContentType: input.ContentType });
+        return {};
+      }
+      if (name === 'DeleteObjectCommand') {
+        store.delete(input.Key);
+        return {};
+      }
+      throw new Error('Unknown command: ' + name);
+    },
+  };
+
+  await assert.rejects(
+    () => L.postBugReport(ev('POST', '/api/bug-reports', {}, bugReportBody()), s3),
+    /s3 down/,
+  );
+  assert.equal(store.size, 0);
 });
 
 test('postOnlineMatch creates a match with a 6-char code and link', async () => {

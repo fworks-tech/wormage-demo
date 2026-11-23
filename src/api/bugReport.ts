@@ -126,6 +126,20 @@ export function buildBugReport({
   };
 }
 
+export class ReportTooLargeError extends Error {
+  constructor() {
+    super('This report is too large to upload');
+    this.name = 'ReportTooLargeError';
+  }
+}
+
+export class BugReportUnavailableError extends Error {
+  constructor() {
+    super('Bug reporting is temporarily unavailable');
+    this.name = 'BugReportUnavailableError';
+  }
+}
+
 /** Drop optional context, never the screenshot, until the body fits. */
 function fitPayload(payload: BugReportPayload): void {
   if (byteSize(JSON.stringify(payload)) <= MAX_BODY_BYTES) return;
@@ -135,16 +149,22 @@ function fitPayload(payload: BugReportPayload): void {
   if (byteSize(JSON.stringify(payload)) <= MAX_BODY_BYTES) return;
   payload.actionLog = [];
   if (byteSize(JSON.stringify(payload)) <= MAX_BODY_BYTES) return;
-  throw new Error('This report is too large to upload');
+  throw new ReportTooLargeError();
 }
 
 export async function sendBugReport(options: BugReportOptions): Promise<string> {
   const payload = buildBugReport(options);
   fitPayload(payload);
   try {
-    const response = await api.post<{ reportId?: string }>('/api/bug-reports', payload, { timeout: 60_000 });
+    const response = await api.post<{ reportId?: string; stored?: boolean }>(
+      '/api/bug-reports',
+      payload,
+      { timeout: 60_000 },
+    );
+    if (response.data?.stored === false) throw new BugReportUnavailableError();
     return response.data?.reportId ?? payload.reportId;
-  } catch {
+  } catch (err) {
+    if (err instanceof ReportTooLargeError || err instanceof BugReportUnavailableError) throw err;
     throw new Error('The report could not be sent');
   }
 }

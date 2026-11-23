@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { BugReportUnavailableError, ReportTooLargeError } from '../api/bugReport';
 import type { GameScreenshot } from '../api/types';
 import { CaptureError } from './screenCapture';
 
@@ -51,8 +52,14 @@ export function BugReportDialog({ onCapture, onSend, onClose }: BugReportDialogP
     setError(null);
     try {
       setSentId(await onSend({ note, screenshot }));
-    } catch {
-      setError('The report could not be sent. Check your connection and try again.');
+    } catch (err) {
+      if (err instanceof ReportTooLargeError) {
+        setError('This report is too large to send. Try again without the screenshot.');
+      } else if (err instanceof BugReportUnavailableError) {
+        setError('Bug reporting is temporarily unavailable. Please try again later.');
+      } else {
+        setError('The report could not be sent. Check your connection and try again.');
+      }
     } finally {
       setBusy(null);
     }

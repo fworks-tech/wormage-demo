@@ -3,7 +3,7 @@
 const crypto = require('crypto');
 const { DynamoDBClient } = require('@aws-sdk/client-dynamodb');
 const { DynamoDBDocumentClient, GetCommand, PutCommand, QueryCommand, UpdateCommand } = require('@aws-sdk/lib-dynamodb');
-const { S3Client, PutObjectCommand } = require('@aws-sdk/client-s3');
+const { S3Client, PutObjectCommand, DeleteObjectCommand } = require('@aws-sdk/client-s3');
 const { GameEngine } = require('./engine.cjs');
 const { replayActionLog, ENGINE_VERSION } = require('./replay.js');
 
@@ -328,8 +328,8 @@ function validateBugReportBody(body) {
     if (shot.mime !== 'image/png' && shot.mime !== 'image/jpeg') return 'invalid screenshot mime';
     // 2.6 MB raw = ~3.47M base64 chars.
     if (typeof shot.data !== 'string' || shot.data.length === 0 || shot.data.length > 3500000) return 'invalid screenshot data';
-    if (shot.width !== undefined && !isNum(shot.width, 1, 20000)) return 'invalid screenshot width';
-    if (shot.height !== undefined && !isNum(shot.height, 1, 20000)) return 'invalid screenshot height';
+    if (!isNum(shot.width, 1, 20000)) return 'invalid screenshot width';
+    if (!isNum(shot.height, 1, 20000)) return 'invalid screenshot height';
   }
   return null;
 }
@@ -363,10 +363,8 @@ async function postBugReport(event, s3Client = s3) {
     screenshotBytes = decodeScreenshot(body.screenshot);
     if (!screenshotBytes) return json(400, { message: 'invalid screenshot data' });
     if (screenshotBytes.length > 2600000) return json(413, { message: 'screenshot too large' });
-    if (body.screenshot.width !== undefined && body.screenshot.height !== undefined) {
-      const pixels = body.screenshot.width * body.screenshot.height;
-      if (!Number.isFinite(pixels) || pixels > 40_000_000) return json(413, { message: 'screenshot dimensions too large' });
-    }
+    const pixels = body.screenshot.width * body.screenshot.height;
+    if (!Number.isFinite(pixels) || pixels > 40_000_000) return json(413, { message: 'screenshot dimensions too large' });
   }
 
   const env = process.env.DEBUG_LOG_ENV || process.env.NODE_ENV || 'prod';
@@ -405,12 +403,20 @@ async function postBugReport(event, s3Client = s3) {
         }
       : null,
   };
-  await s3Client.send(new PutObjectCommand({
-    Bucket: bucket,
-    Key: reportKey,
-    Body: JSON.stringify(metadata),
-    ContentType: 'application/json',
-  }));
+  try {
+    await s3Client.send(new PutObjectCommand({
+      Bucket: bucket,
+      Key: reportKey,
+      Body: JSON.stringify(metadata),
+      ContentType: 'application/json',
+    }));
+  } catch (err) {
+    // Avoid leaving an image object with no report metadata.
+    if (screenshotKey) {
+      try { await s3Client.send(new DeleteObjectCommand({ Bucket: bucket, Key: screenshotKey })); } catch { /* best effort */ }
+    }
+    throw err;
+  }
 
   console.log(JSON.stringify({
     type: 'bug-report',
