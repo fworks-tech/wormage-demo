@@ -216,3 +216,15 @@ describe('multi-team matches', () => {
     expect(engine.phase).toBe('aim');
   });
 });
+
+
+describe('mob layout', () => {
+  test('spawns four times the team size near the center', () => {
+    const engine = new GameEngine({ turnSeconds: 30, wind: 'light', difficulty: 'veteran', seed: 777, wormsPerTeam: 3 });
+    expect(engine.mobs.length).toBe(12);
+    const center = 3840 / 2;
+    for (const m of engine.mobs) {
+      expect(Math.abs(m.x - center)).toBeLessThanOrEqual(250);
+    }
+  });
+});

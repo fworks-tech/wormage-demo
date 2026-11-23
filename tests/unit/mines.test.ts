@@ -17,6 +17,18 @@ const step = (engine: GameEngine, seconds: number) => {
 };
 
 describe('mine detonation feedback', () => {
+  test('a mine arms when a worm is within proximity (even while aiming)', () => {
+    const engine = new GameEngine(config());
+    const worm = engine.activeWorm!;
+    const mine = engine.loot.find((l) => l.kind === 'mine')!;
+    mine.x = worm.x;
+    mine.y = worm.y;
+    mine.fuse = 10;
+    step(engine, 0.05);
+    expect(mine.armed).toBe(true);
+  });
+
+
   test('snapshot loot carries armed state', () => {
     const engine = new GameEngine(config());
     const snap = engine.snapshot();
@@ -75,31 +87,6 @@ describe('mine detonation feedback', () => {
     worm.hp = 10;
     expect(() => step(engine, 0.2)).not.toThrow();
   });
-  test('mines do not arm or detonate during the aim phase', () => {
-    const engine = new GameEngine(config());
-    const worm = engine.activeWorm!;
-    const mine = engine.loot.find((l) => l.kind === 'mine')!;
-    mine.x = worm.x;
-    mine.y = worm.y;
-    mine.fuse = 0.05;
-    // Stay in aim phase for the whole step.
-    step(engine, 0.2);
-    expect(mine.armed).toBe(false);
-    expect(engine.events.filter((e) => e.type === 'mineExplosion')).toHaveLength(0);
-  });
-
-  test('an already-armed mine does not detonate while in the aim phase', () => {
-    const engine = new GameEngine(config());
-    const worm = engine.activeWorm!;
-    const mine = engine.loot.find((l) => l.kind === 'mine')!;
-    mine.x = worm.x;
-    mine.y = worm.y;
-    mine.armed = true;
-    mine.fuse = 0;
-    step(engine, 0.2);
-    expect(engine.events.filter((e) => e.type === 'mineExplosion')).toHaveLength(0);
-  });
-
   test('a detonating mine triggers nearby mines (chain reaction)', () => {
     const engine = new GameEngine(config());
     const worm = engine.activeWorm!;

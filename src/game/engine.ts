@@ -694,8 +694,7 @@ export class GameEngine {
     const teamOf = (w: { teamId: number }) => this.teams[w.teamId];
     for (const item of this.loot) {
       this.stepLoot(item, dt);
-      if (item.kind === 'mine' && this.phase !== 'aim') {
-        // arm when a worm is within proximity (only after a shot lands)
+      if (item.kind === 'mine') {
         if (!item.armed) {
           for (const t of this.teams) for (const w of t.worms) {
             if (!w.alive) continue;
@@ -789,16 +788,18 @@ export class GameEngine {
   private spawnMobs(): void {
     const rng = this.rng;
     const ground = (x: number) => this.terrain.groundY(x, 120, WATER_Y - 120) ?? 470;
-    const clearX = (minDist: number) => {
-      for (let tries = 0; tries < 40; tries += 1) {
-        const x = 300 + rng() * (WORLD_W - 600);
-        if (this.teams.every((t) => t.worms.every((w) => Math.abs(w.x - x) >= minDist))) return x;
+    const teamSize = this.config.wormsPerTeam ?? 3;
+    const count = teamSize * 4;
+    const center = WORLD_W / 2;
+    for (let i = 0; i < count; i += 1) {
+      let x = center;
+      for (let tries = 0; tries < 20; tries += 1) {
+        const cand = center + (rng() - 0.5) * 400;
+        if (this.teams.every((t) => t.worms.every((w) => Math.abs(w.x - cand) >= 60))) { x = cand; break; }
+        x = cand;
       }
-      return 300 + rng() * (WORLD_W - 600);
-    };
-    for (let i = 0; i < 3; i += 1) {
-      const x = clearX(60);
-      this.mobs.push({ id: ++this.mobId, x, y: ground(x) - 12, hp: 60, maxHp: 60, damage: 15, speed: 80, radius: 18, alive: true });
+      x = Math.max(60, Math.min(WORLD_W - 60, x));
+      this.mobs.push({ id: ++this.mobId, x, y: ground(x) - 12, hp: 60, maxHp: 60, damage: 5, speed: 160, radius: 18, alive: true });
     }
   }
 
@@ -825,7 +826,7 @@ export class GameEngine {
       const dy = best.w.y - mob.y;
       const dist = Math.hypot(dx, dy) || 1;
       const dir = dx >= 0 ? 1 : -1;
-      const budget = Math.min(mob.speed * 0.5, dist);
+      const budget = Math.min(mob.speed * 2, dist);
       let moved = 0;
       let x = mob.x;
       while (moved < budget) {
@@ -842,7 +843,7 @@ export class GameEngine {
       mob.x = x;
       const g = this.terrain.groundY(mob.x, 120, WATER_Y - 120);
       if (g !== null) mob.y = g - mob.radius;
-      const attacked = dist <= 50;
+      const attacked = dist <= 60;
       if (attacked) {
         best.w.hp = Math.max(0, best.w.hp - mob.damage);
         if (best.w.hp <= 0) {
@@ -1427,7 +1428,7 @@ export class GameEngine {
       this.aiPlan = planAiTurn({
         terrain: this.terrain,
         worm: { id: worm.id, teamId: worm.teamId, x: worm.x, y: worm.y, hp: worm.hp },
-        worms: [...worms, ...this.mobs.filter(m=>m.alive).map(m=>({id:'mob-'+m.id,teamId:-1,x:m.x,y:m.y,hp:m.hp}))],
+        worms: worms,
         ammo: { ...this.teams[this.activeTeam].ammo },
         wind: this.wind,
         timeLeft: this.timeLeft,
