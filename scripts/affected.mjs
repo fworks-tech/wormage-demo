@@ -24,6 +24,7 @@ const GAME_UNIT = [
 ];
 const GAME_E2E = ['tests/combat.spec.ts', 'tests/jump.spec.ts', 'tests/rope.spec.ts'];
 const UI_E2E = [
+  'tests/bug-report.spec.ts',
   'tests/combat.spec.ts',
   'tests/data.spec.ts',
   'tests/fullscreen.spec.ts',
@@ -65,7 +66,7 @@ const RULES = [
   {
     files: ['src/ui/GameView.tsx'],
     unit: [],
-    e2e: ['tests/combat.spec.ts', 'tests/fullscreen.spec.ts', 'tests/jump.spec.ts', 'tests/mobile-hud.spec.ts', 'tests/hud-layout.spec.ts', 'tests/data.spec.ts', 'tests/rope.spec.ts', 'tests/settings.spec.ts'],
+    e2e: ['tests/combat.spec.ts', 'tests/fullscreen.spec.ts', 'tests/jump.spec.ts', 'tests/mobile-hud.spec.ts', 'tests/hud-layout.spec.ts', 'tests/data.spec.ts', 'tests/rope.spec.ts', 'tests/settings.spec.ts', 'tests/bug-report.spec.ts'],
   },
   {
     files: ['src/ui/Hud.tsx'],
@@ -98,7 +99,7 @@ const RULES = [
   },
   {
     dirs: ['src/api/', 'src/mocks/', 'src/state/'],
-    unit: ['tests/unit/mockServer.test.ts', 'tests/unit/onlineMatch.test.ts', 'tests/unit/lambdaReplay.test.ts'],
+    unit: ['tests/unit/mockServer.test.ts', 'tests/unit/onlineMatch.test.ts', 'tests/unit/lambdaReplay.test.ts', 'tests/unit/bugReport.test.ts'],
     e2e: ['tests/data.spec.ts', 'tests/menu.spec.ts'],
   },
   { dirs: ['infra/'], unit: ['tests/unit/lambdaReplay.test.ts'], e2e: [] },

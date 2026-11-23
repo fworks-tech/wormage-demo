@@ -16,6 +16,7 @@ import type {
 const DB_KEY = 'wormage.mockdb.v1';
 const SCENARIO_KEY = 'wormage.netScenario.v1';
 const DEBUG_LOG_KEY = 'wormage.debuglogs.v1';
+const BUG_REPORT_KEY = 'wormage.bugreports.v1';
 const ONLINE_KEY = 'wormage.onlinematches.v1';
 
 interface Db {
@@ -518,6 +519,38 @@ export const replayTurn = replayOnlineMatch;
 export function resetOnlineMatches(): void {
   onlineMemory.current = { matches: {} };
   try { localStorage.removeItem(ONLINE_KEY); } catch { /* ignore */ }
+}
+
+/** Demo-mode bug reports keep metadata only; the screenshot data URL would blow the 5 MB quota. */
+export function registerBugReport(payload: unknown): { stored: boolean; reportId: string; count: number } {
+  const body = payload && typeof payload === 'object' && !Array.isArray(payload)
+    ? (payload as Record<string, unknown>)
+    : {};
+  const engine = body.engine && typeof body.engine === 'object' && !Array.isArray(body.engine)
+    ? (body.engine as Record<string, unknown>)
+    : {};
+  const shot = body.screenshot && typeof body.screenshot === 'object' && !Array.isArray(body.screenshot)
+    ? (body.screenshot as Record<string, unknown>)
+    : null;
+  const reportId = typeof body.reportId === 'string' ? body.reportId : '';
+  const record = {
+    reportId,
+    sessionId: body.sessionId,
+    matchId: body.matchId,
+    seed: engine.seed,
+    url: body.url,
+    note: body.note,
+    createdAt: body.createdAt,
+    screenshot: shot
+      ? { mime: shot.mime, width: shot.width, height: shot.height, hasData: typeof shot.data === 'string' && shot.data.length > 0 }
+      : null,
+  };
+  const raw = safeRead<unknown[]>(BUG_REPORT_KEY);
+  const list = Array.isArray(raw) ? raw : [];
+  list.push(record);
+  while (list.length > 5) list.shift();
+  const stored = safeWrite(BUG_REPORT_KEY, list);
+  return { stored, reportId, count: list.length };
 }
 
 export function registerDebugLog(payload: unknown): { stored: boolean; count: number } {

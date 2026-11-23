@@ -1267,6 +1267,78 @@ html:fullscreen {
   padding: 20px;
 }
 
+.pause-overlay--capturing {
+  visibility: hidden;
+}
+
+.bug-report-dialog {
+  width: min(560px, 100%);
+}
+
+.bug-report-dialog .dialog-form {
+  display: grid;
+  gap: 8px;
+}
+
+.bug-report-dialog .overlay-actions {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+}
+
+.bug-report-dialog .overlay-actions > :last-child {
+  grid-column: 1 / -1;
+}
+
+.bug-report-dialog .dialog-form label {
+  display: grid;
+  gap: 4px;
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.bug-report-dialog .dialog-form small {
+  color: var(--muted);
+  font-family: var(--body);
+  font-size: 12px;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.report-preview {
+  display: grid;
+  gap: 6px;
+  text-align: left;
+}
+
+.report-preview img {
+  width: 100%;
+  max-height: 240px;
+  object-fit: contain;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: #08100f;
+}
+
+.report-note {
+  width: 100%;
+  min-height: 84px;
+  resize: vertical;
+  background: #0c1616;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  padding: 10px 12px;
+  font-family: inherit;
+  font-size: 13px;
+  color: inherit;
+}
+
+.report-note:focus-visible {
+  outline: 2px solid var(--amber);
+  outline-offset: 1px;
+}
+
 .overlay-card {
   width: min(420px, 100%);
   max-height: calc(100dvh - 40px);

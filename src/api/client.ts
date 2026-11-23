@@ -6,6 +6,7 @@ import {
   latencyMs,
   registerMatch,
   registerDebugLog,
+  registerBugReport,
   createOnlineMatch,
   joinOnlineMatch,
   getOnlineMatch,
@@ -72,6 +73,11 @@ const localAdapter: AxiosAdapter = async (config) => {
     const body = (typeof config.data === 'string' ? JSON.parse(config.data) : config.data) as unknown;
     const { stored } = registerDebugLog(body);
     return respond(config, 201, { stored, schemaVersion: 1 });
+  }
+
+  if (method === 'POST' && url.pathname === '/api/bug-reports') {
+    const body = (typeof config.data === 'string' ? JSON.parse(config.data) : config.data) as unknown;
+    return respond(config, 201, registerBugReport(body));
   }
 
   const onlineGet = url.pathname.match(/^\/api\/matches\/online\/([^/]+)$/);

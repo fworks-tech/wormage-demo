@@ -300,6 +300,133 @@ function validateDebugLogBody(body) {
   return null;
 }
 
+const SCREENSHOT_MAGIC = {
+  'image/png': Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+  'image/jpeg': Buffer.from([0xff, 0xd8, 0xff]),
+};
+
+function validateBugReportBody(body) {
+  if (!body || typeof body !== 'object' || Array.isArray(body)) return 'invalid body';
+  if (!isStr(body.reportId, 128)) return 'reportId is required';
+  if (!isStr(body.sessionId, 128)) return 'sessionId is required';
+  if (!isStr(body.matchId, 128)) return 'matchId is required';
+  if (body.note !== undefined && (typeof body.note !== 'string' || body.note.length > 2000)) return 'invalid note';
+  if (body.url !== undefined && (typeof body.url !== 'string' || body.url.length > 4000)) return 'invalid url';
+  if (!body.engine || typeof body.engine !== 'object' || Array.isArray(body.engine)) return 'engine is required';
+  if (!body.engine.config || typeof body.engine.config !== 'object' || Array.isArray(body.engine.config)) return 'invalid config';
+  if (!isNum(body.engine.seed, 0, 1e15)) return 'invalid seed';
+  if (!body.engine.snapshot || typeof body.engine.snapshot !== 'object' || Array.isArray(body.engine.snapshot)) return 'snapshot is required';
+  if (!body.debug || typeof body.debug !== 'object' || Array.isArray(body.debug)) return 'debug is required';
+  if (!Array.isArray(body.debug.entries) || !Array.isArray(body.debug.snapshots)) return 'invalid debug';
+  if (body.debug.entries.length > 5000) return 'too many debug entries';
+  if (body.debug.snapshots.length > 200) return 'too many debug snapshots';
+  if (body.actionLog !== undefined && !Array.isArray(body.actionLog)) return 'invalid actionLog';
+  if (body.actionLog !== undefined && body.actionLog.length > 5000) return 'too many actions';
+  if (body.screenshot !== undefined && body.screenshot !== null) {
+    const shot = body.screenshot;
+    if (typeof shot !== 'object' || Array.isArray(shot)) return 'invalid screenshot';
+    if (shot.mime !== 'image/png' && shot.mime !== 'image/jpeg') return 'invalid screenshot mime';
+    if (typeof shot.data !== 'string' || shot.data.length === 0 || shot.data.length > 4500000) return 'invalid screenshot data';
+    if (shot.width !== undefined && !isNum(shot.width, 1, 20000)) return 'invalid screenshot width';
+    if (shot.height !== undefined && !isNum(shot.height, 1, 20000)) return 'invalid screenshot height';
+  }
+  return null;
+}
+
+function decodeScreenshot(shot) {
+  const raw = shot.data.includes(',') ? shot.data.slice(shot.data.indexOf(',') + 1) : shot.data;
+  const bytes = Buffer.from(raw, 'base64');
+  const magic = SCREENSHOT_MAGIC[shot.mime];
+  if (bytes.length < magic.length || !bytes.subarray(0, magic.length).equals(magic)) return null;
+  return bytes;
+}
+
+async function postBugReport(event, s3Client = s3) {
+  const body = parseBody(event);
+  const err = validateBugReportBody(body);
+  if (err) return json(400, { message: err });
+
+  if (process.env.BUG_REPORTS_ENABLED === 'false') {
+    return json(202, { stored: false, reason: 'disabled' });
+  }
+  const bucket = process.env.DEBUG_LOG_BUCKET;
+  if (!bucket) return json(500, { message: 'debug log bucket is not configured' });
+
+  const maxBytes = Number(process.env.BUG_REPORT_MAX_BYTES || 4000000);
+  if (Buffer.byteLength(JSON.stringify(body), 'utf8') > maxBytes) {
+    return json(413, { message: 'payload too large' });
+  }
+
+  let screenshotBytes = null;
+  if (body.screenshot) {
+    screenshotBytes = decodeScreenshot(body.screenshot);
+    if (!screenshotBytes) return json(400, { message: 'invalid screenshot data' });
+    if (screenshotBytes.length > 2600000) return json(413, { message: 'screenshot too large' });
+    if (body.screenshot.width !== undefined && body.screenshot.height !== undefined) {
+      const pixels = body.screenshot.width * body.screenshot.height;
+      if (!Number.isFinite(pixels) || pixels > 40_000_000) return json(413, { message: 'screenshot dimensions too large' });
+    }
+  }
+
+  const env = process.env.DEBUG_LOG_ENV || process.env.NODE_ENV || 'prod';
+  const prefix = (process.env.BUG_REPORT_PREFIX || 'bug-reports').replace(/\/+$/, '');
+  const now = new Date();
+  const yyyy = now.toISOString().slice(0, 4);
+  const mm = now.toISOString().slice(5, 7);
+  const dd = now.toISOString().slice(8, 10);
+  const reportId = keySegment(body.reportId);
+  const base = `${prefix}/${env}/${yyyy}/${mm}/${dd}/${reportId}`;
+
+  let screenshotKey = null;
+  if (screenshotBytes && body.screenshot) {
+    const ext = body.screenshot.mime === 'image/png' ? 'png' : 'jpg';
+    screenshotKey = `${base}.${ext}`;
+    await s3Client.send(new PutObjectCommand({
+      Bucket: bucket,
+      Key: screenshotKey,
+      Body: screenshotBytes,
+      ContentType: body.screenshot.mime,
+    }));
+  }
+
+  const { screenshot: _screenshot, ...context } = body;
+  const reportKey = `${base}.json`;
+  const metadata = {
+    ...context,
+    receivedAt: now.toISOString(),
+    screenshot: screenshotKey
+      ? {
+          key: screenshotKey,
+          mime: body.screenshot.mime,
+          width: body.screenshot.width ?? null,
+          height: body.screenshot.height ?? null,
+          bytes: screenshotBytes.length,
+        }
+      : null,
+  };
+  await s3Client.send(new PutObjectCommand({
+    Bucket: bucket,
+    Key: reportKey,
+    Body: JSON.stringify(metadata),
+    ContentType: 'application/json',
+  }));
+
+  console.log(JSON.stringify({
+    type: 'bug-report',
+    reportId: body.reportId,
+    sessionId: body.sessionId,
+    matchId: body.matchId,
+    screenshotBytes: screenshotBytes ? screenshotBytes.length : 0,
+    reportKey,
+  }));
+
+  return json(201, {
+    stored: true,
+    reportId: body.reportId,
+    keys: { report: reportKey, screenshot: screenshotKey },
+  });
+}
+
 /** Keep untrusted key segments inside one S3 "folder" and free of separators. */
 function keySegment(value) {
   return String(value)
@@ -718,6 +845,7 @@ exports.handler = async (event) => {
       return replay ? json(200, replay) : json(404, { message: 'match not found' });
     }
     if (method === 'POST' && path === '/api/debug-logs') return await postDebugLog(event);
+    if (method === 'POST' && path === '/api/bug-reports') return await postBugReport(event);
     return json(404, { message: 'Not found' });
   } catch (err) {
     console.error(err);
@@ -743,5 +871,7 @@ exports.replayTurn = exports.replayOnlineMatch;
 exports.generateOnlineCode = generateOnlineCode;
 exports.postDebugLog = postDebugLog;
 exports.validateDebugLogBody = validateDebugLogBody;
+exports.postBugReport = postBugReport;
+exports.validateBugReportBody = validateBugReportBody;
 exports.keyOf = keyOf;
 exports.validateBody = validateBody;

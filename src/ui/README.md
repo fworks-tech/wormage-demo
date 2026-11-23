@@ -9,6 +9,8 @@ React renders menus, dialogs and the in-match HUD. It never owns gameplay state.
 | `GameSettingsFields.tsx` | match settings shared by Options and Settings, including team count (2–4) and editable names with a dice roller |
 | `SettingsDialog.tsx` | match settings from the New Game and pause cards |
 | `ControlsDialog.tsx` | shortcut list, key capture with reserved-key feedback, duplicate swap, reset and save |
+| `BugReportDialog.tsx` | optional note, capture preview, send and retry states for the pause-card report |
+| `screenCapture.ts` | current-tab `getDisplayMedia` capture, overlay-safe frame read, PNG/JPEG budget |
 | `useDialogFocus.ts` | moves focus into an open overlay, keeps it inside (Tab, Shift+Tab and stray focus) and returns it to the opener |
 | `Leaderboard.tsx` | paginated ranking table + shared `Pager` and `formatDuration` |
 | `MatchHistory.tsx` | the player's paginated match archive |

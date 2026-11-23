@@ -5,6 +5,7 @@ import {
   listLeaderboard,
   listMatches,
   registerDebugLog,
+  registerBugReport,
   registerMatch,
   createOnlineMatch,
   joinOnlineMatch,
@@ -56,6 +57,13 @@ export const handlers = [
     const body = await request.json();
     const result = registerDebugLog(body);
     return HttpResponse.json(result, { status: 201 });
+  }),
+
+  http.post('/api/bug-reports', async ({ request }) => {
+    await delay(latencyMs());
+    if (shouldFail()) return HttpResponse.json({ message: 'Upstream unavailable' }, { status: 503 });
+    const body = await request.json();
+    return HttpResponse.json(registerBugReport(body), { status: 201 });
   }),
 
   http.get('/api/matches/online/:code', async ({ params }) => {

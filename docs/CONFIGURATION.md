@@ -136,6 +136,16 @@ Reset with **Reset demo data** in Options, or `localStorage.removeItem('wormage.
 - Note: SSM values are read at deploy time and baked into the Lambda's environment variables; changing a parameter requires a redeploy. `retention-days` is enforced by the S3 lifecycle rule (7 days), not by the Lambda.
 - CloudWatch Logs retention is also 7 days (Lambda log group retention set in CDK).
 
+## Bug reports
+
+- Entry point: **Report bug** on the pause card. The note is optional.
+- Capture: `src/ui/screenCapture.ts` calls `getDisplayMedia` for the current tab (`displaySurface: 'browser'`), rejects window/screen shares, and records two frames while `GameView` hides the pause overlay. The PNG is the real tab pixels (game + HUD, no menu); no DOM reconstruction is uploaded.
+- Client budget: PNG up to 2.4 MB raw, downscaled in 0.8 steps if needed, JPEG at 0.92 only as a last resort. The preview shows exactly what is sent.
+- Payload: URL, app version, user agent, locale/timezone, viewport/DPR, seed and full match config, current snapshot, latest 1000 debug entries and 20 snapshots, the online action log and the screenshot.
+- Server: `POST /api/bug-reports`; 4 MB body cap (`BUG_REPORT_MAX_BYTES`), PNG/JPEG magic-byte check, 2.6 MB screenshot cap and 40 MP cap. Kill switch `BUG_REPORTS_ENABLED`, prefix `BUG_REPORT_PREFIX` (default `bug-reports`).
+- S3: `bug-reports/<env>/<yyyy>/<mm>/<dd>/<reportId>.json` + `.png`, same bucket and 7-day lifecycle as the debug logs. There is no listing UI; read with the AWS CLI or console.
+- Fallback: iOS Safari and denied permissions send the data without a screenshot. The UI never uploads an approximate image.
+
 ## Common tweaks
 
 - **Faster, bloodier matches:** `WORM.maxHp = 70`, bazooka `damage = 55`.
