@@ -171,7 +171,7 @@ test('getOnlineMatch does not advance when not expired', () => {
 });
 
 
-test('getActionLog returns entries in seq order', () => {
+test('getActionLog returns entries in replay order', () => {
   const created = createOnlineMatch({ playerId: 'p1', playerName: 'Alice' });
   joinOnlineMatch(created.code, { playerId: 'p2', playerName: 'Bob' });
   submitOnlineAction(created.code, { playerId: 'p1', action: { type: 'weapon', id: 'grenade' }, clientActionId: 'a1', tick: 5 });

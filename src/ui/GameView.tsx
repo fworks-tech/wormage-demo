@@ -557,6 +557,9 @@ export function GameView({
   }, [ready]);
 
   // Online: apply opponent actions from polled server state.
+  // shortcut: the action lands at this client's tick, not the sender's, so the
+  // local engine can drift from the server snapshot; add a snapshot re-sync
+  // before online play leaves the prototype (M4b).
   useEffect(() => {
     if (!online || !onlineMatch.data || !engineRef.current) return;
     const engine = engineRef.current;

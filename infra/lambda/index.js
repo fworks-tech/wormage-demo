@@ -584,8 +584,14 @@ async function submitAction(event, rawCode, ddbClient) {
   const now = new Date().toISOString();
   const seq = actions.reduce((m, a) => Math.max(m, (a && typeof a.seq === 'number') ? a.seq : 0), 0) + 1;
   const currentTick = typeof match.snapshotTick === 'number' ? match.snapshotTick : 0;
-  const actionTick = engineTick != null ? engineTick : currentTick;
-  const entry = { seq, tick: actionTick, turn: match.turn || 1, engineTick, action, playerId: body.playerId, clientActionId: body.clientActionId || null, at: now };
+  // The client stamps its own engine tick, which keeps running between turns.
+  // Never let one action fast-forward more than a turn of simulation: a stale
+  // or hostile tick could otherwise end the match by replaying to MAX_TICKS.
+  const turnSeconds = typeof match.turnSeconds === 'number' && match.turnSeconds > 0 ? match.turnSeconds : 45;
+  const turnTicks = turnSeconds * 60;
+  const requestedTick = engineTick != null ? engineTick : currentTick;
+  const actionTick = Math.max(currentTick, Math.min(requestedTick, currentTick + turnTicks));
+  const entry = { seq, tick: actionTick, turn: match.turn || 1, engineTick: actionTick, action, playerId: body.playerId, clientActionId: body.clientActionId || null, at: now };
 
   // Replay before writing anything: an action the engine cannot apply must
   // leave both the match item and the action log untouched. Stop at the
@@ -596,16 +602,15 @@ async function submitAction(event, rawCode, ddbClient) {
       GameEngine,
       match,
       actions: [...actions, entry],
-      stopTick: Math.max(actionTick, currentTick),
+      stopTick: actionTick,
     });
   } catch (err) {
     console.error('replay failed', err);
     return json(409, { message: 'illegal action' });
   }
   const snap = replay.snapshot;
+  const matchTurn = match.turn || 1;
   const updates = {
-    activeTeam: snap.activeTeam,
-    turn: snap.turn,
     turnSeconds: snap.turnSeconds,
     phase: snap.phase,
     weapon: snap.weapon,
@@ -615,7 +620,13 @@ async function submitAction(event, rawCode, ddbClient) {
     snapshot: snap,
     snapshotTick: replay.tick,
   };
-  if (snap.turn !== (match.turn || 1)) updates.turnStartedAt = now;
+  // getOnlineMatch advances an expired turn on its own. A replay that stopped
+  // at an earlier tick must not drag the match back to the previous team.
+  if (snap.turn > matchTurn) {
+    updates.turn = snap.turn;
+    updates.activeTeam = snap.activeTeam;
+    updates.turnStartedAt = now;
+  }
   if (snap.winnerTeam != null) updates.status = 'finished';
   if (type === 'endTurn') updates.hasFired = false;
   if (type === 'fire') updates.hasFired = true;
@@ -706,8 +717,6 @@ exports.handler = async (event) => {
       const replay = await replayOnlineMatch(decodeURIComponent(onlineReplay[1]));
       return replay ? json(200, replay) : json(404, { message: 'match not found' });
     }
-    if (method === 'POST' && onlineAction) return await submitAction(event, decodeURIComponent(onlineAction[1]));
-    if (method === 'POST' && onlineForfeit) return await forfeitOnlineMatch(event, decodeURIComponent(onlineForfeit[1]));
     if (method === 'POST' && path === '/api/debug-logs') return await postDebugLog(event);
     return json(404, { message: 'Not found' });
   } catch (err) {

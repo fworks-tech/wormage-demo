@@ -3,7 +3,9 @@
 // Pure replay core shared by the Lambda handler and the parity test. The
 // engine class is injected so this file stays free of AWS and build coupling.
 const DT = 1 / 60;
-const MAX_TICKS = 60 * 300;
+// 30 minutes of simulation. The old 5-minute ceiling silently dropped every
+// action in a longer match; this still bounds a full replay to ~1.8 s.
+const MAX_TICKS = 60 * 60 * 30;
 const ENGINE_VERSION = 1;
 
 function matchConfig(match) {
@@ -33,12 +35,14 @@ function entryTick(entry) {
 
 function sortActions(actions) {
   return [...(Array.isArray(actions) ? actions : [])].sort((a, b) => {
-    const sa = a && typeof a.seq === 'number' ? a.seq : 0;
-    const sb = b && typeof b.seq === 'number' ? b.seq : 0;
-    if (sa !== sb) return sa - sb;
+    // Tick first: the replay loop applies actions by engine tick, so arrival
+    // order (seq) can leave an earlier tick behind a later one and skip both.
     const ea = entryTick(a);
     const eb = entryTick(b);
     if (ea !== eb) return ea - eb;
+    const sa = a && typeof a.seq === 'number' ? a.seq : 0;
+    const sb = b && typeof b.seq === 'number' ? b.seq : 0;
+    if (sa !== sb) return sa - sb;
     return String((a && a.at) || '').localeCompare(String((b && b.at) || ''));
   });
 }
