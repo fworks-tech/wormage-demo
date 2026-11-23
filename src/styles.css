@@ -1899,6 +1899,11 @@ html:fullscreen {
   .pause-btn {
     height: 44px;
   }
+
+  /* Landscape phones are wider than 760px, so the portrait lift does not apply. */
+  .minimap-wrap {
+    bottom: calc(max(clamp(8px, 1.6vw, 18px), env(safe-area-inset-bottom)) + 70px);
+  }
 }
 
 /* Keyboard and mouse cover every action; a touch HUD here is only noise. */

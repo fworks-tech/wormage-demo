@@ -129,6 +129,10 @@ test.describe('HUD layout 915x412 landscape', () => {
     const { bottomBox } = await checkViewport(page, { width: 915, height: 412 });
     expect(bottomBox.height).toBeLessThanOrEqual(105);
 
+    const map = await box(page, '.minimap-wrap');
+    const endTurn = await box(page, '[data-testid="btn-end-turn"]');
+    expect(overlaps(map, endTurn), 'map button overlaps End turn').toBe(false);
+
     const cards = await page.locator('.weapon-card').evaluateAll((els) =>
       els.map((el) => {
         const rect = el.getBoundingClientRect();
