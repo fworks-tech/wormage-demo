@@ -1,9 +1,10 @@
+import { byteSize } from './bytes';
 import { api } from './client';
+import type { GameScreenshot } from './types';
 import type { GameEngine } from '../game/engine';
 import type { ActionLogEntry, DebugLogEntry, GameSnapshot, MatchConfig } from '../game/types';
-import type { GameScreenshot } from '../ui/screenCapture';
 
-export interface BugReportPayload {
+interface BugReportPayload {
   schemaVersion: 1;
   reportId: string;
   createdAt: string;
@@ -35,13 +36,11 @@ export interface BugReportPayload {
     mime: 'image/png' | 'image/jpeg';
     width: number;
     height: number;
-    bytes: number;
-    method: 'tab';
     data: string;
   } | null;
 }
 
-export interface BugReportOptions {
+interface BugReportOptions {
   engine: GameEngine;
   note: string;
   screenshot: GameScreenshot | null;
@@ -60,11 +59,6 @@ function reportId(): string {
   const crypto = globalThis.crypto;
   if (crypto && typeof crypto.randomUUID === 'function') return crypto.randomUUID();
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
-}
-
-function byteSize(value: string): number {
-  if (typeof TextEncoder !== 'undefined') return new TextEncoder().encode(value).length;
-  return value.length;
 }
 
 /** Build the payload without touching network state, so it is unit-testable. */
@@ -124,8 +118,6 @@ export function buildBugReport({
           mime: screenshot.mime,
           width: screenshot.width,
           height: screenshot.height,
-          bytes: screenshot.bytes,
-          method: screenshot.method,
           data: screenshot.dataUrl.includes(',')
             ? screenshot.dataUrl.slice(screenshot.dataUrl.indexOf(',') + 1)
             : screenshot.dataUrl,
@@ -149,7 +141,10 @@ function fitPayload(payload: BugReportPayload): void {
 export async function sendBugReport(options: BugReportOptions): Promise<string> {
   const payload = buildBugReport(options);
   fitPayload(payload);
-  const response = await api.post<{ reportId?: string }>('/api/bug-reports', payload);
-  if (response.status < 200 || response.status >= 300) throw new Error('The report could not be sent');
-  return response.data?.reportId ?? payload.reportId;
+  try {
+    const response = await api.post<{ reportId?: string }>('/api/bug-reports', payload, { timeout: 60_000 });
+    return response.data?.reportId ?? payload.reportId;
+  } catch {
+    throw new Error('The report could not be sent');
+  }
 }

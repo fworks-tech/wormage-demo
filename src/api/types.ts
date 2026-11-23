@@ -125,3 +125,12 @@ export interface JoinOnlineMatchInput {
   playerName: string;
   teamName?: string;
 }
+
+/** One frame of the current browser tab, captured through getDisplayMedia. */
+export interface GameScreenshot {
+  dataUrl: string;
+  mime: 'image/png' | 'image/jpeg';
+  width: number;
+  height: number;
+  bytes: number;
+}

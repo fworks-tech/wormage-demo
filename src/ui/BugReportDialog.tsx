@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { CaptureError, type GameScreenshot } from './screenCapture';
+import type { GameScreenshot } from '../api/types';
+import { CaptureError } from './screenCapture';
 
 interface BugReportDialogProps {
   onCapture: () => Promise<GameScreenshot>;
@@ -17,7 +18,7 @@ function captureMessage(err: unknown): string {
       case 'denied':
         return 'Screen capture was cancelled. Try again or send the report without a screenshot.';
       case 'wrong-surface':
-        return 'Choose this tab, not a window or the whole screen.';
+        return 'Share this tab, not a window or the screen. If your browser cannot confirm the tab, send the report without a screenshot.';
       default:
         return 'The screenshot could not be captured. Try again or send without it.';
     }

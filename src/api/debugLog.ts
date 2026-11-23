@@ -1,3 +1,4 @@
+import { byteSize } from './bytes';
 import { api } from './client';
 import type { GameEngine } from '../game/engine';
 import type { DebugLogEntry } from '../game/types';
@@ -32,11 +33,6 @@ const SNAPSHOT_CHUNK_SIZE = 20;
 // Keep each request comfortably under the server-side cap (256 KB) with margin,
 // even when individual entries or snapshots are large.
 const TARGET_CHUNK_BYTES = 200_000;
-
-function byteSize(value: string): number {
-  if (typeof TextEncoder !== 'undefined') return new TextEncoder().encode(value).length;
-  return value.length;
-}
 
 // Flushes fire from the interval, the visibility handler, the finish path and cleanup.
 // Serializing per engine stops two uploads from snapshotting and splicing the same entries.

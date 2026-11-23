@@ -1,12 +1,6 @@
-export interface GameScreenshot {
-  dataUrl: string;
-  mime: 'image/png' | 'image/jpeg';
-  width: number;
-  height: number;
-  bytes: number;
-  method: 'tab';
-}
+import type { GameScreenshot } from '../api/types';
 
+export type { GameScreenshot };
 export type CaptureErrorCode = 'unsupported' | 'denied' | 'wrong-surface' | 'failed';
 
 export class CaptureError extends Error {
@@ -53,8 +47,8 @@ export async function captureGameTab(): Promise<GameScreenshot> {
     const track = stream.getVideoTracks()[0];
     if (!track) throw new CaptureError('failed', 'No video track');
     const surface = track.getSettings().displaySurface;
-    if (surface && surface !== 'browser') {
-      throw new CaptureError('wrong-surface', 'Choose this tab instead of a window or screen');
+    if (surface !== 'browser') {
+      throw new CaptureError('wrong-surface', 'Share this tab, not a window or the screen.');
     }
 
     video.muted = true;
@@ -160,5 +154,5 @@ async function fromBlob(blob: Blob, mime: GameScreenshot['mime'], canvas: HTMLCa
     reader.onerror = () => reject(new CaptureError('failed', 'Could not read the screenshot'));
     reader.readAsDataURL(blob);
   });
-  return { dataUrl, mime, width: canvas.width, height: canvas.height, bytes: blob.size, method: 'tab' };
+  return { dataUrl, mime, width: canvas.width, height: canvas.height, bytes: blob.size };
 }

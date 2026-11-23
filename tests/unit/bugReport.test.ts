@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import { GameEngine } from '../../src/game/engine';
+import type { GameScreenshot } from '../../src/api/types';
 import type { DebugLogEntry, MatchConfig } from '../../src/game/types';
-import type { GameScreenshot } from '../../src/ui/screenCapture';
 
 const { post } = vi.hoisted(() => ({ post: vi.fn() }));
 
@@ -24,7 +24,6 @@ const shot = (): GameScreenshot => ({
   width: 1280,
   height: 720,
   bytes: 3,
-  method: 'tab',
 });
 
 const entry = (engine: GameEngine, seq: number, blob = ''): DebugLogEntry => ({
@@ -119,7 +118,7 @@ describe('bug report payload', () => {
   });
 
   test('throws when the server rejects the report', async () => {
-    post.mockResolvedValue({ status: 503, data: {} });
+    post.mockRejectedValue(Object.assign(new Error('Request failed'), { response: { status: 503 } }));
     const engine = new GameEngine(config());
     await expect(sendBugReport({ engine, note: '', screenshot: null })).rejects.toThrow('could not be sent');
   });
