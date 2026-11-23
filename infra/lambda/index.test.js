@@ -265,6 +265,42 @@ test('replayOnlineMatch returns a deterministic snapshot', async () => {
   assert.equal(first.engineVersion, 1);
 });
 
+test('submitAction clamps a far-future tick to one turn of replay', async () => {
+  const ddb = makeMockDdb();
+  const c = await L.postOnlineMatch(ev('POST', '/api/matches/online', {}, { playerId: 'p1', playerName: 'Alice', settings: { seed: 777, wormsPerTeam: 2, turnSeconds: 30 } }), ddb);
+  const code = JSON.parse(c.body).code;
+  await L.joinOnlineMatch(ev('POST', `/api/matches/online/${code}/join`, {}, { playerId: 'p2', playerName: 'Bob' }), code, ddb);
+  const r = await L.submitAction(ev('POST', `/api/matches/online/${code}/action`, {}, { playerId: 'p1', action: { type: 'endTurn' }, tick: 999999 }), code, ddb);
+  assert.equal(r.statusCode, 200);
+  const b = JSON.parse(r.body);
+  // turnSeconds 30 caps the replay at 1800 ticks instead of MAX_TICKS (18000).
+  assert.equal(b.match.snapshotTick, 1800);
+  assert.equal(b.match.winnerTeam, null);
+});
+
+test('a replay that stopped earlier does not undo a server-side turn expiry', async () => {
+  const ddb = makeMockDdb();
+  const c = await L.postOnlineMatch(ev('POST', '/api/matches/online', {}, { playerId: 'p1', playerName: 'Alice', settings: { seed: 777, wormsPerTeam: 2, turnSeconds: 30 } }), ddb);
+  const code = JSON.parse(c.body).code;
+  await L.joinOnlineMatch(ev('POST', `/api/matches/online/${code}/join`, {}, { playerId: 'p2', playerName: 'Bob' }), code, ddb);
+  // Simulate getOnlineMatch having advanced the turn on its own.
+  await ddb.send(new UpdateCommand({
+    TableName: 't',
+    Key: { pk: `ONLINE#${code}`, sk: 'META' },
+    UpdateExpression: 'SET #t = :t, activeTeam = :a, turnStartedAt = :ts',
+    ExpressionAttributeNames: { '#t': 'turn' },
+    ExpressionAttributeValues: { ':t': 5, ':a': 1, ':ts': '2026-01-01T00:00:00.000Z' },
+  }));
+
+  const r = await L.submitAction(ev('POST', `/api/matches/online/${code}/action`, {}, { playerId: 'p2', action: { type: 'endTurn' }, tick: 0 }), code, ddb);
+  assert.equal(r.statusCode, 200);
+  const b = JSON.parse(r.body);
+  assert.equal(b.match.turn, 5);
+  assert.equal(b.match.activeTeam, 1);
+  assert.equal(b.match.turnStartedAt, '2026-01-01T00:00:00.000Z');
+  assert.equal(b.match.snapshot.turn, 2);
+});
+
 test('forfeitOnlineMatch ends match with opponent as winner', async () => {
   const ddb = makeMockDdb();
   const c = await L.postOnlineMatch(ev('POST', '/api/matches/online', {}, { playerId: 'p1', playerName: 'Alice' }), ddb);

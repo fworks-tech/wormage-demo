@@ -33,5 +33,6 @@ The generated bundle is a build artifact and is not committed. `infra/package.js
 - The Lambda and the browser execute the same engine source, so replay parity can be tested directly.
 - `infra/lambda/engine.cjs` is roughly 820 KB, mostly Zod pulled through the content schema. Lambda package size and cold start grow accordingly.
 - Match items now carry a full snapshot and `engineVersion`; a rule change must bump the version before old logs are replayed on the new build.
-- Each submitted action replays from the seed to its tick. The action cap (500) and `MAX_TICKS` bound the work; if matches get longer, state serialization or periodic snapshots become the next step.
+- Each submitted action replays from the seed to its tick, clamped to one turn past the last persisted tick and to a 30-minute simulation ceiling. The action cap (500) and that clamp bound the work and stop a stale or hostile client tick from fast-forwarding the match; a replay at the ceiling costs about 1.8 s, and if matches get longer, state serialization or periodic snapshots become the next step.
+- The persisted snapshot is the canonical state for audit and late join. Clients still advance their own engine between actions and do not re-sync to the snapshot yet, so each client's tick can drift from the sender's; adding a snapshot restore path is M4b work.
 - `mapSize=1` is a browser-only world-scale toggle and does not appear in online settings; online matches always replay at the default scale.

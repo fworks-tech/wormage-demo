@@ -17,6 +17,7 @@ const { replayActionLog } = requireCjs('../../infra/lambda/replay.js') as {
     GameEngine: typeof GameEngine;
     match: OnlineMatch;
     actions: OnlineActionLogEntry[];
+    stopTick?: number;
   }) => {
     tick: number;
     snapshot: ReturnType<GameEngine['snapshot']>;
@@ -49,7 +50,7 @@ describe('lambda replay core', () => {
     expect(server.kills).toEqual(client.kills);
   });
 
-  test('a bad action log does not drift from the client replay', () => {
+  test('a weapon, a shot and an endTurn replay to the same state on both sides', () => {
     const created = createOnlineMatch({
       playerId: 'p1',
       playerName: 'Alice',
@@ -66,5 +67,49 @@ describe('lambda replay core', () => {
 
     expect(server.snapshot).toEqual(client.snapshot);
     expect(server.tick).toBe(client.tick);
+  });
+
+  test('a turn-scoped replay stops at the action tick', () => {
+    const created = createOnlineMatch({
+      playerId: 'p1',
+      playerName: 'Alice',
+      settings: { seed: 2024, wormsPerTeam: 2, turnSeconds: 30, wind: 'light', difficulty: 'veteran' },
+    });
+    joinOnlineMatch(created.code, { playerId: 'p2', playerName: 'Bob' });
+    submitOnlineAction(created.code, { playerId: 'p1', action: { type: 'endTurn' }, clientActionId: 'e1', tick: 120 });
+
+    const match = getOnlineMatch(created.code)!;
+    const replay = replayActionLog({ GameEngine, match, actions: getActionLog(created.code), stopTick: 120 });
+
+    expect(replay.tick).toBe(120);
+    expect(replay.snapshot.turn).toBe(2);
+  });
+
+  test('keeps applying actions after the old five-minute ceiling', () => {
+    // The stub keeps the tick counting without physics: this asserts the
+    // replay ceiling, not the combat rules. 20000 ticks is past the old cap.
+    class CountingEngine {
+      tick = 0;
+      phase = 'aim';
+      winnerTeam: number | null = null;
+      endReason: string | null = null;
+      kills: number[] = [];
+      applied = 0;
+      update() { this.tick += 1; }
+      applyAction() { this.applied += 1; }
+      snapshot() { return { turn: this.applied + 1, phase: this.phase }; }
+    }
+    const engine = new CountingEngine();
+    // A constructor that returns an object yields that object under `new`.
+    const FakeEngine = function () { return engine; };
+    const replay = replayActionLog({
+      GameEngine: FakeEngine as unknown as typeof GameEngine,
+      match: { code: 'AAAA', settings: {} } as OnlineMatch,
+      actions: [{ seq: 1, tick: 20000, engineTick: 20000, action: { type: 'endTurn' } } as OnlineActionLogEntry],
+      stopTick: 20000,
+    });
+
+    expect(replay.tick).toBe(20000);
+    expect(engine.applied).toBe(1);
   });
 });
