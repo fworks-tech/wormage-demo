@@ -139,12 +139,14 @@ Reset with **Reset demo data** in Options, or `localStorage.removeItem('wormage.
 ## Bug reports
 
 - Entry point: **Report bug** on the pause card. The note is optional.
-- Capture: `src/ui/screenCapture.ts` calls `getDisplayMedia` for the current tab (`displaySurface: 'browser'`), rejects window/screen shares, and records two frames while `GameView` hides the pause overlay. The PNG is the real tab pixels (game + HUD, no menu); no DOM reconstruction is uploaded.
-- Client budget: PNG up to 2.4 MB raw, downscaled in 0.8 steps if needed, JPEG at 0.92 only as a last resort. The preview shows exactly what is sent.
+- Capture: `src/ui/screenCapture.ts` calls `getDisplayMedia` for the current tab (`displaySurface: 'browser'`), rejects window/screen shares and missing `displaySurface`, and records two frames while `GameView` hides the pause overlay. The PNG is the real tab pixels (game + HUD, no menu); no DOM reconstruction is uploaded.
+- Client budget: PNG up to 2.4 MB raw, downscaled in 0.8 steps if needed, JPEG at 0.92 only as a last resort. The preview shows exactly what is sent. Uploads use a 60 s request timeout.
 - Payload: URL, app version, user agent, locale/timezone, viewport/DPR, seed and full match config, current snapshot, latest 1000 debug entries and 20 snapshots, the online action log and the screenshot.
-- Server: `POST /api/bug-reports`; 4 MB body cap (`BUG_REPORT_MAX_BYTES`), PNG/JPEG magic-byte check, 2.6 MB screenshot cap and 40 MP cap. Kill switch `BUG_REPORTS_ENABLED`, prefix `BUG_REPORT_PREFIX` (default `bug-reports`).
+- Server: `POST /api/bug-reports`; 4 MB body cap (`BUG_REPORT_MAX_BYTES`), PNG/JPEG magic-byte check, 2.6 MB screenshot cap and 40 MP cap. Kill switch `BUG_REPORTS_ENABLED`, prefix `BUG_REPORT_PREFIX` (default `bug-reports`). The kill switch is a Lambda environment value; flipping it requires a deploy, same as `DEBUG_LOGS_ENABLED`.
+- Throttle: the HTTP API default stage allows 10 rps with a burst of 20 across all routes, including bug reports. A throttled request returns `429`; the client shows the generic send error and keeps the preview for retry. Per-route throttling is deferred by a CloudFormation stage/route dependency constraint noted in `infra/lib/wormage-stack.ts`.
 - S3: `bug-reports/<env>/<yyyy>/<mm>/<dd>/<reportId>.json` + `.png`, same bucket and 7-day lifecycle as the debug logs. There is no listing UI; read with the AWS CLI or console.
-- Fallback: iOS Safari and denied permissions send the data without a screenshot. The UI never uploads an approximate image.
+- Fallback: iOS Safari, denied permissions, and browsers that cannot confirm the tab send the data without a screenshot. The UI never uploads an approximate or unintended image.
+- Trust boundary: `note`, `url`, `userAgent`, `timezone` and the screenshot are stored verbatim. Escape them before rendering in any future admin view.
 
 ## Common tweaks
 
