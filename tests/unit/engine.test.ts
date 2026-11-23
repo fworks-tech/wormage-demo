@@ -219,12 +219,68 @@ describe('multi-team matches', () => {
 
 
 describe('mob layout', () => {
-  test('spawns four times the team size near the center', () => {
-    const engine = new GameEngine({ turnSeconds: 30, wind: 'light', difficulty: 'veteran', seed: 777, wormsPerTeam: 3 });
-    expect(engine.mobs.length).toBe(12);
-    const center = 3840 / 2;
-    for (const m of engine.mobs) {
-      expect(Math.abs(m.x - center)).toBeLessThanOrEqual(250);
+  test('spawns four times the team size away from worms, mines and each other', () => {
+    // A crowded band steps outward; spacing must hold for every seed.
+    for (const seed of [1, 2, 13, 777]) {
+      const engine = new GameEngine({ turnSeconds: 30, wind: 'light', difficulty: 'veteran', seed, wormsPerTeam: 3 });
+      expect(engine.mobs.length).toBe(12);
+      for (let i = 0; i < engine.mobs.length; i += 1) {
+        for (let j = i + 1; j < engine.mobs.length; j += 1) {
+          expect(Math.abs(engine.mobs[i].x - engine.mobs[j].x)).toBeGreaterThanOrEqual(48);
+        }
+      }
+      for (const mob of engine.mobs) {
+        for (const team of engine.teams) {
+          for (const worm of team.worms) {
+            expect(Math.abs(mob.x - worm.x)).toBeGreaterThanOrEqual(60);
+          }
+        }
+        for (const mine of engine.loot.filter((item) => item.kind === 'mine')) {
+          expect(Math.abs(mob.x - mine.x)).toBeGreaterThanOrEqual(48);
+        }
+      }
     }
+  });
+});
+
+describe('mob combat', () => {
+  test('a direct bazooka blast does not kill a full-health mob', () => {
+    const engine = new GameEngine(config());
+    const mob = engine.mobs[0];
+    (engine as any).blast(mob.x, mob.y, WEAPONS.bazooka.damage, WEAPONS.bazooka.radius, WEAPONS.bazooka.terrainRadius, 0, 'explosion');
+
+    expect(mob.alive).toBe(true);
+    expect(mob.hp).toBeGreaterThan(0);
+    expect(engine.debugLog.some((entry) => entry.category === 'combat.mobHurt')).toBe(true);
+    expect(engine.debugLog.some((entry) => entry.category === 'combat.mobDeath')).toBe(false);
+  });
+
+  test('bazooka and a nearby mine can accumulate enough damage to kill a mob', () => {
+    const engine = new GameEngine(config());
+    const mob = engine.mobs[0];
+    (engine as any).blast(mob.x, mob.y, WEAPONS.bazooka.damage, WEAPONS.bazooka.radius, WEAPONS.bazooka.terrainRadius, 0, 'explosion');
+    (engine as any).blast(mob.x, mob.y, 40, 60, 40, 0, 'mineExplosion');
+
+    expect(mob.alive).toBe(false);
+    expect(engine.debugLog.filter((entry) => entry.category === 'combat.mobHurt' && entry.actorId === `mob-${mob.id}`)).toHaveLength(2);
+    expect(engine.debugLog.some((entry) => entry.category === 'combat.mobDeath' && entry.actorId === `mob-${mob.id}`)).toBe(true);
+  });
+
+  test('the hostile phase never damages mobs', () => {
+    const engine = new GameEngine(config());
+    const before = engine.mobs.map((mob) => mob.hp);
+    engine.endTurn();
+
+    expect(engine.mobs.map((mob) => mob.hp)).toEqual(before);
+  });
+
+  test('mobs do not arm mines', () => {
+    const engine = new GameEngine(config());
+    const mob = engine.mobs[0];
+    engine.loot.push({ id: 9999, x: mob.x, y: mob.y, vx: 0, vy: 0, kind: 'mine', armed: false, fuse: 1.5, ammoGrant: 0 });
+
+    (engine as any).updateLoot(DT);
+
+    expect(engine.loot.find((item) => item.id === 9999)?.armed).toBe(false);
   });
 });

@@ -276,6 +276,7 @@ export class ArenaRenderer {
   private lastSnapshot: GameSnapshot | null = null;
   private mobFocusTimer = 0;
   private lastPhase: string = 'aim';
+  private readonly mobRenderPositions = new Map<number, { x: number; y: number }>();
 
   private constructor(app: Application, engine: GameEngine) {
     this.app = app;
@@ -661,9 +662,21 @@ export class ArenaRenderer {
     // Hostile mobs (engine state only until now).
     this.mobGfx.clear();
     for (const mob of this.engine.mobs) {
-      if (!mob.alive) continue;
-      const x = mob.x;
-      const y = mob.y;
+      if (!mob.alive) {
+        this.mobRenderPositions.delete(mob.id);
+        continue;
+      }
+      const previous = this.mobRenderPositions.get(mob.id) ?? { x: mob.x, y: mob.y };
+      const dx = mob.x - previous.x;
+      const dy = mob.y - previous.y;
+      const distance = Math.hypot(dx, dy);
+      const step = Math.min(distance, mob.speed * (paused ? 0 : dt));
+      const position = distance > 0
+        ? { x: previous.x + (dx / distance) * step, y: previous.y + (dy / distance) * step }
+        : previous;
+      this.mobRenderPositions.set(mob.id, position);
+      const x = position.x;
+      const y = position.y;
       const r = mob.radius;
       const feet = y + r;
       // Worm-like silhouette with a darker, sickly skin and red eyes.

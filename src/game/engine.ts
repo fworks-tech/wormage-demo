@@ -793,10 +793,25 @@ export class GameEngine {
     const center = WORLD_W / 2;
     for (let i = 0; i < count; i += 1) {
       let x = center;
-      for (let tries = 0; tries < 20; tries += 1) {
-        const cand = center + (rng() - 0.5) * 400;
-        if (this.teams.every((t) => t.worms.every((w) => Math.abs(w.x - cand) >= 60))) { x = cand; break; }
-        x = cand;
+      const isClear = (candidate: number) => {
+        const clearOfWorms = this.teams.every((t) => t.worms.every((w) => Math.abs(w.x - candidate) >= 60));
+        const clearOfMobs = this.mobs.every((m) => Math.abs(m.x - candidate) >= 48);
+        const clearOfMines = this.loot.every((item) => item.kind !== 'mine' || Math.abs(item.x - candidate) >= 48);
+        return clearOfWorms && clearOfMobs && clearOfMines;
+      };
+      for (let tries = 0; tries < 40; tries += 1) {
+        const cand = center + (rng() - 0.5) * 1200;
+        if (isClear(cand)) { x = cand; break; }
+      }
+      if (!isClear(x)) {
+        // Band full: step outward from it so the mob stays as close to the
+        // encounter as the 48 px spacing allows instead of stacking at center.
+        for (let step = 48; step < WORLD_W; step += 48) {
+          const left = center - 600 - step;
+          const right = center + 600 + step;
+          if (left >= 60 && isClear(left)) { x = left; break; }
+          if (right <= WORLD_W - 60 && isClear(right)) { x = right; break; }
+        }
       }
       x = Math.max(60, Math.min(WORLD_W - 60, x));
       this.mobs.push({ id: ++this.mobId, x, y: ground(x) - 12, hp: 60, maxHp: 60, damage: 5, speed: 160, radius: 18, alive: true });
@@ -1003,8 +1018,23 @@ export class GameEngine {
       if (!mob.alive) continue;
       const d = Math.hypot(mob.x - x, mob.y - y);
       if (d <= radius) {
-        mob.hp = Math.max(0, mob.hp - damage);
-        if (mob.hp <= 0) { mob.alive = false; this.loot.push({ id: ++this.lootId, x: mob.x, y: mob.y - 12, vx: 0, vy: 0, kind: 'ammo', armed: false, fuse: 0, ammoGrant: 1 }); }
+        const amount = damage * blastFalloff(d, radius);
+        mob.hp = Math.max(0, mob.hp - amount);
+        this.logDebug('combat.mobHurt', 'Mob hurt by blast', {
+          mobId: mob.id,
+          amount: Math.round(amount),
+          remainingHp: Math.round(mob.hp),
+          distance: Math.round(d),
+          eventType,
+        }, 'system', `mob-${mob.id}`);
+        if (mob.hp <= 0) {
+          mob.alive = false;
+          this.logDebug('combat.mobDeath', 'Mob killed by blast', {
+            mobId: mob.id,
+            eventType,
+          }, 'system', `mob-${mob.id}`);
+          this.loot.push({ id: ++this.lootId, x: mob.x, y: mob.y - 12, vx: 0, vy: 0, kind: 'ammo', armed: false, fuse: 0, ammoGrant: 1 });
+        }
       }
     }
     this.events.push({ type: eventType, x, y, radius });
