@@ -670,7 +670,7 @@ export class ArenaRenderer {
       const dx = mob.x - previous.x;
       const dy = mob.y - previous.y;
       const distance = Math.hypot(dx, dy);
-      const step = Math.min(distance, mob.speed * dt);
+      const step = Math.min(distance, mob.speed * (paused ? 0 : dt));
       const position = distance > 0
         ? { x: previous.x + (dx / distance) * step, y: previous.y + (dy / distance) * step }
         : previous;

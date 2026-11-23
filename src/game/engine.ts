@@ -804,10 +804,13 @@ export class GameEngine {
         if (isClear(cand)) { x = cand; break; }
       }
       if (!isClear(x)) {
-        // Keep the fallback inside the same central band; scanning the whole
-        // world can scatter a mob far from the encounter.
-        for (let candidate = center - 600; candidate <= center + 600; candidate += 48) {
-          if (isClear(candidate)) { x = candidate; break; }
+        // Band full: step outward from it so the mob stays as close to the
+        // encounter as the 48 px spacing allows instead of stacking at center.
+        for (let step = 48; step < WORLD_W; step += 48) {
+          const left = center - 600 - step;
+          const right = center + 600 + step;
+          if (left >= 60 && isClear(left)) { x = left; break; }
+          if (right <= WORLD_W - 60 && isClear(right)) { x = right; break; }
         }
       }
       x = Math.max(60, Math.min(WORLD_W - 60, x));

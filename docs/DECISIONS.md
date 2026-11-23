@@ -152,7 +152,7 @@ The debug-logging PR also moved `zod` from 3.25 to 4.6. v4 changes two behaviors
 
 ## 22. Mobs are hazards with worm rules
 
-Mobs share the worm damage model: `blastFalloff` scales explosion damage by distance, so a 42-damage bazooka leaves a 60 HP mob alive. They target only worms, never each other, and they do not arm mines. Spawn positions keep 48 px from other mobs and mines and 60 px from worm spawns; the renderer walks them to each new position at `mob.speed` instead of snapping.
+Mobs share the worm damage model: `blastFalloff` scales explosion damage by distance, so a 42-damage bazooka leaves a 60 HP mob alive. They target only worms, never each other, and they do not arm mines. Spawn positions keep 48 px from other mobs and mines and 60 px from worm spawns, preferring the central band and stepping just outside it when it is full; the renderer walks them to each new position at `mob.speed` instead of snapping.
 
 **Why:** the disappearances were chained mine blasts plus full-strength blast damage on tightly packed mobs, and the old renderer showed only the post-move position. One rule set for damage and one visual walk path removes both surprises.
 **Cost:** the engine still resolves hostile movement once per turn; the walk is renderer interpolation. A future continuous-movement pass would move that state into `update`.

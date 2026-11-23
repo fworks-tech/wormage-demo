@@ -219,21 +219,25 @@ describe('multi-team matches', () => {
 
 
 describe('mob layout', () => {
-  test('spawns four times the team size away from worms and mines', () => {
-    const engine = new GameEngine({ turnSeconds: 30, wind: 'light', difficulty: 'veteran', seed: 777, wormsPerTeam: 3 });
-    expect(engine.mobs.length).toBe(12);
-    const center = 3840 / 2;
-    for (const m of engine.mobs) {
-      expect(Math.abs(m.x - center)).toBeLessThanOrEqual(600);
-    }
-    for (let i = 0; i < engine.mobs.length; i += 1) {
-      for (let j = i + 1; j < engine.mobs.length; j += 1) {
-        expect(Math.abs(engine.mobs[i].x - engine.mobs[j].x)).toBeGreaterThanOrEqual(48);
+  test('spawns four times the team size away from worms, mines and each other', () => {
+    // A crowded band steps outward; spacing must hold for every seed.
+    for (const seed of [1, 2, 13, 777]) {
+      const engine = new GameEngine({ turnSeconds: 30, wind: 'light', difficulty: 'veteran', seed, wormsPerTeam: 3 });
+      expect(engine.mobs.length).toBe(12);
+      for (let i = 0; i < engine.mobs.length; i += 1) {
+        for (let j = i + 1; j < engine.mobs.length; j += 1) {
+          expect(Math.abs(engine.mobs[i].x - engine.mobs[j].x)).toBeGreaterThanOrEqual(48);
+        }
       }
-    }
-    for (const mob of engine.mobs) {
-      for (const mine of engine.loot.filter((item) => item.kind === 'mine')) {
-        expect(Math.abs(mob.x - mine.x)).toBeGreaterThanOrEqual(48);
+      for (const mob of engine.mobs) {
+        for (const team of engine.teams) {
+          for (const worm of team.worms) {
+            expect(Math.abs(mob.x - worm.x)).toBeGreaterThanOrEqual(60);
+          }
+        }
+        for (const mine of engine.loot.filter((item) => item.kind === 'mine')) {
+          expect(Math.abs(mob.x - mine.x)).toBeGreaterThanOrEqual(48);
+        }
       }
     }
   });
