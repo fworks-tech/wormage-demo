@@ -11,6 +11,7 @@ import {
   getOnlineMatch,
   submitOnlineAction,
   forfeitOnlineMatch,
+  replayOnlineMatch,
   shouldFail,
   isEmpty,
 } from './mockServer';
@@ -83,6 +84,15 @@ const localAdapter: AxiosAdapter = async (config) => {
     return respond(config, 200, { code: match.code, match });
   }
 
+  const onlineReplay = url.pathname.match(/^\/api\/matches\/online\/([^/]+)\/replay$/);
+  if (method === 'GET' && onlineReplay) {
+    const replay = replayOnlineMatch(decodeURIComponent(onlineReplay[1]));
+    if (!replay) {
+      throw new AxiosError('not found', 'ERR_BAD_REQUEST', config, null, respond(config, 404, { message: 'match not found' }));
+    }
+    return respond(config, 200, replay);
+  }
+
   const onlineCreate = url.pathname === '/api/matches/online';
   if (method === 'POST' && onlineCreate) {
     const body = (typeof config.data === 'string' ? JSON.parse(config.data) : config.data) as {
@@ -119,9 +129,9 @@ const localAdapter: AxiosAdapter = async (config) => {
   if (method === 'POST' && onlineAction) {
     const code = decodeURIComponent(onlineAction[1]);
     const body = (typeof config.data === 'string' ? JSON.parse(config.data) : config.data) as {
-      playerId: string; action: { type: string; [k: string]: unknown }; clientActionId?: string;
+      playerId: string; action: { type: string; [k: string]: unknown }; clientActionId?: string; tick?: number; engineTick?: number;
     };
-    const result = submitOnlineAction(code, { playerId: body.playerId, action: body.action, clientActionId: body.clientActionId });
+    const result = submitOnlineAction(code, { playerId: body.playerId, action: body.action, clientActionId: body.clientActionId, tick: body.tick, engineTick: body.engineTick });
     if ('error' in result) {
       throw new AxiosError(result.error, 'ERR_BAD_REQUEST', config, null, respond(config, result.status, { message: result.error }));
     }

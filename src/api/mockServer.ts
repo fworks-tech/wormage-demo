@@ -484,7 +484,9 @@ export function replayOnlineMatch(code: string): {
   const wormsPerTeam = typeof settings.wormsPerTeam === 'number' ? settings.wormsPerTeam : 3;
   const map = (settings.map as MatchConfig['map']) ?? 'island';
   const mode = (settings.mode as MatchConfig['mode']) ?? 'deathmatch';
-  const config: MatchConfig = { turnSeconds, wind, difficulty, seed, wormsPerTeam, map, mode };
+  const loadout = (settings.loadout as MatchConfig['loadout']) ?? 'default';
+  const teamNames = Array.isArray(settings.teamNames) ? settings.teamNames as string[] : undefined;
+  const config: MatchConfig = { turnSeconds, wind, difficulty, seed, wormsPerTeam, map, mode, loadout, hotseat: false, teamCount: 2, teamNames };
   const engine = new GameEngine(config);
   const actions = getActionLog(code);
   const DT = 1 / 60;

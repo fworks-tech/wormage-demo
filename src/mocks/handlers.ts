@@ -11,6 +11,7 @@ import {
   getOnlineMatch,
   submitOnlineAction,
   forfeitOnlineMatch,
+  replayOnlineMatch,
   shouldFail,
 } from '../api/mockServer';
 import type { NewMatchInput } from '../api/types';
@@ -66,6 +67,14 @@ export const handlers = [
     return HttpResponse.json({ code: match.code, match }, { status: 200 });
   }),
 
+  http.get('/api/matches/online/:code/replay', async ({ params }) => {
+    await delay(latencyMs());
+    if (shouldFail()) return HttpResponse.json({ message: 'Upstream unavailable' }, { status: 503 });
+    const replay = replayOnlineMatch(String(params.code));
+    if (!replay) return HttpResponse.json({ message: 'match not found' }, { status: 404 });
+    return HttpResponse.json(replay, { status: 200 });
+  }),
+
   http.post('/api/matches/online', async ({ request }) => {
     await delay(latencyMs());
     if (shouldFail()) return HttpResponse.json({ message: 'Upstream unavailable' }, { status: 503 });
@@ -83,8 +92,8 @@ export const handlers = [
     await delay(latencyMs());
     if (shouldFail()) return HttpResponse.json({ message: 'Upstream unavailable' }, { status: 503 });
     const code = String(params.code);
-    const body = (await request.json()) as { playerId: string; action: { type: string; [k: string]: unknown }; clientActionId?: string };
-    const result = submitOnlineAction(code, { playerId: body.playerId, action: body.action, clientActionId: body.clientActionId });
+    const body = (await request.json()) as { playerId: string; action: { type: string; [k: string]: unknown }; clientActionId?: string; tick?: number; engineTick?: number };
+    const result = submitOnlineAction(code, { playerId: body.playerId, action: body.action, clientActionId: body.clientActionId, tick: body.tick, engineTick: body.engineTick });
     if ('error' in result) {
       return HttpResponse.json({ message: result.error }, { status: result.status });
     }

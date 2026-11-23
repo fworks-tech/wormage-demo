@@ -56,7 +56,7 @@ export function NewGameMenu({ onStart, settings, onSaveSettings, bindings, onSav
         ) : panel === 'controls' ? (
           <ControlsDialog bindings={bindings} onSave={onSaveBindings} onClose={() => setPanel(null)} />
         ) : panel === 'online' ? (
-          <OnlineMatchDialog player={player} onClose={() => setPanel(null)} onStart={onStartOnline} />
+          <OnlineMatchDialog player={player} settings={settings} onClose={() => setPanel(null)} onStart={onStartOnline} />
         ) : (
           <div className="overlay-card">
             <p className="eyebrow">
