@@ -122,4 +122,33 @@ describe('bug report payload', () => {
     const engine = new GameEngine(config());
     await expect(sendBugReport({ engine, note: '', screenshot: null })).rejects.toThrow('could not be sent');
   });
+
+  test('trims large reports before upload but keeps the screenshot', async () => {
+    const engine = new GameEngine(config());
+    engine.debugLog = Array.from({ length: 1000 }, (_, i) => entry(engine, i, 'x'.repeat(3500)));
+    for (let i = 0; i < 20; i += 1) {
+      engine.captureDebugSnapshot(`snap-${i}`);
+      const last = engine.debugSnapshots.at(-1);
+      if (last) (last as { blob?: string }).blob = 'y'.repeat(60000);
+    }
+    engine.log = Array.from({ length: 5000 }, (_, i) => ({ tick: i, action: { type: 'endTurn' as const } }));
+
+    await sendBugReport({
+      engine,
+      note: '',
+      screenshot: shot(),
+      online: { code: 'ABC123', playerId: 'p1' },
+    });
+
+    const body = post.mock.calls[0][1] as {
+      screenshot: { data: string } | null;
+      debug: { entries: unknown[]; snapshots: unknown[] };
+      actionLog: unknown[];
+    };
+    const bytes = new TextEncoder().encode(JSON.stringify(body)).length;
+    expect(bytes).toBeLessThanOrEqual(3_900_000);
+    expect(body.screenshot?.data).toBe('AAAA');
+    expect(body.debug.snapshots).toHaveLength(0);
+    expect(body.debug.entries.length).toBeLessThanOrEqual(200);
+  });
 });

@@ -114,3 +114,94 @@ test('denied capture restores the menu and still sends the match data', async ({
   expect(reports[0].note).toBe('no screen capture');
   expect(reports[0].screenshot).toBeNull();
 });
+
+test('unsupported capture falls back to a data-only report', async ({ page }) => {
+  await page.addInitScript(() => {
+    const media = navigator.mediaDevices;
+    if (!media) return;
+    Object.defineProperty(media, 'getDisplayMedia', { configurable: true, value: undefined });
+  });
+
+  await startMatch(page);
+  await openReport(page);
+  await page.getByTestId('btn-capture-report').click();
+
+  await expect(page.getByTestId('report-error')).toContainText('cannot capture a tab');
+  await expect(page.getByTestId('report-preview')).toHaveCount(0);
+
+  await page.getByTestId('btn-send-report').click();
+  await expect(page.getByTestId('report-sent')).toBeVisible();
+
+  const reports = await storedReports(page);
+  expect(reports).toHaveLength(1);
+  expect(reports[0].screenshot).toBeNull();
+});
+
+test('a non-tab surface is rejected and its tracks are stopped', async ({ page }) => {
+  await page.addInitScript(() => {
+    const probe = window as unknown as { __captureTrack?: MediaStreamTrack };
+    const media = navigator.mediaDevices;
+    if (!media) return;
+    Object.defineProperty(media, 'getDisplayMedia', {
+      configurable: true,
+      value: async () => {
+        const canvas = document.createElement('canvas');
+        canvas.width = 320;
+        canvas.height = 180;
+        const context = canvas.getContext('2d')!;
+        context.fillStyle = '#224';
+        context.fillRect(0, 0, 320, 180);
+        const stream = canvas.captureStream(30);
+        const track = stream.getVideoTracks()[0];
+        track.getSettings = () => ({ displaySurface: 'window' } as MediaTrackSettings);
+        probe.__captureTrack = track;
+        return stream;
+      },
+    });
+  });
+
+  await startMatch(page);
+  await openReport(page);
+  await page.getByTestId('btn-capture-report').click();
+
+  await expect(page.getByTestId('report-error')).toContainText('Share this tab');
+  await expect(page.getByTestId('report-preview')).toHaveCount(0);
+  const ended = await page.evaluate(() => (window as unknown as { __captureTrack?: MediaStreamTrack }).__captureTrack?.readyState);
+  expect(ended).toBe('ended');
+});
+
+test('a failed send keeps the preview so the report can be retried', async ({ page }) => {
+  await page.addInitScript(() => {
+    const media = navigator.mediaDevices;
+    if (!media) return;
+    Object.defineProperty(media, 'getDisplayMedia', {
+      configurable: true,
+      value: async () => {
+        const canvas = document.createElement('canvas');
+        canvas.width = 640;
+        canvas.height = 360;
+        const context = canvas.getContext('2d')!;
+        context.fillStyle = '#2f6f4f';
+        context.fillRect(0, 0, 640, 360);
+        const timer = window.setInterval(() => context.fillRect(0, 0, 640, 360), 33);
+        const stream = canvas.captureStream(30);
+        stream.getVideoTracks()[0].addEventListener('ended', () => window.clearInterval(timer));
+        return stream;
+      },
+    });
+  });
+
+  await startMatch(page);
+  await openReport(page);
+  await page.getByTestId('btn-capture-report').click();
+  await expect(page.getByTestId('report-preview')).toBeVisible();
+
+  await page.evaluate(() => localStorage.setItem('wormage.netScenario.v1', 'error'));
+  await page.getByTestId('btn-send-report').click();
+  await expect(page.getByTestId('report-error')).toContainText('could not be sent');
+  await expect(page.getByTestId('report-preview')).toBeVisible();
+
+  await page.evaluate(() => localStorage.setItem('wormage.netScenario.v1', 'normal'));
+  await page.getByTestId('btn-send-report').click();
+  await expect(page.getByTestId('report-sent')).toBeVisible();
+});

@@ -25,6 +25,7 @@ const GAME_UNIT = [
 const GAME_E2E = ['tests/combat.spec.ts', 'tests/jump.spec.ts', 'tests/rope.spec.ts'];
 const UI_E2E = [
   'tests/bug-report.spec.ts',
+  'tests/bug-report-real-capture.spec.ts',
   'tests/combat.spec.ts',
   'tests/data.spec.ts',
   'tests/fullscreen.spec.ts',
@@ -66,7 +67,7 @@ const RULES = [
   {
     files: ['src/ui/GameView.tsx'],
     unit: [],
-    e2e: ['tests/combat.spec.ts', 'tests/fullscreen.spec.ts', 'tests/jump.spec.ts', 'tests/mobile-hud.spec.ts', 'tests/hud-layout.spec.ts', 'tests/data.spec.ts', 'tests/rope.spec.ts', 'tests/settings.spec.ts', 'tests/bug-report.spec.ts'],
+    e2e: ['tests/combat.spec.ts', 'tests/fullscreen.spec.ts', 'tests/jump.spec.ts', 'tests/mobile-hud.spec.ts', 'tests/hud-layout.spec.ts', 'tests/data.spec.ts', 'tests/rope.spec.ts', 'tests/settings.spec.ts', 'tests/bug-report.spec.ts', 'tests/bug-report-real-capture.spec.ts'],
   },
   {
     files: ['src/ui/Hud.tsx'],
