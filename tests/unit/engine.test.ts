@@ -306,7 +306,7 @@ describe('terrain and water share one surface', () => {
     }
   });
 
-  test('a worm at the water line drowns on the next step', () => {
+  test('a worm below the water line drowns on the next step', () => {
     const engine = new GameEngine(config());
     const worm = engine.activeWorm!;
     worm.y = WATER_Y + 20;
@@ -316,5 +316,38 @@ describe('terrain and water share one surface', () => {
 
     expect(worm.alive).toBe(false);
     expect(worm.y).toBe(WATER_Y);
+  });
+
+  test('a falling worm drowns when it crosses the water line', () => {
+    const engine = new GameEngine(config());
+    const worm = engine.activeWorm!;
+    worm.onGround = false;
+    worm.vy = 600;
+    worm.y = WATER_Y - 2;
+
+    step(engine, DT);
+
+    expect(worm.alive).toBe(false);
+    expect(worm.y).toBe(WATER_Y);
+  });
+
+  test('a rope swing below the water line drowns the worm', () => {
+    const engine = new GameEngine(config());
+    const worm = engine.activeWorm!;
+    // Anchor inside solid terrain close to the water so a straight-down rope crosses it.
+    const anchorX = worm.x;
+    const anchorY = WATER_Y - 60;
+    expect(engine.terrain.isSolid(anchorX, anchorY)).toBe(true);
+
+    worm.rope = { anchorX, anchorY, length: 120, angle: 0, angularVelocity: 0 };
+    worm.onGround = false;
+    worm.vy = 0;
+    worm.vx = 0;
+
+    step(engine, DT);
+
+    expect(worm.alive).toBe(false);
+    expect(worm.y).toBe(WATER_Y);
+    expect(worm.rope).toBeNull();
   });
 });

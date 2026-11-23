@@ -1259,6 +1259,7 @@ export class GameEngine {
   }
 
   private drown(worm: Worm): void {
+    if (!worm.alive) return;
     worm.y = WATER_Y;
     worm.rope = null;
     worm.hp = 0;

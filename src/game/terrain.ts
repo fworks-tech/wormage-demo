@@ -105,7 +105,7 @@ export class Terrain {
     }
 
     for (const s of this.shelves) {
-      for (let cy = 0; cy < ROWS; cy += 1) {
+      for (let cy = 0; cy < waterRow; cy += 1) {
         const y = cy * CELL + CELL / 2;
         for (let cx = 0; cx < COLS; cx += 1) {
           const x = cx * CELL + CELL / 2;
