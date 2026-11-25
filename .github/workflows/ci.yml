@@ -52,12 +52,43 @@ jobs:
           UNIT_ARGS: ${{ steps.scope.outputs.unit_args }}
         run: npx vitest run $UNIT_ARGS
 
+      - name: Install infra dependencies
+        if: steps.scope.outputs.run_infra == 'true'
+        run: npm --prefix infra ci
+
+      - name: Infra tests
+        if: steps.scope.outputs.run_infra == 'true'
+        run: npm run test:infra
+
       - run: npm run build
 
-      # E2E (Playwright) disabled in CI for now — see issue/PR notes.
-      # Run locally with: npx playwright test
+  smoke:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - run: npm ci
+
+      - name: Browser tests
+        env:
+          PR_LABELS: ${{ join(github.event.pull_request.labels.*.name, ',') }}
+        run: |
+          if [[ ",$PR_LABELS," == *",ci:full,"* ]]; then
+            npm run test:e2e
+          else
+            npm run test:smoke
+          fi
+
       - name: Upload Playwright report
-        if: false
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: playwright-report
