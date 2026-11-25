@@ -3,6 +3,7 @@ export interface TestSelection {
   full: boolean;
   unit: string[];
   e2e: string[];
+  infra: boolean;
   reason: string;
 }
 
