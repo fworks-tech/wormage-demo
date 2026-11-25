@@ -1,10 +1,11 @@
 // Selects the tests a diff can reach. The map is deliberately coarse: a missed
 // dependency silently skips tests, while a wide match only costs a few minutes.
 // Anything without a rule falls back to the full suite.
-import { execFileSync, spawnSync } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
 import { appendFileSync, existsSync, readdirSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { parseArgs, planRuns, runSelected } from './test-runner.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -67,7 +68,7 @@ const RULES = [
   {
     files: ['src/ui/GameView.tsx'],
     unit: [],
-    e2e: ['tests/combat.spec.ts', 'tests/fullscreen.spec.ts', 'tests/jump.spec.ts', 'tests/mobile-hud.spec.ts', 'tests/hud-layout.spec.ts', 'tests/data.spec.ts', 'tests/rope.spec.ts', 'tests/settings.spec.ts', 'tests/bug-report.spec.ts', 'tests/bug-report-real-capture.spec.ts'],
+    e2e: ['tests/combat.spec.ts', 'tests/fullscreen.spec.ts', 'tests/jump.spec.ts', 'tests/mobile-hud.spec.ts', 'tests/hud-layout.spec.ts', 'tests/data.spec.ts', 'tests/rope.spec.ts', 'tests/settings.spec.ts', 'tests/bug-report.spec.ts', 'tests/bug-report-real-capture.spec.ts', 'tests/online.spec.ts', 'tests/online-two-browsers.spec.ts'],
   },
   {
     files: ['src/ui/Hud.tsx'],
@@ -101,9 +102,9 @@ const RULES = [
   {
     dirs: ['src/api/', 'src/mocks/', 'src/state/'],
     unit: ['tests/unit/mockServer.test.ts', 'tests/unit/onlineMatch.test.ts', 'tests/unit/lambdaReplay.test.ts', 'tests/unit/bugReport.test.ts'],
-    e2e: ['tests/data.spec.ts', 'tests/menu.spec.ts'],
+    e2e: ['tests/data.spec.ts', 'tests/menu.spec.ts', 'tests/online.spec.ts', 'tests/online-two-browsers.spec.ts'],
   },
-  { dirs: ['infra/'], unit: ['tests/unit/lambdaReplay.test.ts'], e2e: [] },
+  { dirs: ['infra/'], unit: ['tests/unit/lambdaReplay.test.ts'], e2e: [], infra: true },
   // A new screen or component still runs every spec: over-selecting is cheap.
   { dirs: ['src/ui/'], unit: [], e2e: UI_E2E },
   { dirs: ['docs/'], unit: [], e2e: [] },
@@ -129,7 +130,7 @@ export function listTests(root = ROOT) {
 }
 
 function fullResult(reason) {
-  return { full: true, unit: [], e2e: [], reason };
+  return { full: true, unit: [], e2e: [], infra: true, reason };
 }
 
 function isFull(file) {
@@ -138,34 +139,36 @@ function isFull(file) {
 
 function selectFor(file) {
   if (isFull(file)) return fullResult(`full trigger: ${file}`);
-  if (NO_TEST_EXTENSIONS.some((ext) => file.endsWith(ext))) return { unit: [], e2e: [] };
+  if (NO_TEST_EXTENSIONS.some((ext) => file.endsWith(ext))) return { unit: [], e2e: [], infra: false };
   if (file.startsWith('tests/unit/')) {
-    return { unit: file.endsWith('.test.ts') ? [file] : listTests().units, e2e: [] };
+    return { unit: file.endsWith('.test.ts') ? [file] : listTests().units, e2e: [], infra: false };
   }
-  if (file.startsWith('tests/') && file.endsWith('.spec.ts')) return { unit: [], e2e: [file] };
+  if (file.startsWith('tests/') && file.endsWith('.spec.ts')) return { unit: [], e2e: [file], infra: false };
 
   const rule = RULES.find(
     (candidate) => (candidate.files ?? []).includes(file) || (candidate.dirs ?? []).some((dir) => file.startsWith(dir)),
   );
   if (!rule) return fullResult(`unmapped path: ${file}`);
-  return { unit: rule.unit, e2e: rule.e2e };
+  return { unit: rule.unit, e2e: rule.e2e, infra: Boolean(rule.infra) };
 }
 
 export function selectTests({ changed, labels = [] }) {
   if (labels.includes('ci:full')) return fullResult('ci:full label');
-  if (changed.length === 0) return { full: false, unit: [], e2e: [], reason: 'no changed files' };
+  if (changed.length === 0) return { full: false, unit: [], e2e: [], infra: false, reason: 'no changed files' };
 
   const unit = new Set();
   const e2e = new Set();
+  let infra = false;
   for (const file of changed) {
     const selection = selectFor(file);
     if (selection.full) return selection;
     selection.unit.forEach((test) => unit.add(test));
     selection.e2e.forEach((test) => e2e.add(test));
+    infra ||= selection.infra;
   }
 
   const existing = (files) => [...files].filter((file) => existsSync(join(ROOT, file))).sort();
-  return { full: false, unit: existing(unit), e2e: existing(e2e), reason: `${changed.length} changed file(s)` };
+  return { full: false, unit: existing(unit), e2e: existing(e2e), infra, reason: `${changed.length} changed file(s)` };
 }
 
 function git(args) {
@@ -198,52 +201,27 @@ function changedFiles(base) {
   return [...files];
 }
 
-function parseArgs(argv) {
-  const args = { base: null, labels: [], full: false, run: false };
-  for (let index = 0; index < argv.length; index += 1) {
-    const arg = argv[index];
-    if (arg === '--base') args.base = argv[++index];
-    else if (arg === '--labels') args.labels = (argv[++index] ?? '').split(',').map((label) => label.trim()).filter(Boolean);
-    else if (arg === '--full') args.full = true;
-    else if (arg === '--run') args.run = true;
-    else throw new Error(`unknown argument: ${arg}`);
-  }
-  return args;
-}
-
-function report(selection) {
-  const scope = selection.full ? 'full' : selection.unit.length || selection.e2e.length ? 'selective' : 'none';
+function report(selection, plan) {
+  const scope = plan.unit || plan.infra || plan.e2e ? (selection.full ? 'full' : 'selective') : 'none';
   console.log(`scope: ${scope} (${selection.reason})`);
-  console.log(`unit: ${selection.unit.join(' ') || '-'}`);
-  console.log(`e2e: ${selection.e2e.join(' ') || '-'}`);
+  console.log(`unit: ${plan.unit ? (selection.full ? 'all' : selection.unit.join(' ') || '-') : '-'}`);
+  console.log(`infra: ${plan.infra ? 'npm --prefix infra test' : '-'}`);
+  const e2e = plan.e2e ? [selection.full ? 'all' : null, ...plan.e2eArgs].filter(Boolean).join(' ') : '-';
+  console.log(`e2e: ${e2e}`);
 
   const output = process.env.GITHUB_OUTPUT;
   if (!output) return;
   appendFileSync(
     output,
     [
-      `run_unit=${selection.full || selection.unit.length > 0}`,
-      `unit_args=${selection.unit.join(' ')}`,
-      `run_e2e=${selection.full || selection.e2e.length > 0}`,
-      `e2e_args=${selection.e2e.join(' ')}`,
-      `scope=${selection.full ? 'full' : 'selective'}`,
+      `run_unit=${plan.unit}`,
+      `unit_args=${plan.unitArgs.join(' ')}`,
+      `run_infra=${plan.infra}`,
+      `run_e2e=${plan.e2e}`,
+      `e2e_args=${plan.e2eArgs.join(' ')}`,
+      `scope=${scope}`,
     ].join('\n') + '\n',
   );
-}
-
-function run(command, args) {
-  const result = spawnSync('npx', [command, ...args], {
-    cwd: ROOT,
-    stdio: 'inherit',
-    shell: process.platform === 'win32',
-  });
-  if (result.status !== 0) process.exit(result.status ?? 1);
-}
-
-function runSelected(selection) {
-  if (selection.full || selection.unit.length) run('vitest', ['run', ...(selection.full ? [] : selection.unit)]);
-  if (selection.full || selection.e2e.length) run('playwright', ['test', ...(selection.full ? [] : selection.e2e)]);
-  if (!selection.full && !selection.unit.length && !selection.e2e.length) console.log('No tests affected.');
 }
 
 function main() {
@@ -263,8 +241,9 @@ function main() {
       }
     }
   }
-  report(selection);
-  if (args.run) runSelected(selection);
+  const plan = planRuns(selection, args);
+  report(selection, plan);
+  if (args.run && !args.dryRun) runSelected(plan);
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) main();

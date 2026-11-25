@@ -2,27 +2,69 @@
 
 ## Run
 
+| Goal | Command |
+| --- | --- |
+| All unit tests | `npm test` / `npm run test:unit` |
+| Watch units while editing | `npm run test:unit:watch` |
+| Combat journey | `npm run test:combat` |
+| Online journey | `npm run test:online` |
+| Lambda/infra tests | `npm run test:infra` |
+| Critical PR smoke | `npm run test:smoke` |
+| Affected Node tests only | `npm run test:quick` |
+| Affected unit, infra and browser tests | `npm run test:affected` |
+| Full browser matrix | `npm run test:e2e` |
+
 ```bash
-npm test                         # Vitest, Node, no browser
-npm run test:e2e                 # Playwright, both projects
-npm run test:affected            # only the tests origin/main + your worktree can reach
 npx playwright test --project=desktop
 npx playwright test tests/combat.spec.ts -g "firing"
-npx playwright show-report       # HTML report
+PW_WORKERS=1 npm run test:online   # serial debugging
+npx playwright show-report         # HTML report
 ```
 
 Vitest only picks up `tests/unit/**/*.test.ts`. The Playwright config uses `channel: 'chrome'` so no browser download is required, and starts/reuses the Vite dev server on `http://localhost:5173`.
 
+Run `npm --prefix infra ci` once after cloning so `test:quick` and `test:infra` can use the Lambda dependencies.
+
+Playwright runs in parallel by default with up to four workers, leaving capacity for the Vite server. Set `PW_WORKERS` to a positive integer to override the cap; `PW_WORKERS=1` is the stable serial mode for debugging.
+
+## Smoke set
+
+`npm run test:smoke` runs exactly five critical journeys on both `desktop` and `mobile`:
+
+1. Online create/join reaches a ready room.
+2. An online shot hands the turn to the other human before the timer.
+3. Pause freezes the turn timer and resume restarts it.
+4. A finished match is registered once and appears in history/ranking.
+5. Menu options persist after reload and apply to the active ruleset.
+
+Keep this set small. Detailed edge cases belong in the full matrix, not behind `@smoke`.
+
 ## CI test selection
 
-Pull requests run only the tests their diff can reach; pushes to `main` run everything. The map lives in [`scripts/affected.mjs`](../scripts/affected.mjs): add a rule when a new spec needs a new source area, otherwise that spec only runs when the spec file itself changes. Unmapped paths fall back to the full suite. Add the `ci:full` label to force it.
+Pull requests run typecheck, content validation, affected Vitest, selected infra tests, build and smoke E2E. Add the `ci:full` label to run the complete browser matrix on a PR. Pushes to `main` run the full Node/build checks. The nightly and manually dispatched **E2E** workflow runs the full desktop/mobile Playwright matrix.
+
+The map lives in [`scripts/affected.mjs`](../scripts/affected.mjs): add a rule when a new spec needs a new source area, otherwise that spec only runs when the spec file itself changes. Unmapped paths fall back to the full applicable set.
 
 ```bash
-npm run test:affected   # runs the selection (uncommitted and untracked files included)
-node scripts/affected.mjs --base origin/main   # print the selection without running it
+npm run test:quick                              # affected Vitest + infra, no browser
+npm run test:affected                           # runs the full affected selection
+node scripts/affected.mjs --base origin/main    # print the selection without running it
+node scripts/affected.mjs --e2e-only --project=desktop --grep="@smoke" --dry-run
 ```
 
-The same script runs in CI with the PR base commit, so local and CI agree. To run it before every push, opt in once per clone:
+Selector flags:
+
+| Flag | Effect |
+| --- | --- |
+| `--unit-only` | Skip Playwright; keep selected Vitest and infra tests |
+| `--e2e-only` | Skip Vitest and infra; run selected Playwright specs |
+| `--project=desktop\|mobile` | Forward a Playwright project filter |
+| `--grep=<text>` | Forward a Playwright title filter |
+| `--dry-run` | Print the plan without executing, even alongside `--run` |
+| `--full` | Select the full applicable set |
+| `--labels=ci:full` | Force the full applicable set |
+
+The same script runs in CI with the PR base commit, so local and CI agree. To run affected Node tests before every push, opt in once per clone:
 
 ```bash
 git config core.hooksPath .githooks

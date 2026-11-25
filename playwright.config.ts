@@ -1,4 +1,14 @@
+import { availableParallelism } from 'node:os';
 import { defineConfig, devices } from '@playwright/test';
+
+export function resolveWorkers(value: string | undefined, parallelism = availableParallelism()) {
+  if (value !== undefined) {
+    const workers = Number(value);
+    if (!Number.isInteger(workers) || workers < 1) throw new Error('PW_WORKERS must be a positive integer');
+    return workers;
+  }
+  return Math.max(1, Math.min(4, parallelism - 1));
+}
 
 /**
  * Playwright runs against the Vite dev server so the MSW worker and the
@@ -8,8 +18,8 @@ import { defineConfig, devices } from '@playwright/test';
 export default defineConfig({
   testDir: './tests',
   testIgnore: '**/unit/**',
-  fullyParallel: false,
-  workers: 1,
+  fullyParallel: true,
+  workers: resolveWorkers(process.env.PW_WORKERS),
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 1 : 0,
   reporter: [['list'], ['html', { open: 'never' }]],

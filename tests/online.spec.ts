@@ -9,16 +9,26 @@ test.beforeEach(async ({ page }) => {
   });
 });
 
-test('can create an online match and see a code', async ({ page }) => {
+test('@smoke can create and join an online match', async ({ page }) => {
   await page.goto('/demo?seed=4242');
   await page.getByTestId('btn-online').click();
   await page.getByTestId('btn-create-online').click();
   await expect(page.getByTestId('online-code')).toBeVisible({ timeout: 5000 });
   const code = await page.getByTestId('online-code').textContent();
   expect(code?.trim()).toMatch(/^[A-Z2-9]{6}$/);
+
+  await page.evaluate(async (matchCode) => {
+    const response = await fetch(`/api/matches/online/${matchCode}/join`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ playerId: 'e2e-bob', playerName: 'Bob' }),
+    });
+    if (!response.ok) throw new Error('Bob could not join');
+  }, code!.trim());
+  await expect(page.getByTestId('btn-start-online')).toBeVisible({ timeout: 5000 });
 });
 
-test('a shot hands the online turn to the other human before the timer', async ({ page }) => {
+test('@smoke a shot hands the online turn to the other human before the timer', async ({ page }) => {
   await page.goto('/demo?seed=4242');
   await page.getByTestId('btn-online').click();
   await page.getByTestId('btn-create-online').click();
