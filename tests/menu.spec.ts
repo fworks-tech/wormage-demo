@@ -42,7 +42,7 @@ test('menu renders the briefing and both boards', async ({ page }) => {
   await expect(page.getByTestId('history-empty')).toBeVisible();
 });
 
-test('options persist after reload and clamp the timer', async ({ page }) => {
+test('@smoke options persist after reload and clamp the timer', async ({ page }) => {
   await page.goto('/project');
   await page.getByTestId('tab-options').click();
 

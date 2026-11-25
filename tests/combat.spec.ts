@@ -199,7 +199,7 @@ test('weapon selection follows ammo and keyboard shortcuts', async ({ page }) =>
   expect((await snapshot(page)).weapon).toBe('bazooka');
 });
 
-test('pause freezes the turn timer until resumed', async ({ page }) => {
+test('@smoke pause freezes the turn timer until resumed', async ({ page }) => {
   await startMatch(page);
   await pause(page);
   await expect(page.getByTestId('btn-resume')).toBeVisible();

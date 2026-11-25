@@ -13,7 +13,7 @@ async function finishMatch(page: Page) {
   await expect(page.getByTestId('result-screen')).toBeVisible({ timeout: 10_000 });
 }
 
-test('a finished match is registered once and shows in history and ranking', async ({ page }) => {
+test('@smoke a finished match is registered once and shows in history and ranking', async ({ page }) => {
   await page.addInitScript(() => {
     if (!window.sessionStorage.getItem('e2e-cleared')) {
       window.sessionStorage.setItem('e2e-cleared', '1');
@@ -38,6 +38,7 @@ test('a finished match is registered once and shows in history and ranking', asy
 
   await page.getByTestId('btn-main-menu').click();
   await page.getByTestId('tab-history').click();
+  await expect(page.getByTestId('match-history').locator('tbody tr')).toHaveCount(1);
   await expect(page.getByTestId('match-history').locator('tbody tr').first()).toBeVisible();
   await expect(page.getByTestId('match-history').locator('tbody tr').first()).toContainText(score);
 
@@ -47,6 +48,7 @@ test('a finished match is registered once and shows in history and ranking', asy
   // The board survives a reload (localStorage-backed mock DB).
   await page.reload();
   await page.getByTestId('tab-history').click();
+  await expect(page.getByTestId('match-history').locator('tbody tr')).toHaveCount(1);
   await expect(page.getByTestId('match-history').locator('tbody tr').first()).toBeVisible();
 });
 
