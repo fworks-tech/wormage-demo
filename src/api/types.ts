@@ -100,6 +100,8 @@ export interface OnlineMatch {
   /** Last canonical engine state persisted by the server. */
   snapshot?: GameSnapshot | null;
   snapshotTick?: number | null;
+  lastSyncId?: string | null;
+  revision?: number;
 }
 
 export interface OnlineActionLogEntry {

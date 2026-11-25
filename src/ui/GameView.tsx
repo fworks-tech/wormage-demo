@@ -3,7 +3,7 @@ import { GameEngine } from '../game/engine';
 import { ArenaRenderer } from '../game/renderer';
 import { flushDebugLog } from '../api/debugLog';
 import { SoundKit } from '../game/audio';
-import { AIM, FIXED_DT } from '../game/config';
+import { AIM, FIXED_DT, WEAPONS } from '../game/config';
 import type { GameSettings, GameSnapshot, WeaponId } from '../game/types';
 import { MOVEMENT_ALIASES, type Bindings, type MovementAliasAction } from '../state/bindings';
 import type { SessionResult } from '../types';
@@ -24,6 +24,22 @@ import { loadOnlineSession } from '../state/storage';
 const DRAG_SLOP_PX = 8;
 
 const MOVEMENT_ALIAS_CODES = new Set<string>(Object.values(MOVEMENT_ALIASES));
+
+const TERMINAL_ONLINE_ERRORS = new Set([
+  'illegal action for current phase',
+  'not your turn',
+  'stale action tick',
+  'stale sync tick',
+  'fire had no effect',
+  'release had no effect',
+  'unknown weapon',
+  'shot not found',
+]);
+
+function onlineErrorMessage(error: unknown): string | null {
+  const response = (error as { response?: { data?: { message?: unknown } } } | null)?.response;
+  return typeof response?.data?.message === 'string' ? response.data.message : null;
+}
 
 type PausePanel = 'settings' | 'controls' | 'report' | null;
 
@@ -96,6 +112,7 @@ export function GameView({
   const [ready, setReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const onlineMatch = useOnlineMatch(online ? (onlineCode ?? null) : null, online);
+  const refetchOnlineMatch = onlineMatch.refetch;
   const onlineMatchRef = useRef(onlineMatch);
   useEffect(() => { onlineMatchRef.current = onlineMatch; }, [onlineMatch]);
   const cleanupRef = useRef<(() => void) | null>(null);
@@ -103,7 +120,16 @@ export function GameView({
   const forfeit = useForfeitOnlineMatch();
   const lastServerActionCountRef = useRef(0);
   const lastLocalActionCountRef = useRef(0);
-  const isMyTurn = online ? (onlineMatch.data?.activeTeam === playerTeamIndex) : true;
+  const lastInputTeamRef = useRef<number | null>(null);
+  const pendingShotRef = useRef(false);
+  const fireSubmittedRef = useRef(false);
+  const submittedTurnRef = useRef(0);
+  const syncRetryAtRef = useRef(0);
+  const commitRetryAtRef = useRef(0);
+  const flushingCommitsRef = useRef(false);
+  const isMyTurn = online
+    ? onlineMatch.data?.activeTeam === playerTeamIndex && engineRef.current?.activeTeam === playerTeamIndex
+    : true;
   const isMyTurnRef = useRef(isMyTurn);
   isMyTurnRef.current = isMyTurn;
   const fullscreen = useFullscreen();
@@ -190,7 +216,7 @@ export function GameView({
       map: (serverSettings?.map as GameSettings['map']) ?? settings.map ?? 'island',
       mode: (serverSettings?.mode as GameSettings['mode']) ?? settings.mode ?? 'deathmatch',
       loadout: (serverSettings?.loadout as GameSettings['loadout']) ?? settings.loadout ?? 'default',
-      hotseat: online ? false : settings.hotseat ?? false,
+      hotseat: online ? true : settings.hotseat ?? false,
       teamCount: online ? 2 : settings.teamCount ?? 2,
       teamNames: online ? serverSettings?.teamNames ?? settings.teamNames?.slice(0, 2) : settings.teamNames,
     });
@@ -272,13 +298,24 @@ export function GameView({
         accumulator.current += dt;
         while (accumulator.current >= FIXED_DT) {
           accumulator.current -= FIXED_DT;
+          const localOwnsTurn = !online || engine.activeTeam === playerTeamIndex;
+          if (online) {
+            isMyTurnRef.current = onlineMatchRef.current?.data?.activeTeam === playerTeamIndex && localOwnsTurn;
+            if (lastInputTeamRef.current !== engine.activeTeam) {
+              keysRef.current.clear();
+              hudMoveRef.current = 0;
+              engine.setMove(0);
+              engine.setReel(0);
+              lastInputTeamRef.current = engine.activeTeam;
+            }
+          }
           const keymap = bindingsRef.current;
           // Arrow keys stay as aliases so the documented controls survive a rebind.
           const held = (action: MovementAliasAction) =>
             keysRef.current.has(keymap[action]) || keysRef.current.has(MOVEMENT_ALIASES[action]);
 
           // The AI drives its own worm; player input only steers on human turns.
-          if (!engine.teams[engine.activeTeam].isAi) {
+          if (!engine.teams[engine.activeTeam].isAi && localOwnsTurn) {
             if (engine.phase === 'aim' || engine.retreatActive) {
               const hudDir = hudMoveRef.current;
               if (hudDir !== 0) engine.setMove(hudDir);
@@ -305,6 +342,8 @@ export function GameView({
           } else {
             // A pad held when the turn passed must not walk the next human worm.
             hudMoveRef.current = 0;
+            engine.setMove(0);
+            engine.setReel(0);
           }
 
           engine.update(FIXED_DT);
@@ -314,6 +353,12 @@ export function GameView({
           renderer.handleEvent(event);
           switch (event.type) {
             case 'fire':
+              if (isMyTurnRef.current && WEAPONS[event.weapon].kind !== 'utility') {
+                pendingShotRef.current = true;
+                fireSubmittedRef.current = false;
+                submittedTurnRef.current = engine.turn;
+                syncRetryAtRef.current = 0;
+              }
               sound.play('fire');
               break;
             case 'explosion':
@@ -512,13 +557,20 @@ export function GameView({
         if (online) engine.record({ type: 'weapon', id: weapon }); else engine.selectWeapon(weapon);
         return;
       }
-      if (e.code === keys.endTurn && !snap.teams[snap.activeTeam]?.isAi) { if (online) engine.record({ type: 'endTurn' }); else engine.endTurn(); }
+      if (e.code === keys.endTurn && snap.phase === 'aim' && !snap.teams[snap.activeTeam]?.isAi) { if (online) engine.record({ type: 'endTurn' }); else engine.endTurn(); }
     };
 
     const up = (e: KeyboardEvent) => {
       if (capturingRef.current) return;
       keysRef.current.delete(e.code);
-      if (e.code === bindingsRef.current.fire && engineRef.current) { if (online) engineRef.current.record({ type: 'releaseCharge' }); else engineRef.current.releaseCharge(); }
+      if (e.code === bindingsRef.current.fire && engineRef.current) {
+        const current = engineRef.current;
+        if (online) {
+          if (current.charging) current.record({ type: 'releaseCharge' });
+        } else {
+          current.releaseCharge();
+        }
+      }
     };
 
     window.addEventListener('keydown', down);
@@ -619,28 +671,90 @@ export function GameView({
   useEffect(() => {
     if (!online || !onlineCode || !playerId || !engineRef.current) return;
     const engine = engineRef.current;
-    const interval = window.setInterval(() => {
-      const log = engine.log;
-      const count = lastLocalActionCountRef.current;
-      if (log.length <= count) return;
-      const newEntries = log.slice(count);
-      for (const entry of newEntries) {
-        // Only submit commit actions (not move/aim which are local-only).
-        const commitTypes = ['fire', 'endTurn', 'jump', 'rope', 'weapon', 'startCharge', 'releaseCharge'];
-        if (commitTypes.includes(entry.action.type)) {
-          void submitAction.mutateAsync({
-            code: onlineCode,
-            playerId,
-            action: entry.action as { type: string; [k: string]: unknown },
-            clientActionId: `${entry.tick}-${entry.action.type}`,
-            tick: entry.tick,
-          }).catch(() => { /* ignore */ });
+    const syncTurn = () => {
+      // The engine advances after a resolved shot without recording an input.
+      // Ask the server to simulate to now; it rejects a projectile still in flight.
+      if (!pendingShotRef.current || !fireSubmittedRef.current) return;
+      if (engine.phase !== 'gameover' && engine.turn <= submittedTurnRef.current) return;
+      const now = performance.now();
+      if (now < syncRetryAtRef.current) return;
+      syncRetryAtRef.current = now + 1000;
+      const turn = submittedTurnRef.current;
+      void submitAction.mutateAsync({
+        code: onlineCode,
+        playerId,
+        action: { type: 'endTurn' },
+        clientActionId: `${turn}-endTurn-sync`,
+        tick: engine.tick,
+      }).then(() => {
+        if (submittedTurnRef.current === turn) {
+          pendingShotRef.current = false;
+          fireSubmittedRef.current = false;
+          syncRetryAtRef.current = 0;
         }
-      }
-      lastLocalActionCountRef.current = log.length;
+      }).catch((error: unknown) => {
+        const message = onlineErrorMessage(error);
+        if (message && TERMINAL_ONLINE_ERRORS.has(message)) {
+          pendingShotRef.current = false;
+          fireSubmittedRef.current = false;
+          syncRetryAtRef.current = 0;
+          void refetchOnlineMatch();
+        }
+      });
+    };
+
+    const interval = window.setInterval(() => {
+      // A resolved shot must never wait behind newer input from the next turn.
+      syncTurn();
+      if (flushingCommitsRef.current) return;
+      flushingCommitsRef.current = true;
+      void (async () => {
+        if (performance.now() < commitRetryAtRef.current) return;
+        const log = engine.log;
+        const count = lastLocalActionCountRef.current;
+        const newEntries = log.slice(count);
+        let processed = 0;
+        for (const entry of newEntries) {
+          if (entry.action.type === 'endTurn') {
+            pendingShotRef.current = false;
+            fireSubmittedRef.current = false;
+            submittedTurnRef.current = engine.turn;
+            syncRetryAtRef.current = 0;
+          }
+          // Only submit commit actions (not move/aim which are local-only).
+          const commitTypes = ['fire', 'endTurn', 'jump', 'rope', 'weapon', 'startCharge', 'releaseCharge'];
+          if (!commitTypes.includes(entry.action.type)) {
+            processed += 1;
+            continue;
+          }
+          try {
+            await submitAction.mutateAsync({
+              code: onlineCode,
+              playerId,
+              action: entry.action as { type: string; [k: string]: unknown },
+              clientActionId: `${entry.tick}-${entry.action.type}-${count + processed}`,
+              tick: entry.tick,
+            });
+            if (entry.action.type === 'fire' || entry.action.type === 'releaseCharge') fireSubmittedRef.current = true;
+            processed += 1;
+          } catch (error: unknown) {
+            const message = onlineErrorMessage(error);
+            if (message && TERMINAL_ONLINE_ERRORS.has(message)) {
+              processed += 1;
+              void refetchOnlineMatch();
+              continue;
+            }
+            commitRetryAtRef.current = performance.now() + 1000;
+            break;
+          }
+        }
+        lastLocalActionCountRef.current = count + processed;
+        if (processed !== newEntries.length) return;
+        syncTurn();
+      })().finally(() => { flushingCommitsRef.current = false; });
     }, 200);
     return () => window.clearInterval(interval);
-  }, [online, onlineCode, playerId, submitAction]);
+  }, [online, onlineCode, playerId, submitAction, refetchOnlineMatch]);
 
   const engine = engineRef.current;
 
@@ -673,14 +787,14 @@ export function GameView({
           }}
           onAim={(dir) => engineRef.current?.aimBy(dir * 0.06)}
           onAimStop={() => undefined}
-          onJump={() => { const e = engineRef.current; if (!e) return; if (online) e.record({ type: 'jump' }); else e.jump(); }}
-          onRope={() => { const e = engineRef.current; if (!e) return; if (online) e.record({ type: 'rope' }); else e.useRope(); }}
-          onReel={(dir) => engineRef.current?.setReel(dir)}
-          onChargeStart={() => { const e = engineRef.current; if (!e) return; if (online) e.record({ type: 'startCharge' }); else e.startCharge(); }}
-          onChargeEnd={() => { const e = engineRef.current; if (!e) return; if (online) e.record({ type: 'releaseCharge' }); else e.releaseCharge(); }}
+          onJump={() => { if (!isMyTurnRef.current) return; const e = engineRef.current; if (!e) return; if (online) e.record({ type: 'jump' }); else e.jump(); }}
+          onRope={() => { if (!isMyTurnRef.current) return; const e = engineRef.current; if (!e) return; if (online) e.record({ type: 'rope' }); else e.useRope(); }}
+          onReel={(dir) => { if (isMyTurnRef.current) engineRef.current?.setReel(dir); }}
+          onChargeStart={() => { if (!isMyTurnRef.current) return; const e = engineRef.current; if (!e) return; if (online) e.record({ type: 'startCharge' }); else e.startCharge(); }}
+          onChargeEnd={() => { if (!isMyTurnRef.current) return; const e = engineRef.current; if (!e) return; if (online) { if (e.charging) e.record({ type: 'releaseCharge' }); } else e.releaseCharge(); }}
           onChargeCancel={() => engineRef.current?.cancelCharge()}
-          onSelectWeapon={(weapon) => { const e = engineRef.current; if (!e) return; if (online) e.record({ type: 'weapon', id: weapon }); else e.selectWeapon(weapon); }}
-          onEndTurn={() => { const e = engineRef.current; if (!e) return; if (online) e.record({ type: 'endTurn' }); else e.endTurn(); }}
+          onSelectWeapon={(weapon) => { if (!isMyTurnRef.current) return; const e = engineRef.current; if (!e) return; if (online) e.record({ type: 'weapon', id: weapon }); else e.selectWeapon(weapon); }}
+          onEndTurn={() => { if (!isMyTurnRef.current) return; const e = engineRef.current; if (!e) return; if (online) e.record({ type: 'endTurn' }); else e.endTurn(); }}
           onPause={() => {
             // The capture hides the overlay; the HUD is clickable during that
             // window and must not close the report panel.

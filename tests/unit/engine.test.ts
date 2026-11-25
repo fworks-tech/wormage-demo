@@ -36,6 +36,31 @@ describe('engine rules without a browser', () => {
     expect(Math.abs(engine.wind)).toBeLessThanOrEqual(WIND_ACCEL.strong);
   });
 
+  test('player input cannot discard a shot by ending the turn', () => {
+    const engine = new GameEngine(config());
+    engine.startCharge();
+    engine.power = 0.6;
+    engine.fire();
+    expect(engine.phase).toBe('projectile');
+    engine.update(DT);
+
+    engine.endTurn();
+    expect(engine.activeTeam).toBe(0);
+    expect(engine.projectilesInFlight).toHaveLength(1);
+
+    engine.record({ type: 'endTurn' });
+    expect(engine.activeTeam).toBe(0);
+    expect(engine.projectilesInFlight).toHaveLength(1);
+  });
+
+  test('drop weapons emit the same fire feedback as projectiles', () => {
+    const engine = new GameEngine(config());
+    engine.teams[0].ammo.dynamite = 1;
+    engine.selectWeapon('dynamite');
+    engine.fire();
+    expect(engine.events.some((event) => event.type === 'fire' && event.weapon === 'dynamite')).toBe(true);
+  });
+
   test('wind never exceeds the ruleset maximum', () => {
     const engine = new GameEngine(config({ wind: 'light' }));
     for (let i = 0; i < 10; i += 1) {
