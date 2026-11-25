@@ -6,13 +6,15 @@ Automated agents should also read [AGENTS.md](AGENTS.md), which restates these r
 
 ```bash
 npm ci
+npm --prefix infra ci   # one-time setup for test:quick / test:infra
 npm run dev            # http://localhost:5173
 npm run typecheck
 npm test               # Vitest unit tests
 npm run build
-npm run test:e2e       # uses installed Chrome
-npm run test:affected  # only the tests origin/main + your worktree can reach
-git config core.hooksPath .githooks   # optional: run test:affected before each push
+npm run test:smoke       # critical desktop/mobile journeys
+npm run test:quick       # affected Node tests, no browser
+npm run test:affected    # affected unit, infra and browser tests
+git config core.hooksPath .githooks   # optional: run test:quick before each push
 ```
 
 Node 20+ is required.
@@ -29,7 +31,7 @@ Node 20+ is required.
    - `test/deterministic-replay`
 3. **Commit with Conventional Commits.** The type matches the branch type; the scope is optional and names the area.
 4. **Open one PR per issue.** Link it with `Closes #N`. Keep unrelated changes out.
-5. **Do not merge without review.** A PR needs an approving review and a green CI run — typecheck, build and the tests the change affects (pushes to `main` run the full suite).
+5. **Do not merge without review.** A PR needs an approving review and a green CI run — typecheck, build, affected Node tests and smoke E2E. Pushes to `main` run the full Node/build checks; nightly or manual runs cover the full browser matrix.
 
 ### Stacked PRs
 
