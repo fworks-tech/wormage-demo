@@ -38,6 +38,8 @@ import type {
   Worm,
 } from './types';
 
+export { WEAPONS } from './config';
+
 const WORM_NAMES = [
   ['Sarge', 'Biscuit', 'Mags'],
   ['Crank', 'Nyx', 'Dust'],
@@ -618,6 +620,7 @@ export class GameEngine {
         fuse: weapon.fuse,
         trailTimer: 0,
       });
+      this.events.push({ type: 'fire', x: worm.x, y: worm.y - 8, angle, weapon: this.weapon });
     } else {
       const muzzleX = worm.x + Math.cos(angle) * 18;
       const muzzleY = worm.y - 14 + Math.sin(angle) * 18;

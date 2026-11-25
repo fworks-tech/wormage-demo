@@ -6,7 +6,7 @@ const DT = 1 / 60;
 // 30 minutes of simulation. The old 5-minute ceiling silently dropped every
 // action in a longer match; this still bounds a full replay to ~1.8 s.
 const MAX_TICKS = 60 * 60 * 30;
-const ENGINE_VERSION = 2;
+const ENGINE_VERSION = 3;
 
 function matchConfig(match) {
   const settings = (match && match.settings) || {};
@@ -21,7 +21,7 @@ function matchConfig(match) {
     map: settings.map || 'island',
     mode: settings.mode || 'deathmatch',
     loadout: settings.loadout || 'default',
-    hotseat: false,
+    hotseat: true,
     teamCount: 2,
     teamNames: Array.isArray(settings.teamNames) ? settings.teamNames : undefined,
   };

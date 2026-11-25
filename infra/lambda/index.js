@@ -1,10 +1,10 @@
 'use strict';
 
 const crypto = require('crypto');
-const { DynamoDBClient } = require('@aws-sdk/client-dynamodb');
+const { DynamoDBClient, TransactWriteItemsCommand } = require('@aws-sdk/client-dynamodb');
 const { DynamoDBDocumentClient, GetCommand, PutCommand, QueryCommand, UpdateCommand } = require('@aws-sdk/lib-dynamodb');
 const { S3Client, PutObjectCommand, DeleteObjectCommand } = require('@aws-sdk/client-s3');
-const { GameEngine } = require('./engine.cjs');
+const { GameEngine, WEAPONS } = require('./engine.cjs');
 const { replayActionLog, ENGINE_VERSION } = require('./replay.js');
 
 const TABLE = process.env.TABLE_NAME;
@@ -513,6 +513,7 @@ async function postOnlineMatch(event, ddbClient = ddb) {
       phase: 'aim',
       hasFired: false,
       engineVersion: ENGINE_VERSION,
+      revision: 0,
       ammo: [{ bazooka: 999, grenade: 3, shotgun: 4, dynamite: 2, medkit: 2, shield: 1 },
              { bazooka: 999, grenade: 3, shotgun: 4, dynamite: 2, medkit: 2, shield: 1 }],
       players: [{ playerId: body.playerId, playerName: body.playerName, teamName }],
@@ -612,36 +613,56 @@ async function getOnlineMatch(event, rawCode, ddbClient = ddb) {
   }
   } catch (e) { /* ignore */ }
 
-  // Server-side turn expiry: if the active turn has run out, advance.
-  if (match.status === 'ready' && match.winnerTeam == null && match.turnStartedAt) {
+  // A draw has no winnerTeam, so phase is the authoritative terminal marker.
+  if (match.status === 'ready' && (match.phase === 'gameover' || (match.snapshot && match.snapshot.phase === 'gameover'))) {
+    await ddbClient.send(new UpdateCommand({
+      TableName: TABLE,
+      Key: { pk: `ONLINE#${code}`, sk: 'META' },
+      UpdateExpression: 'SET #status = :finished',
+      ExpressionAttributeNames: { '#status': 'status' },
+      ExpressionAttributeValues: { ':finished': 'finished' },
+    }));
+    match.status = 'finished';
+  }
+
+  // Server-side turn expiry advance.
+  if (match.status === 'ready' && match.winnerTeam == null && match.phase !== 'gameover' && match.turnStartedAt) {
     const elapsed = Date.now() - new Date(match.turnStartedAt).getTime();
     const ts = match.turnSeconds != null ? match.turnSeconds : 45;
     const limit = ts * 1000;
     if (elapsed >= limit) {
       const now = new Date().toISOString();
-      const n = Array.isArray(match.players) ? match.players.length : 0;
-      let nextTeam = match.activeTeam;
-      for (let i = 1; i <= n; i++) {
-        const idx = (match.activeTeam + i) % n;
-        if (match.players[idx] && match.players[idx].playerId) { nextTeam = idx; break; }
-      }
-      const newTurn = (match.turn || 1) + 1;
-      try {
-        await ddbClient.send(new UpdateCommand({
-          TableName: TABLE,
-          Key: { pk: `ONLINE#${code}`, sk: 'META' },
-          UpdateExpression: 'SET activeTeam = :at, turn = :t, turnStartedAt = :ts',
-          ExpressionAttributeValues: { ':at': nextTeam, ':t': newTurn, ':ts': now, ':old': match.turnStartedAt },
-          ConditionExpression: 'turnStartedAt = :old',
-        }));
-        match = { ...match, activeTeam: nextTeam, turn: newTurn, turnStartedAt: now };
-      } catch (err) {
-        // Conditional check failed (concurrent advance) — re-read.
-        const after = await ddbClient.send(new GetCommand({
-          TableName: TABLE,
-          Key: { pk: `ONLINE#${code}`, sk: 'META' },
-        }));
-        if (after.Item) match = after.Item;
+      for (let attempt = 0; attempt < 3; attempt += 1) {
+        if (match.status !== 'ready' || match.winnerTeam != null || match.phase === 'gameover') break;
+        if (Date.now() - new Date(match.turnStartedAt).getTime() < limit) break;
+        const expectedRevision = match.revision || 0;
+        const newTurn = (match.turn || 1) + 1;
+        const n = Array.isArray(match.players) ? match.players.length : 0;
+        let nextTeam = match.activeTeam;
+        for (let i = 1; i <= n; i += 1) {
+          const idx = (match.activeTeam + i) % n;
+          if (match.players[idx] && match.players[idx].playerId) { nextTeam = idx; break; }
+        }
+        try {
+          await ddbClient.send(new UpdateCommand({
+            TableName: TABLE,
+            Key: { pk: `ONLINE#${code}`, sk: 'META' },
+            UpdateExpression: 'SET activeTeam = :at, turn = :t, turnStartedAt = :ts, #phase = :aim, hasFired = :false, weapon = :weapon, snapshot = :null, snapshotTick = :null, revision = :revision',
+            ExpressionAttributeNames: { '#phase': 'phase' },
+            ExpressionAttributeValues: { ':at': nextTeam, ':t': newTurn, ':ts': now, ':old': match.turnStartedAt, ':expectedRevision': expectedRevision, ':aim': 'aim', ':false': false, ':weapon': 'bazooka', ':null': null, ':revision': expectedRevision + 1 },
+            ConditionExpression: 'turnStartedAt = :old AND (attribute_not_exists(revision) OR revision = :expectedRevision)',
+          }));
+          match = { ...match, activeTeam: nextTeam, turn: newTurn, turnStartedAt: now, phase: 'aim', hasFired: false, weapon: 'bazooka', snapshot: null, snapshotTick: null, revision: expectedRevision + 1 };
+          break;
+        } catch (err) {
+          if (!err || err.name !== 'ConditionalCheckFailedException') throw err;
+          const after = await ddbClient.send(new GetCommand({
+            TableName: TABLE,
+            Key: { pk: `ONLINE#${code}`, sk: 'META' },
+          }));
+          if (!after.Item) break;
+          match = after.Item;
+        }
       }
     }
   }
@@ -689,6 +710,14 @@ async function submitAction(event, rawCode, ddbClient) {
   const players = Array.isArray(match.players) ? match.players : [];
   if (!players.some((p) => p && p.playerId === body.playerId)) return json(403, { message: 'not a participant' });
 
+  const syncId = typeof body.clientActionId === 'string' && body.clientActionId.endsWith('-endTurn-sync')
+    ? body.clientActionId
+    : null;
+  if (syncId) {
+    if (match.lastSyncId === syncId) return json(200, { code, match: toOnlineMatch(match), duplicate: true });
+    if ((match.phase || 'aim') === 'aim') return json(409, { message: 'shot not found' });
+  }
+
   // Idempotency: check before turn/phase validation.
   const log = await getActionLog(code, ddbClient);
   const actions = Array.isArray(log.actions) ? log.actions : [];
@@ -702,18 +731,23 @@ async function submitAction(event, rawCode, ddbClient) {
   const phase = match.phase || 'aim';
   const type = action.type;
   if (phase === 'gameover') return json(409, { message: 'match finished' });
+  const syncOnly = type === 'endTurn' && phase !== 'aim';
+  if (type === 'weapon' && !(typeof action.id === 'string' && Object.prototype.hasOwnProperty.call(WEAPONS, action.id))) {
+    return json(400, { message: 'unknown weapon' });
+  }
   const aimOnly = ['move', 'aim', 'jump', 'rope', 'reel', 'weapon', 'startCharge', 'releaseCharge'];
   if (type === 'fire' || type === 'startCharge') {
     if (phase !== 'aim' || match.hasFired) return json(409, { message: 'illegal action for current phase' });
   } else if (type === 'endTurn') {
-    if (phase !== 'aim') return json(409, { message: 'illegal action for current phase' });
+    const endingShot = match.hasFired && (phase === 'projectile' || phase === 'settle');
+    if (phase !== 'aim' && !endingShot) return json(409, { message: 'illegal action for current phase' });
   } else if (aimOnly.includes(type)) {
     if (phase !== 'aim') return json(409, { message: 'illegal action for current phase' });
   } else {
     return json(400, { message: 'unknown action type' });
   }
 
-  if (actions.length >= ACTION_CAP) return json(409, { message: 'action log full' });
+  if (!syncOnly && actions.length >= ACTION_CAP) return json(409, { message: 'action log full' });
 
   const now = new Date().toISOString();
   const seq = actions.reduce((m, a) => Math.max(m, (a && typeof a.seq === 'number') ? a.seq : 0), 0) + 1;
@@ -722,56 +756,99 @@ async function submitAction(event, rawCode, ddbClient) {
   // Never let one action fast-forward more than a turn of simulation: a stale
   // or hostile tick could otherwise end the match by replaying to MAX_TICKS.
   const turnSeconds = typeof match.turnSeconds === 'number' && match.turnSeconds > 0 ? match.turnSeconds : 45;
-  const turnTicks = turnSeconds * 60;
+  const turnTicks = Math.ceil(turnSeconds * 60) + 1;
   const requestedTick = engineTick != null ? engineTick : currentTick;
-  const actionTick = Math.max(currentTick, Math.min(requestedTick, currentTick + turnTicks));
-  const entry = { seq, tick: actionTick, turn: match.turn || 1, engineTick: actionTick, action, playerId: body.playerId, clientActionId: body.clientActionId || null, at: now };
+  let actionTick = Math.max(currentTick, Math.min(requestedTick, currentTick + turnTicks));
+  const matchTurn = match.turn || 1;
+  const revision = typeof match.revision === 'number' ? match.revision : 0;
+  const actorIndex = players.findIndex((p) => p && p.playerId === body.playerId);
+  const makeEntry = (tick) => ({ seq, tick, turn: matchTurn, engineTick: tick, action, playerId: body.playerId, clientActionId: body.clientActionId || null, at: now });
+  let entry = makeEntry(actionTick);
+  if (!syncOnly) {
+    try {
+      let before = replayActionLog({ GameEngine, match, actions, stopTick: actionTick });
+      if (before.snapshot.turn < matchTurn || before.snapshot.activeTeam !== actorIndex) {
+        // A paused/reloaded client may still stamp an old tick. Recover through
+        // expired turns, but never apply its input to the opponent's worm.
+        const recoveryTick = Math.max(actionTick, (matchTurn - 1) * turnTicks);
+        actionTick = Math.min(recoveryTick, currentTick + turnTicks * Math.max(1, matchTurn));
+        entry = makeEntry(actionTick);
+        before = replayActionLog({ GameEngine, match, actions, stopTick: actionTick });
+      }
+      if (before.snapshot.turn !== matchTurn || before.snapshot.activeTeam !== actorIndex) {
+        return json(409, { message: 'stale action tick' });
+      }
+    } catch (err) {
+      console.error('replay failed', err);
+      return json(409, { message: 'illegal action' });
+    }
+  }
 
   // Replay before writing anything: an action the engine cannot apply must
-  // leave both the match item and the action log untouched. Stop at the
-  // action's tick so submitting an action does not fast-forward the match.
+  // leave both the match item and the action log untouched.
   let replay;
   try {
     replay = replayActionLog({
       GameEngine,
       match,
-      actions: [...actions, entry],
-      stopTick: actionTick,
+      actions: syncOnly ? actions : [...actions, entry],
+      stopTick: syncOnly ? actionTick + 1 : actionTick,
     });
   } catch (err) {
     console.error('replay failed', err);
     return json(409, { message: 'illegal action' });
   }
   const snap = replay.snapshot;
-  const matchTurn = match.turn || 1;
+  const fired = snap.phase === 'projectile' || snap.phase === 'settle';
+  // A rejected fire (no ammo, launched worm, …) is otherwise accepted and
+  // incorrectly flips the room into a phase the player cannot leave.
+  if (type === 'fire' && snap.phase === 'aim' && snap.turn === matchTurn) {
+    return json(409, { message: 'fire had no effect' });
+  }
+  if (type === 'releaseCharge' && snap.phase === 'aim' && snap.turn === matchTurn) {
+    return json(409, { message: 'release had no effect' });
+  }
+  if (syncOnly && snap.phase !== 'aim' && snap.phase !== 'gameover') {
+    return json(409, { message: 'shot still in flight' });
+  }
+  if (syncOnly && snap.turn < matchTurn) {
+    return json(409, { message: 'stale sync tick' });
+  }
   const updates = {
     turnSeconds: snap.turnSeconds,
     phase: snap.phase,
     weapon: snap.weapon,
+    hasFired: fired,
     winnerTeam: snap.winnerTeam,
     endReason: snap.endReason,
     engineVersion: replay.engineVersion,
     snapshot: snap,
     snapshotTick: replay.tick,
+    revision: revision + 1,
   };
+  if (syncOnly) updates.lastSyncId = body.clientActionId;
   // getOnlineMatch advances an expired turn on its own. A replay that stopped
   // at an earlier tick must not drag the match back to the previous team.
-  if (snap.turn > matchTurn) {
+  if (snap.turn >= matchTurn) {
     updates.turn = snap.turn;
     updates.activeTeam = snap.activeTeam;
-    updates.turnStartedAt = now;
+    if (snap.turn > matchTurn) updates.turnStartedAt = now;
   }
-  if (snap.winnerTeam != null) updates.status = 'finished';
-  if (type === 'endTurn') updates.hasFired = false;
-  if (type === 'fire') updates.hasFired = true;
+  if (snap.phase === 'gameover') updates.status = 'finished';
 
-  // Log first: the action log is the source of truth for the next replay.
-  await ddbClient.send(new UpdateCommand({
-    TableName: TABLE,
-    Key: { pk: 'ACTION#' + code, sk: 'LOG' },
-    UpdateExpression: 'SET actions = list_append(if_not_exists(actions, :empty), :e)',
-    ExpressionAttributeValues: { ':empty': [], ':e': [entry] },
-  }));
+  // Real inputs are the source of truth. A post-shot sync only advances time;
+  // logging it would let a forged endTurn cancel the projectile on full replay.
+  const transactItems = [];
+  if (!syncOnly) {
+    transactItems.push({
+      Update: {
+        TableName: TABLE,
+        Key: { pk: 'ACTION#' + code, sk: 'LOG' },
+        UpdateExpression: 'SET actions = list_append(if_not_exists(actions, :empty), :e)',
+        ExpressionAttributeValues: { ':empty': [], ':e': [entry] },
+      },
+    });
+  }
 
   const exprParts = [];
   const names = {};
@@ -781,13 +858,25 @@ async function submitAction(event, rawCode, ddbClient) {
     names['#' + k] = k;
     values[':' + k] = v;
   }
-  await ddbClient.send(new UpdateCommand({
-    TableName: TABLE,
-    Key: { pk: 'ONLINE#' + code, sk: 'META' },
-    UpdateExpression: 'SET ' + exprParts.join(', '),
-    ExpressionAttributeNames: names,
-    ExpressionAttributeValues: values,
-  }));
+  values[':expectedRevision'] = revision;
+  transactItems.push({
+    Update: {
+      TableName: TABLE,
+      Key: { pk: 'ONLINE#' + code, sk: 'META' },
+      UpdateExpression: 'SET ' + exprParts.join(', '),
+      ExpressionAttributeNames: names,
+      ExpressionAttributeValues: values,
+      ConditionExpression: 'attribute_not_exists(revision) OR revision = :expectedRevision',
+    },
+  });
+  try {
+    await ddbClient.send(new TransactWriteItemsCommand({ TransactItems: transactItems }));
+  } catch (err) {
+    if (err && err.name === 'TransactionCanceledException') {
+      return json(409, { message: 'concurrent action, retry' });
+    }
+    throw err;
+  }
 
   const after = await ddbClient.send(new GetCommand({ TableName: TABLE, Key: { pk: 'ONLINE#' + code, sk: 'META' } }));
   const stored = after.Item || Object.assign({}, match, updates);
