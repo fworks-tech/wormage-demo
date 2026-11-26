@@ -7,6 +7,14 @@ test('CI runs the PR smoke selection with one worker', () => {
   expect(workflow).toContain('PW_WORKERS=1 npm run test:smoke');
 });
 
+test('CI shards the full browser matrix into four serial jobs', () => {
+  const workflow = readFileSync(new URL('../../.github/workflows/ci.yml', import.meta.url), 'utf8');
+  expect(workflow).toContain("contains(github.event.pull_request.labels.*.name, 'ci:full')");
+  expect(workflow).toContain('[1,2,3,4]');
+  expect(workflow).toContain('PW_WORKERS=1 npm run test:e2e -- --shard=');
+  expect(workflow).toContain('playwright-report-${{ matrix.shard }}');
+});
+
 test('Playwright defaults to a bounded parallel worker count', () => {
   expect(resolveWorkers(undefined, 2)).toBe(1);
   expect(resolveWorkers(undefined, 4)).toBe(3);
