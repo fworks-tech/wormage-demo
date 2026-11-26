@@ -163,3 +163,44 @@ test('write routes have isolated throttles and explicit stage dependencies', () 
     assert.ok(stage.DependsOn.includes(route[0]), `stage must depend on ${routeKey}`);
   }
 });
+
+test('monthly budget caps spend at USD 10 with actual and forecast alerts', () => {
+  const budgets = alarmTemplate.findResources('AWS::Budgets::Budget');
+  const budget = Object.values(budgets)[0];
+  assert.ok(budget, 'missing monthly budget');
+  assert.equal(budget.Properties.Budget.BudgetLimit.Amount, 10);
+  assert.equal(budget.Properties.Budget.BudgetLimit.Unit, 'USD');
+  assert.equal(budget.Properties.Budget.TimeUnit, 'MONTHLY');
+  assert.equal(budget.Properties.Budget.BudgetType, 'COST');
+
+  const notifications = budget.Properties.NotificationsWithSubscribers;
+  const topics = alarmTemplate.findResources('AWS::SNS::Topic');
+  const topicLogicalId = Object.keys(topics)[0];
+  const expected = [
+    { type: 'ACTUAL', threshold: 50 },
+    { type: 'ACTUAL', threshold: 80 },
+    { type: 'ACTUAL', threshold: 100 },
+    { type: 'FORECASTED', threshold: 100 },
+  ];
+  assert.equal(notifications.length, expected.length);
+  for (const { type, threshold } of expected) {
+    const entry = notifications.find(
+      (item) => item.Notification.NotificationType === type && item.Notification.Threshold === threshold,
+    );
+    assert.ok(entry, `missing ${type} ${threshold}% notification`);
+    assert.equal(entry.Notification.ComparisonOperator, 'GREATER_THAN');
+    assert.equal(entry.Notification.ThresholdType, 'PERCENTAGE');
+    assert.deepStrictEqual(entry.Subscribers, [{ SubscriptionType: 'SNS', Address: { Ref: topicLogicalId } }]);
+  }
+});
+
+test('lambda has no reserved concurrency until the quota supports it', () => {
+  const handler = Object.values(template().findResources('AWS::Lambda::Function'))[0];
+  assert.equal(handler.Properties.ReservedConcurrentExecutions, undefined);
+});
+
+test('reserved concurrency is applied when explicitly configured', () => {
+  const configured = template({ lambdaReservedConcurrency: 10 });
+  const handler = Object.values(configured.findResources('AWS::Lambda::Function'))[0];
+  assert.equal(handler.Properties.ReservedConcurrentExecutions, 10);
+});

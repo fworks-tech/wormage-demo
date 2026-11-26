@@ -56,6 +56,12 @@ Download a specific JSON report with `aws s3 cp s3://<bucket>/<key> .`. Treat re
 
 Per-route limits are defined in `infra/lib/wormage-stack.ts`. Bug reports default to 1 request/second with burst 2; debug logs to 2 / 5; match and online writes to 5 / 10 (300 writes/minute per route, shared across all matches). Costly reads are also isolated: online polling to 5 / 10 and replay to 1 / 2. To tighten a route, lower its entry in the throttled map and deploy. To stop uploads entirely, use the kill switches above rather than relying on throttling. Limits are per API route, not per client: one abusive client can exhaust a route for everyone. Expected backoff is registration `retry: 1`, online actions rely on the GameView 1 s commit retry, and bug reports keep the preview for manual retry.
 
+## Budget and Lambda capacity
+
+Spend is guarded by a USD 10/month COST budget (`wormage-monthly`) with 50%, 80% and 100% actual plus 100% forecast alerts to the alarm SNS topic. Confirm the SNS email subscription before treating the budget path as operational.
+
+Reserved concurrency stays unset while the account concurrent-execution quota is 10. Request a quota increase to 200 via Service Quotas (`AWS Lambda / Concurrent executions`), then set `lambdaReservedConcurrency: 10` in `infra/lib/wormage-stack.ts` and redeploy through the approved workflow. Keep the reservation well below the quota so bursts and other functions still have headroom.
+
 ## Rollback
 
 Infrastructure rollback is a revert plus redeploy through the same approved workflow. Do not use `cdk destroy` as a rollback. Removing an SNS subscription stops notification delivery but leaves the alarms in place.
