@@ -406,6 +406,7 @@ export function Hud({
               firePointer.current = null;
               onChargeCancel();
             }}
+            onContextMenu={(e) => e.preventDefault()}
           >
             FIRE
             <small>{snapshot.charging ? `${Math.round(snapshot.power * 100)}%` : 'hold'}</small>
