@@ -59,7 +59,7 @@ The island exists twice, in two classes:
 1. **Collision:** `Terrain` (`terrain.ts`) owns the `Uint8Array` bitmask at 4 px resolution (960 × 540 cells), generation, `isSolid`, `groundY` and crater carving. It imports no DOM, so the engine can be constructed in Node.
 2. **Rendering:** `TerrainPainter` (`terrain-painter.ts`) owns the 3840 × 2160 offscreen canvas painted once (gradient soil, grass tufts, pebbles, strata, two floating shelves), cleared below `WATER_Y` so the water layers show through. Pixi samples it as a `Texture`.
 
-Both halves read the same surface: `surfaceY` clamps the noise to `[140, WATER_Y - 26]`, the mask is built from it, and nothing below `WATER_Y` is solid. That keeps the ground a worm stands on on the painted ground; the earlier mask clamp alone left the painter drawing the island up to 28 px lower at the map edges. Any worm at or below `WATER_Y` drowns, whether it fell, walked, swung or was placed there.
+Both halves read the same surface: `surfaceY` clamps the noise to `[140, WATER_Y - 26]`, the mask is built from it, and nothing below `WATER_Y` is solid. That keeps the ground a worm stands on on the painted ground; the earlier mask clamp alone left the painter drawing the island up to 28 px lower at the map edges. Worms and mobs drown when they reach `WATER_Y`, whether they fell, walked, swung or were placed there.
 
 Destruction (`Terrain.carve`) zeroes the mask circle, then fires `onCarve`. The renderer hands those coordinates to `TerrainPainter`, which punches the circle out of the canvas with `destination-out`, paints a scorched rim clipped to the remaining dirt (`source-atop`), and refreshes the GPU texture.
 
@@ -67,7 +67,7 @@ Destruction (`Terrain.carve`) zeroes the mask circle, then fires `onCarve`. The 
 
 ## 4. Physics and combat rules
 
-- Gravity: worms 780 px/s², projectiles 520 px/s² scaled per weapon.
+- Gravity: worms and mobs 780 px/s², projectiles 520 px/s² scaled per weapon.
 - A jump starts only from the ground; there is no double jump. Holding a direction while airborne sets horizontal velocity, so a vertical hop can be steered sideways over a ledge.
 - The anchored rope hangs the worm from the first terrain point on the aim ray. Its angle is a damped pendulum driven by gravity and A/D; W/S changes the length. Jump releases the rope with the pendulum velocity, so a swing carries into the fall.
 - Wind: `-max..max` units per ruleset, applied as horizontal acceleration scaled per weapon (`windScale`); the AI and the aim preview use the same value.

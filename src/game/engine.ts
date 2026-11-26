@@ -1209,7 +1209,12 @@ export class GameEngine {
         break;
       }
       const currentGround = this.terrain.groundY(mob.x, Math.max(0, mob.y - MOB.groundProbe), MOB.supportRange);
-      const nextGround = this.terrain.groundY(nx, Math.max(0, mob.y - MOB.groundProbe), MOB.supportRange);
+      // Include the allowed upward step so groundY finds the ledge top, not a point inside its wall.
+      const nextGround = this.terrain.groundY(
+        nx,
+        Math.max(0, mob.y - MOB.groundProbe - MOB.maxGroundStep),
+        MOB.supportRange + MOB.maxGroundStep,
+      );
       if (currentGround === null || nextGround === null || Math.abs(nextGround - currentGround) > MOB.maxGroundStep) {
         mob.moveLeft = 0;
         break;
