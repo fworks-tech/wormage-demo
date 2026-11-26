@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'vitest';
 import { blastFalloff, GameEngine } from '../../src/game/engine';
 import { AI, WATER_Y, WIND_ACCEL, WEAPONS, WORM, WORLD_W } from '../../src/game/config';
+import { COLS } from '../../src/game/terrain';
 import type { MatchConfig } from '../../src/game/types';
 
 const config = (overrides: Partial<MatchConfig> = {}): MatchConfig => ({
@@ -409,13 +410,53 @@ describe('mob terrain physics', () => {
 
     engine.endTurn();
     expect(mob.x).toBe(startX);
-    step(engine, 1);
+    engine.update(DT);
+    expect(mob.x - startX).toBeLessThanOrEqual(mob.speed * DT + 1e-9);
+    step(engine, 1 - DT);
 
     const support = engine.terrain.groundY(mob.x, Math.max(0, mob.y - 6), 80);
     expect(mob.x).toBeGreaterThan(startX);
     expect(mob.y).toBeGreaterThan(startY);
     expect(support).not.toBeNull();
     expect(mob.y + mob.radius).toBeCloseTo(support!);
+  });
+
+  test('walks onto a 40 px ledge without entering solid terrain', () => {
+    const engine = new GameEngine(config({ wormsPerTeam: 2, hotseat: true }));
+    const cell = WORLD_W / COLS;
+    const waterRow = Math.floor(WATER_Y / cell);
+    const ledgeX = 604;
+    const ledgeCell = Math.floor(ledgeX / cell);
+    engine.terrain.mask.fill(0);
+    for (let cx = 0; cx < COLS; cx += 1) {
+      const ground = cx < ledgeCell ? 400 : 360;
+      for (let cy = ground / cell; cy < waterRow; cy += 1) engine.terrain.mask[cy * COLS + cx] = 1;
+    }
+
+    engine.mobs.splice(1);
+    const mob = engine.mobs[0];
+    mob.x = 600;
+    mob.y = 400 - mob.radius;
+    const target = engine.teams[0].worms[0];
+    target.x = 900;
+    target.y = 360;
+    for (const team of engine.teams) {
+      for (const worm of team.worms) worm.alive = false;
+    }
+    target.alive = true;
+    const distant = engine.teams[1].worms[0];
+    distant.x = 3000;
+    distant.y = 360;
+    distant.alive = true;
+
+    engine.endTurn();
+    for (let i = 0; i < 12; i += 1) {
+      engine.update(DT);
+      expect(engine.terrain.isSolid(mob.x, mob.y + mob.radius - 1)).toBe(false);
+    }
+
+    expect(mob.x).toBeGreaterThan(ledgeX);
+    expect(mob.y + mob.radius).toBe(360);
   });
 
   test('disappears when an unsupported fall reaches the water', () => {
