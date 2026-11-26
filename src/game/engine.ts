@@ -127,6 +127,9 @@ export class GameEngine {
   private aiRopeDeadline: number | null = null;
   private aiJumpCount = 0;
   private aiRopeCount = 0;
+  /** No-plan fallback: walk target while closing distance for a later retry. */
+  private aiFallbackX: number | null = null;
+  private aiFallbackRetry = 0;
   private projectileId = 0;
   private revengeFocusByTeam: Record<number, { x: number; y: number } | null> = {};
   private revengeTurnsByTeam: Record<number, number> = {};
@@ -393,6 +396,8 @@ export class GameEngine {
     this.aiRopeDeadline = null;
     this.aiJumpCount = 0;
     this.aiRopeCount = 0;
+    this.aiFallbackX = null;
+    this.aiFallbackRetry = 0;
     this.aiThinking = team.isAi;
     const maxWind = WIND_ACCEL[this.config.wind];
     this.wind = first ? 0 : (Math.round((this.rng() * 2 - 1) * maxWind) || 0);
@@ -1543,6 +1548,25 @@ export class GameEngine {
     );
   }
 
+  /** Run the planner from the worm's current spot. */
+  private buildAiPlan(worm: Worm): AiTurnPlan | null {
+    const worms = this.teams.flatMap((team) =>
+      team.worms.filter((w) => w.alive).map((w) => ({ id: w.id, teamId: w.teamId, x: w.x, y: w.y, hp: w.hp })),
+    );
+    return planAiTurn({
+      terrain: this.terrain,
+      worm: { id: worm.id, teamId: worm.teamId, x: worm.x, y: worm.y, hp: worm.hp },
+      worms: worms,
+      ammo: { ...this.teams[this.activeTeam].ammo },
+      wind: this.wind,
+      timeLeft: this.timeLeft,
+      difficulty: DIFFICULTY[this.config.difficulty],
+      rng: this.rng,
+      revengeFocus: this.revengeFocusByTeam[this.activeTeam] ?? null,
+      mines: this.loot.filter(l=>l.kind==='mine' && l.x>=0).map(l=>({x:l.x,y:l.y})),
+    });
+  }
+
   private aimAt(angle: number, power: number): void {
     const worm = this.activeWorm;
     if (!worm) return;
@@ -1596,50 +1620,95 @@ export class GameEngine {
     if (this.phase !== 'aim' || this.hasFired) return;
 
     if (!this.aiPlan) {
-      this.aiTimer -= dt;
-      if (this.aiTimer > 0) return;
+      // No-plan fallback (#298): the planner found no scoring shot, but time
+      // remains. Walk toward the nearest enemy and retry from the new spot
+      // instead of passing the turn ~0.9s in. Only pass when truly stuck.
+      // shortcut: straight-line walk, no mines/jumps; revisit with pathfinding.
+      if (this.aiFallbackX !== null) {
+        const dxFallback = this.aiFallbackX - worm.x;
+        this.moveDir = Math.abs(dxFallback) <= 6 ? 0 : dxFallback > 0 ? 1 : -1;
+        if (Math.abs(worm.x - this.aiLastX) < 0.5) this.aiStall += dt;
+        else {
+          this.aiStall = 0;
+          this.aiLastX = worm.x;
+          this.aiBlockedLogged = false;
+        }
+        this.aiFallbackRetry -= dt;
+        if (this.aiFallbackRetry <= 0) {
+          this.aiPlan = this.buildAiPlan(worm);
+          this.aiLastX = worm.x;
+          this.aiStall = 0;
+          this.aiBlockedLogged = false;
+          if (this.aiPlan) {
+            this.aiFallbackX = null;
+            const retryTarget = this.nearestEnemy(worm);
+            this.logDebug('ai.plan', 'AI planned turn', {
+              wormId: worm.id,
+              targetId: retryTarget?.id,
+              targetTeam: retryTarget?.teamId,
+              fireX: this.aiPlan.fireX,
+              fireY: this.aiPlan.fireY,
+              angle: this.aiPlan.angle,
+              power: this.aiPlan.power,
+              weapon: this.aiPlan.weapon,
+              retreatX: this.aiPlan.retreatX,
+              wind: this.wind,
+              mood: this.revengeFocusByTeam[this.activeTeam] ? 'revenge' : 'normal',
+            }, 'cpu', worm.id);
+          } else {
+            this.aiFallbackRetry = 2;
+            const enemy = this.nearestEnemy(worm);
+            if (enemy) this.aiFallbackX = enemy.x;
+          }
+        }
+        if (!this.aiPlan) {
+          if (this.aiStall >= 1.5 || this.timeLeft <= 0.5) {
+            this.moveDir = 0;
+            this.aiThinking = false;
+            this.aiFallbackX = null;
+            this.finishTurn();
+          }
+          return;
+        }
+      } else {
+        this.aiTimer -= dt;
+        if (this.aiTimer > 0) return;
 
-      const worms = this.teams.flatMap((team) =>
-        team.worms.filter((w) => w.alive).map((w) => ({ id: w.id, teamId: w.teamId, x: w.x, y: w.y, hp: w.hp })),
-      );
-      this.aiPlan = planAiTurn({
-        terrain: this.terrain,
-        worm: { id: worm.id, teamId: worm.teamId, x: worm.x, y: worm.y, hp: worm.hp },
-        worms: worms,
-        ammo: { ...this.teams[this.activeTeam].ammo },
-        wind: this.wind,
-        timeLeft: this.timeLeft,
-        difficulty: DIFFICULTY[this.config.difficulty],
-        rng: this.rng,
-        revengeFocus: this.revengeFocusByTeam[this.activeTeam] ?? null,
-        mines: this.loot.filter(l=>l.kind==='mine' && l.x>=0).map(l=>({x:l.x,y:l.y})),
-      });
-      this.aiLastX = worm.x;
-      this.aiStall = 0;
-      this.aiJumpCount = 0;
-      this.aiRopeCount = 0;
-      this.aiBlockedLogged = false;
+        this.aiPlan = this.buildAiPlan(worm);
+        this.aiLastX = worm.x;
+        this.aiStall = 0;
+        this.aiJumpCount = 0;
+        this.aiRopeCount = 0;
+        this.aiBlockedLogged = false;
 
-      if (!this.aiPlan) {
-        this.logDebug('ai.noPlan', 'AI found no plan', { wormId: worm.id, teamId: worm.teamId }, 'cpu', worm.id, 'warn');
-        this.aiThinking = false;
-        this.finishTurn();
-        return;
+        if (!this.aiPlan) {
+          this.logDebug('ai.noPlan', 'AI found no plan', { wormId: worm.id, teamId: worm.teamId }, 'cpu', worm.id, 'warn');
+          const enemy = this.nearestEnemy(worm);
+          if (!enemy || this.timeLeft <= 1) {
+            this.aiThinking = false;
+            this.finishTurn();
+            return;
+          }
+          this.aiFallbackX = enemy.x;
+          this.aiFallbackRetry = 2;
+          this.logDebug('ai.fallbackWalk', 'AI advancing toward enemy without a plan', { wormId: worm.id, targetId: enemy.id, fromX: worm.x, toX: enemy.x }, 'cpu', worm.id);
+          return;
+        }
+        const initialTarget = this.nearestEnemy(worm);
+        this.logDebug('ai.plan', 'AI planned turn', {
+          wormId: worm.id,
+          targetId: initialTarget?.id,
+          targetTeam: initialTarget?.teamId,
+          fireX: this.aiPlan.fireX,
+          fireY: this.aiPlan.fireY,
+          angle: this.aiPlan.angle,
+          power: this.aiPlan.power,
+          weapon: this.aiPlan.weapon,
+          retreatX: this.aiPlan.retreatX,
+          wind: this.wind,
+          mood: this.revengeFocusByTeam[this.activeTeam] ? 'revenge' : 'normal',
+        }, 'cpu', worm.id);
       }
-      const initialTarget = this.nearestEnemy(worm);
-      this.logDebug('ai.plan', 'AI planned turn', {
-        wormId: worm.id,
-        targetId: initialTarget?.id,
-        targetTeam: initialTarget?.teamId,
-        fireX: this.aiPlan.fireX,
-        fireY: this.aiPlan.fireY,
-        angle: this.aiPlan.angle,
-        power: this.aiPlan.power,
-        weapon: this.aiPlan.weapon,
-        retreatX: this.aiPlan.retreatX,
-        wind: this.wind,
-        mood: this.revengeFocusByTeam[this.activeTeam] ? 'revenge' : 'normal',
-      }, 'cpu', worm.id);
     }
 
     const plan = this.aiPlan;
