@@ -12,6 +12,7 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const GAME_UNIT = [
   'tests/unit/ai.test.ts',
   'tests/unit/authoritativeInputs.test.ts',
+  'tests/unit/cpuNoPlan.test.ts',
   'tests/unit/engine.test.ts',
   'tests/unit/mines.test.ts',
   'tests/unit/ragdoll.test.ts',
