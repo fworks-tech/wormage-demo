@@ -709,6 +709,9 @@ html:fullscreen {
   overflow: hidden;
   background: #08100f;
   touch-action: none;
+  /* iOS WebKit needs the prefixed properties to suppress long-press selection. */
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
   user-select: none;
 }
 

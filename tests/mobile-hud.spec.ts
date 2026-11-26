@@ -158,6 +158,26 @@ test.describe('touch HUD', () => {
     expect((await snapshot(page)).phase).not.toBe('aim');
   });
 
+  test('FIRE suppresses iOS text selection and context menus', async ({ page }) => {
+    await startMatch(page);
+    const gestures = await page.getByTestId('btn-fire').evaluate((button) => {
+      const style = getComputedStyle(button);
+      const contextMenu = new MouseEvent('contextmenu', { bubbles: true, cancelable: true });
+      button.dispatchEvent(contextMenu);
+      return {
+        userSelect: style.getPropertyValue('user-select') || style.getPropertyValue('-webkit-user-select'),
+        webkitUserSelect: style.getPropertyValue('-webkit-user-select'),
+        contextMenuPrevented: contextMenu.defaultPrevented,
+      };
+    });
+
+    expect(gestures).toEqual({
+      userSelect: 'none',
+      webkitUserSelect: 'none',
+      contextMenuPrevented: true,
+    });
+  });
+
   test('the FIRE button shows the charge percentage', async ({ page }) => {
     await startMatch(page);
     const cdp = await page.context().newCDPSession(page);
