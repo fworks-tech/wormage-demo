@@ -25,7 +25,7 @@ Vitest only picks up `tests/unit/**/*.test.ts`. The Playwright config uses `chan
 
 Run `npm --prefix infra ci` once after cloning so `test:quick` and `test:infra` can use the Lambda dependencies.
 
-Playwright runs in parallel by default with up to four workers, leaving capacity for the Vite server. Set `PW_WORKERS` to a positive integer to override the cap; `PW_WORKERS=1` is the stable serial mode for debugging. CI runs the default PR smoke selection with one worker so concurrent PixiJS matches cannot exhaust the hosted runner's fixed test budgets; the `ci:full` matrix keeps the default parallelism.
+Playwright runs in parallel by default with up to four workers, leaving capacity for the Vite server. Set `PW_WORKERS` to a positive integer to override the cap; `PW_WORKERS=1` is the stable serial mode. CI runs the default PR smoke selection with one worker so concurrent PixiJS matches cannot exhaust the hosted runner's fixed test budgets. The `ci:full` selection runs four one-worker shards instead, keeping the full suite inside the job timeout without runner contention.
 
 ## Smoke set
 
@@ -41,7 +41,7 @@ Keep this set small. Detailed edge cases belong in the full matrix, not behind `
 
 ## CI test selection
 
-Pull requests run typecheck, content validation, affected Vitest, selected infra tests, build and smoke E2E. Add the `ci:full` label to run the complete browser matrix on a PR. Pushes to `main` run the full Node/build checks. The nightly and manually dispatched **E2E** workflow runs the full desktop/mobile Playwright matrix.
+Pull requests run typecheck, content validation, affected Vitest, selected infra tests, build and smoke E2E. Add the `ci:full` label to run the complete browser matrix on a PR; CI splits it into four serial shards with one Playwright report artifact per shard. Pushes to `main` run the full Node/build checks. The nightly and manually dispatched **E2E** workflow runs the full desktop/mobile Playwright matrix.
 
 The map lives in [`scripts/affected.mjs`](../scripts/affected.mjs): add a rule when a new spec needs a new source area, otherwise that spec only runs when the spec file itself changes. Unmapped paths fall back to the full applicable set.
 

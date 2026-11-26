@@ -66,6 +66,10 @@ jobs:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: ${{ contains(github.event.pull_request.labels.*.name, 'ci:full') && fromJSON('[1,2,3,4]') || fromJSON('[1]') }}
 
     steps:
       - uses: actions/checkout@v4
@@ -80,11 +84,12 @@ jobs:
       - name: Browser tests
         env:
           PR_LABELS: ${{ join(github.event.pull_request.labels.*.name, ',') }}
+          SHARD: ${{ matrix.shard }}
         run: |
+          # One worker per runner keeps PixiJS matches from exhausting test budgets.
           if [[ ",$PR_LABELS," == *",ci:full,"* ]]; then
-            npm run test:e2e
+            PW_WORKERS=1 npm run test:e2e -- --shard="$SHARD/4"
           else
-            # Concurrent PixiJS matches can exhaust the hosted runner's fixed test budgets.
             PW_WORKERS=1 npm run test:smoke
           fi
 
@@ -92,7 +97,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: playwright-report
+          name: playwright-report-${{ matrix.shard }}
           path: |
             playwright-report/
             test-results/
