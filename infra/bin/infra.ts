@@ -19,4 +19,5 @@ new WormageStack(app, 'WormageStack', {
     : undefined,
   alarmEmail: process.env.WORMAGE_ALARM_EMAIL,
   authMode: process.env.WORMAGE_AUTH_MODE === 'enforce' ? 'enforce' : 'observe',
+  authSecretValue: process.env.WORMAGE_AUTH_SECRET,
 });

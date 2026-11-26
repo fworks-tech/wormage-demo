@@ -4,7 +4,7 @@ const crypto = require('crypto');
 const { DynamoDBClient, TransactWriteItemsCommand } = require('@aws-sdk/client-dynamodb');
 const { DynamoDBDocumentClient, GetCommand, PutCommand, QueryCommand, UpdateCommand } = require('@aws-sdk/lib-dynamodb');
 const { S3Client, PutObjectCommand, DeleteObjectCommand } = require('@aws-sdk/client-s3');
-const { SecretsManagerClient, GetSecretValueCommand } = require('@aws-sdk/client-secrets-manager');
+const { SSMClient, GetParameterCommand } = require('@aws-sdk/client-ssm');
 const { GameEngine, WEAPONS } = require('./engine.cjs');
 const { replayActionLog, sortActions, ENGINE_VERSION } = require('./replay.js');
 
@@ -14,8 +14,8 @@ const LEGACY_MATCH = Object.freeze({ legacy: true });
 const FORBIDDEN_MATCH = Object.freeze({ forbidden: true });
 const ddb = DynamoDBDocumentClient.from(new DynamoDBClient({}));
 const s3 = new S3Client({});
-const secrets = new SecretsManagerClient({});
-const AUTH_SECRET_ARN = process.env.AUTH_SECRET_ARN;
+const ssm = new SSMClient({});
+const AUTH_SECRET_PARAM = process.env.AUTH_SECRET_PARAM;
 const AUTH_TTL_SECONDS = 180 * 24 * 60 * 60;
 const AUTH_ISSUER = 'wormage';
 const AUTH_AUDIENCE = 'wormage-client';
@@ -79,11 +79,11 @@ function verifyToken(token, secret, now = Date.now()) {
 }
 
 async function getAuthSecret() {
-  if (!AUTH_SECRET_ARN) throw new Error('auth secret is not configured');
+  if (!AUTH_SECRET_PARAM) throw new Error('auth secret is not configured');
   if (!authSecretPromise) {
-    authSecretPromise = secrets.send(new GetSecretValueCommand({ SecretId: AUTH_SECRET_ARN }))
+    authSecretPromise = ssm.send(new GetParameterCommand({ Name: AUTH_SECRET_PARAM, WithDecryption: true }))
       .then((result) => {
-        const value = JSON.parse(result.SecretString || '{}').secret;
+        const value = result.Parameter && result.Parameter.Value;
         if (typeof value !== 'string' || value.length < 32) throw new Error('auth secret is invalid');
         return value;
       })

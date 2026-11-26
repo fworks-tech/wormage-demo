@@ -7,7 +7,10 @@ const { Match, Template } = require('aws-cdk-lib/assertions');
 const { WormageStack } = require('../dist/lib/wormage-stack');
 
 function template(props = {}) {
-  return Template.fromStack(new WormageStack(new cdk.App(), 'TestStack', props));
+  return Template.fromStack(new WormageStack(new cdk.App(), 'TestStack', {
+    authSecretValue: 'test-secret-value-padded-to-32-chars-min',
+    ...props,
+  }));
 }
 
 const alarmTemplate = template({ alarmEmail: 'ops@example.com' });
@@ -107,27 +110,31 @@ test('API 5xx alarm triggers after two errors', () => {
   });
 });
 
-test('anonymous auth uses a generated Secrets Manager key and observe mode', () => {
-  alarmTemplate.hasResourceProperties('AWS::SecretsManager::Secret', {
-    GenerateSecretString: {
-      SecretStringTemplate: '{}',
-      GenerateStringKey: 'secret',
-      PasswordLength: 32,
-      ExcludePunctuation: true,
-    },
+test('anonymous auth uses a free SSM SecureString and observe mode', () => {
+  alarmTemplate.hasResourceProperties('AWS::SSM::Parameter', {
+    Name: '/wormage/auth/secret',
+    Type: 'SecureString',
+    // Tier omitted: Standard is the CDK default and the free tier.
   });
   const handler = Object.values(alarmTemplate.findResources('AWS::Lambda::Function'))[0];
   assert.equal(handler.Properties.Environment.Variables.AUTH_MODE, 'observe');
-  assert.ok(handler.Properties.Environment.Variables.AUTH_SECRET_ARN);
+  const params = alarmTemplate.findResources('AWS::SSM::Parameter');
+  const secretLogicalId = Object.keys(params).find((id) => params[id].Properties.Name === '/wormage/auth/secret');
+  assert.ok(secretLogicalId, 'missing /wormage/auth/secret parameter');
+  assert.deepStrictEqual(handler.Properties.Environment.Variables.AUTH_SECRET_PARAM, { Ref: secretLogicalId });
   alarmTemplate.hasResourceProperties('AWS::IAM::Policy', {
     PolicyDocument: Match.objectLike({
       Statement: Match.arrayWith([Match.objectLike({
-        Action: Match.arrayWith(['secretsmanager:GetSecretValue']),
+        Action: Match.arrayWith(['ssm:GetParameter']),
         Effect: 'Allow',
         Resource: Match.anyValue(),
       })]),
     }),
   });
+});
+
+test('stack synthesis fails closed without an auth secret value', () => {
+  assert.throws(() => template({ authSecretValue: undefined }), /authSecretValue is required/);
 });
 
 test('auth session route has its own throttle and stage dependency', () => {
