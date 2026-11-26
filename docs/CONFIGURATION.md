@@ -19,9 +19,15 @@ Every gameplay number lives in `src/game/config.ts`. Balance changes should neve
 | `BASE_W` / `BASE_H` | 1280 × 720 | px | renderer scale reference |
 | `WORLD_SCALE` | 3 | × | world size multiplier; `?mapSize=1` selects the 1× debug arena |
 | `WORLD_W` / `WORLD_H` | 3840 × 2160 | px | default logical arena; renderer camera pans through it |
-| `WATER_Y` | 668 | px | below this a worm drowns, projectiles splash |
-| `GRAVITY` | 780 | px/s² | worms only |
+| `WATER_Y` | 668 | px | below this worms and mobs drown, projectiles splash |
+| `GRAVITY` | 780 | px/s² | worms and mobs |
 | `PROJECTILE_GRAVITY` | 520 | px/s² | multiplied by the weapon's `gravityScale` |
+| `MOB.speed` | 160 | px/s | engine-owned walking speed |
+| `MOB.maxHp` / `damage` / `attackRange` | 60 / 5 / 60 | HP / HP / px | mob health, melee damage and reach |
+| `MOB.orderSeconds` | 2 | s | movement budget issued by each hostile phase |
+| `MOB.radius` / `maxGroundStep` | 18 / 40 | px | body radius and maximum supported ground-height change |
+| `MOB.collisionStep` / `groundProbe` | 4 / 6 | px | collision substep and ground probe above the feet |
+| `MOB.groundTolerance` / `supportRange` / `landingRange` | 1 / 80 / 18 | px | settling tolerance and terrain search ranges |
 | `WORM.walkSpeed` | 74 | px/s | unaffected by wind |
 | `WORM.jumpVelocity` | 300 | px/s | jump start only from the ground; one jump per landing |
 | `WORM.jumpPush` | 180 | px/s | horizontal carry of a jump, and the air-steer speed while holding a direction |

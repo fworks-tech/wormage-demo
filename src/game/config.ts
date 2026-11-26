@@ -62,6 +62,24 @@ export const WORM = {
   landingStopSpeed: 60,
 } as const;
 
+/** Hostile mob rules. Falling uses the shared GRAVITY constant. */
+export const MOB = {
+  radius: 18,
+  speed: 160,
+  maxHp: 60,
+  damage: 5,
+  attackRange: 60,
+  /** Movement budget issued by each hostile phase, in seconds at MOB.speed. */
+  orderSeconds: 2,
+  /** Collision is substepped so a fast fall cannot tunnel through thin terrain. */
+  collisionStep: 4,
+  groundProbe: 6,
+  groundTolerance: 1,
+  supportRange: 80,
+  landingRange: 18,
+  maxGroundStep: 40,
+} as const;
+
 /** Peak height of a jump, derived so planning and physics cannot drift. */
 export const JUMP_REACH = (WORM.jumpVelocity * WORM.jumpVelocity) / (2 * GRAVITY);
 

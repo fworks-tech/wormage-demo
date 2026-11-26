@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'vitest';
 import { blastFalloff, GameEngine } from '../../src/game/engine';
 import { AI, WATER_Y, WIND_ACCEL, WEAPONS, WORM, WORLD_W } from '../../src/game/config';
+import { COLS } from '../../src/game/terrain';
 import type { MatchConfig } from '../../src/game/types';
 
 const config = (overrides: Partial<MatchConfig> = {}): MatchConfig => ({
@@ -364,6 +365,111 @@ describe('mob combat', () => {
     (engine as any).updateLoot(DT);
 
     expect(engine.loot.find((item) => item.id === 9999)?.armed).toBe(false);
+  });
+});
+
+describe('mob terrain physics', () => {
+  test('falls and lands after its supporting terrain is carved away', () => {
+    const engine = new GameEngine(config({ wormsPerTeam: 2 }));
+    const mob = engine.mobs[0];
+    const ground = engine.terrain.groundY(mob.x, 120, WATER_Y - 120);
+    expect(ground).not.toBeNull();
+    mob.y = ground! - mob.radius;
+    const startY = mob.y;
+
+    engine.terrain.carve(mob.x, ground!, 56);
+    step(engine, 1);
+
+    const landing = engine.terrain.groundY(mob.x, mob.y - 6, WATER_Y - mob.y);
+    expect(mob.alive).toBe(true);
+    expect(mob.y).toBeGreaterThan(startY);
+    expect(landing).not.toBeNull();
+    expect(mob.y + mob.radius).toBeCloseTo(landing!);
+  });
+
+  test('walks over time against newly carved terrain without floating', () => {
+    const engine = new GameEngine(config({ wormsPerTeam: 2 }));
+    const mob = engine.mobs[0];
+    engine.mobs.splice(1);
+    mob.x = 600;
+    const ground = engine.terrain.groundY(mob.x, 120, WATER_Y - 120);
+    expect(ground).not.toBeNull();
+    mob.y = ground! - mob.radius;
+    const startX = mob.x;
+    const startY = mob.y;
+    const target = engine.teams[0].worms[0];
+    target.x = mob.x + 300;
+    for (const worm of engine.teams[0].worms) {
+      if (worm !== target) worm.alive = false;
+    }
+
+    const craterX = mob.x + 150;
+    const craterGround = engine.terrain.groundY(craterX, 120, WATER_Y - 120);
+    expect(craterGround).not.toBeNull();
+    engine.terrain.carve(craterX, craterGround!, 80);
+
+    engine.endTurn();
+    expect(mob.x).toBe(startX);
+    engine.update(DT);
+    expect(mob.x - startX).toBeLessThanOrEqual(mob.speed * DT + 1e-9);
+    step(engine, 1 - DT);
+
+    const support = engine.terrain.groundY(mob.x, Math.max(0, mob.y - 6), 80);
+    expect(mob.x).toBeGreaterThan(startX);
+    expect(mob.y).toBeGreaterThan(startY);
+    expect(support).not.toBeNull();
+    expect(mob.y + mob.radius).toBeCloseTo(support!);
+  });
+
+  test('walks onto a 40 px ledge without entering solid terrain', () => {
+    const engine = new GameEngine(config({ wormsPerTeam: 2, hotseat: true }));
+    const cell = WORLD_W / COLS;
+    const waterRow = Math.floor(WATER_Y / cell);
+    const ledgeX = 604;
+    const ledgeCell = Math.floor(ledgeX / cell);
+    engine.terrain.mask.fill(0);
+    for (let cx = 0; cx < COLS; cx += 1) {
+      const ground = cx < ledgeCell ? 400 : 360;
+      for (let cy = ground / cell; cy < waterRow; cy += 1) engine.terrain.mask[cy * COLS + cx] = 1;
+    }
+
+    engine.mobs.splice(1);
+    const mob = engine.mobs[0];
+    mob.x = 600;
+    mob.y = 400 - mob.radius;
+    const target = engine.teams[0].worms[0];
+    target.x = 900;
+    target.y = 360;
+    for (const team of engine.teams) {
+      for (const worm of team.worms) worm.alive = false;
+    }
+    target.alive = true;
+    const distant = engine.teams[1].worms[0];
+    distant.x = 3000;
+    distant.y = 360;
+    distant.alive = true;
+
+    engine.endTurn();
+    for (let i = 0; i < 12; i += 1) {
+      engine.update(DT);
+      expect(engine.terrain.isSolid(mob.x, mob.y + mob.radius - 1)).toBe(false);
+    }
+
+    expect(mob.x).toBeGreaterThan(ledgeX);
+    expect(mob.y + mob.radius).toBe(360);
+  });
+
+  test('disappears when an unsupported fall reaches the water', () => {
+    const engine = new GameEngine(config({ wormsPerTeam: 2 }));
+    const mob = engine.mobs[0];
+    engine.mobs.splice(1);
+    mob.x = 640;
+    mob.y = 100;
+    engine.terrain.carve(mob.x, 400, 300);
+
+    step(engine, 2);
+
+    expect(mob.alive).toBe(false);
   });
 });
 
