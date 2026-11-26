@@ -1283,8 +1283,7 @@ export class GameEngine {
       isActive &&
       worm.onGround &&
       (this.phase === 'aim' || this.retreatActive) &&
-      this.moveDir !== 0 &&
-      !this.charging;
+      this.moveDir !== 0;
 
     if (canWalk) {
       const dir = this.moveDir;
@@ -1318,8 +1317,7 @@ export class GameEngine {
       !worm.onGround &&
       !worm.launched &&
       (this.phase === 'aim' || this.retreatActive) &&
-      this.moveDir !== 0 &&
-      !this.charging
+      this.moveDir !== 0
     ) {
       worm.vx = this.moveDir * WORM.jumpPush;
     }
