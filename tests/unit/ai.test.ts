@@ -10,6 +10,7 @@ import {
   simulateShot,
 } from '../../src/game/ai';
 import { AIM, JUMP_REACH, RETREAT_SECONDS, ROPE, WEAPONS, WORM } from '../../src/game/config';
+import { Terrain } from '../../src/game/terrain';
 import { terrain } from './terrainFixture';
 
 test('reticle sits on the fixed-radius circle in open air', () => {
@@ -242,6 +243,28 @@ test('AI drops dynamite at point-blank only when it can escape the blast', () =>
   expect(Math.abs(turn!.retreatX - turn!.fireX)).toBeGreaterThan(
     WEAPONS.dynamite.radius + WORM.radius,
   );
+});
+
+test('the AI skips its turn rather than shooting terrain with no reachable target', () => {
+  // Turn 20 from report 8a5cb2ce-7aa1-4152-8130-c68fce744431.
+  const worm = { id: 't1-w1', teamId: 1, x: 3734.8, y: 612, hp: 100 };
+  const turn = planAiTurn({
+    terrain: new Terrain(321884985),
+    worm,
+    worms: [
+      { id: 't0-w0', teamId: 0, x: 1050.1666666666683, y: 584, hp: 100 },
+      { id: 't0-w1', teamId: 0, x: 1280.2793875407722, y: 532, hp: 69 },
+      { id: 't1-w0', teamId: 1, x: 3734.766666666648, y: 612, hp: 150 },
+      worm,
+    ],
+    ammo: { bazooka: Infinity, grenade: 3, shotgun: 4, dynamite: 2, medkit: 2, shield: 0 },
+    wind: -52,
+    timeLeft: 16.666666666666856,
+    difficulty: { angleError: 0, powerError: 0 },
+    rng: () => 0.5,
+  });
+
+  expect(turn).toBeNull();
 });
 
 test('the AI never plans a shot through an ally', () => {
