@@ -210,3 +210,8 @@ test('monthly budget limit is configurable', () => {
   const budget = Object.values(configured.findResources('AWS::Budgets::Budget'))[0];
   assert.equal(budget.Properties.Budget.BudgetLimit.Amount, 20);
 });
+
+test('lambda ships without X-Ray tracing for zero-cost posture', () => {
+  const handler = Object.values(template().findResources('AWS::Lambda::Function'))[0];
+  assert.equal(handler.Properties.TracingConfig, undefined);
+});
