@@ -118,6 +118,8 @@ test('write routes have isolated throttles and explicit stage dependencies', () 
     'POST /api/matches/online/{code}/join': { ThrottlingBurstLimit: 10, ThrottlingRateLimit: 5 },
     'POST /api/matches/online/{code}/action': { ThrottlingBurstLimit: 10, ThrottlingRateLimit: 5 },
     'POST /api/matches/online/{code}/forfeit': { ThrottlingBurstLimit: 10, ThrottlingRateLimit: 5 },
+    'GET /api/matches/online/{code}': { ThrottlingBurstLimit: 10, ThrottlingRateLimit: 5 },
+    'GET /api/matches/online/{code}/replay': { ThrottlingBurstLimit: 2, ThrottlingRateLimit: 1 },
   };
 
   assert.deepEqual(stage.Properties.DefaultRouteSettings, { ThrottlingBurstLimit: 20, ThrottlingRateLimit: 10 });

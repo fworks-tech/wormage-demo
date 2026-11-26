@@ -48,7 +48,7 @@ Download a specific JSON report with `aws s3 cp s3://<bucket>/<key> .`. Treat re
 
 ## Throttling
 
-Per-route limits are defined in `infra/lib/wormage-stack.ts`. Bug reports default to 1 request/second with burst 2; debug logs to 2 / 5; match and online writes to 5 / 10. To tighten a route, lower its `RouteSettings` values and deploy. To stop uploads entirely, use the kill switches above rather than relying on throttling.
+Per-route limits are defined in `infra/lib/wormage-stack.ts`. Bug reports default to 1 request/second with burst 2; debug logs to 2 / 5; match and online writes to 5 / 10 (300 writes/minute per route, shared across all matches). Costly reads are also isolated: online polling to 5 / 10 and replay to 1 / 2. To tighten a route, lower its entry in the throttled map and deploy. To stop uploads entirely, use the kill switches above rather than relying on throttling. Limits are per API route, not per client: one abusive client can exhaust a route for everyone. Expected backoff is registration `retry: 1`, online actions rely on the GameView 1 s commit retry, and bug reports keep the preview for manual retry.
 
 ## Rollback
 

@@ -156,31 +156,42 @@ export class WormageStack extends cdk.Stack {
     addRoute('/api/matches', [apigwv2.HttpMethod.GET]);
     const matchRoute = addRoute('/api/matches', [apigwv2.HttpMethod.POST]);
     const createOnlineRoute = addRoute('/api/matches/online', [apigwv2.HttpMethod.POST]);
-    addRoute('/api/matches/online/{code}', [apigwv2.HttpMethod.GET]);
+    const pollOnlineRoute = addRoute('/api/matches/online/{code}', [apigwv2.HttpMethod.GET]);
     const joinOnlineRoute = addRoute('/api/matches/online/{code}/join', [apigwv2.HttpMethod.POST]);
     const actionOnlineRoute = addRoute('/api/matches/online/{code}/action', [apigwv2.HttpMethod.POST]);
     const forfeitOnlineRoute = addRoute('/api/matches/online/{code}/forfeit', [apigwv2.HttpMethod.POST]);
-    addRoute('/api/matches/online/{code}/replay', [apigwv2.HttpMethod.GET]);
+    const replayRoute = addRoute('/api/matches/online/{code}/replay', [apigwv2.HttpMethod.GET]);
     const debugLogRoute = addRoute('/api/debug-logs', [apigwv2.HttpMethod.POST]);
     const bugReportRoute = addRoute('/api/bug-reports', [apigwv2.HttpMethod.POST]);
 
     // Route settings reference route keys, so the stage must wait for those routes.
+    // NB: routeSettings is an any/passthrough — CloudFormation requires PascalCase
+    // here, unlike defaultRouteSettings which converts camelCase automatically.
+    // One map drives both routeSettings and stage dependencies so a new entry
+    // cannot reintroduce the "Unable to find Route by key" update failure.
+    const throttledRoutes = [
+      { key: 'POST /api/debug-logs', route: debugLogRoute, burst: 5, rate: 2 },
+      { key: 'POST /api/bug-reports', route: bugReportRoute, burst: 2, rate: 1 },
+      { key: 'POST /api/matches', route: matchRoute, burst: 10, rate: 5 },
+      { key: 'POST /api/matches/online', route: createOnlineRoute, burst: 10, rate: 5 },
+      { key: 'POST /api/matches/online/{code}/join', route: joinOnlineRoute, burst: 10, rate: 5 },
+      { key: 'POST /api/matches/online/{code}/action', route: actionOnlineRoute, burst: 10, rate: 5 },
+      { key: 'POST /api/matches/online/{code}/forfeit', route: forfeitOnlineRoute, burst: 10, rate: 5 },
+      // Costly reads share the default throttle without this: replay runs a full
+      // action-log replay (up to 108k ticks) and polling at 1-2s per match adds up.
+      { key: 'GET /api/matches/online/{code}', route: pollOnlineRoute, burst: 10, rate: 5 },
+      { key: 'GET /api/matches/online/{code}/replay', route: replayRoute, burst: 2, rate: 1 },
+    ];
     const cfnStage = this.httpApi.defaultStage?.node.defaultChild as apigwv2.CfnStage | undefined;
     if (cfnStage) {
       cfnStage.defaultRouteSettings = {
         throttlingBurstLimit: 20,
         throttlingRateLimit: 10,
       };
-      cfnStage.routeSettings = {
-        'POST /api/debug-logs': { ThrottlingBurstLimit: 5, ThrottlingRateLimit: 2 },
-        'POST /api/bug-reports': { ThrottlingBurstLimit: 2, ThrottlingRateLimit: 1 },
-        'POST /api/matches': { ThrottlingBurstLimit: 10, ThrottlingRateLimit: 5 },
-        'POST /api/matches/online': { ThrottlingBurstLimit: 10, ThrottlingRateLimit: 5 },
-        'POST /api/matches/online/{code}/join': { ThrottlingBurstLimit: 10, ThrottlingRateLimit: 5 },
-        'POST /api/matches/online/{code}/action': { ThrottlingBurstLimit: 10, ThrottlingRateLimit: 5 },
-        'POST /api/matches/online/{code}/forfeit': { ThrottlingBurstLimit: 10, ThrottlingRateLimit: 5 },
-      };
-      for (const route of [matchRoute, createOnlineRoute, joinOnlineRoute, actionOnlineRoute, forfeitOnlineRoute, debugLogRoute, bugReportRoute]) {
+      cfnStage.routeSettings = Object.fromEntries(
+        throttledRoutes.map(({ key, burst, rate }) => [key, { ThrottlingBurstLimit: burst, ThrottlingRateLimit: rate }]),
+      );
+      for (const { route } of throttledRoutes) {
         cfnStage.addResourceDependency(route.node.defaultChild as apigwv2.CfnRoute);
       }
     }
