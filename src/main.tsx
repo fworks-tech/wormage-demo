@@ -2,7 +2,7 @@ import React from 'react';
 import ReactDOM from 'react-dom/client';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import App from './App';
-import { initApiLayer } from './api/client';
+import { ensureAnonymousSession, initApiLayer } from './api/client';
 import './styles.css';
 
 const queryClient = new QueryClient({
@@ -25,6 +25,7 @@ async function boot(): Promise<void> {
     window.history.replaceState(null, '', `/demo${window.location.search}${window.location.hash}`);
   }
   await initApiLayer();
+  await ensureAnonymousSession();
   const container = document.getElementById('root');
   if (!container) throw new Error('Root element missing');
   ReactDOM.createRoot(container).render(

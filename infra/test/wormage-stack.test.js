@@ -107,6 +107,39 @@ test('API 5xx alarm triggers after two errors', () => {
   });
 });
 
+test('anonymous auth uses a generated Secrets Manager key and observe mode', () => {
+  alarmTemplate.hasResourceProperties('AWS::SecretsManager::Secret', {
+    GenerateSecretString: {
+      SecretStringTemplate: '{}',
+      GenerateStringKey: 'secret',
+      PasswordLength: 32,
+      ExcludePunctuation: true,
+    },
+  });
+  const handler = Object.values(alarmTemplate.findResources('AWS::Lambda::Function'))[0];
+  assert.equal(handler.Properties.Environment.Variables.AUTH_MODE, 'observe');
+  assert.ok(handler.Properties.Environment.Variables.AUTH_SECRET_ARN);
+  alarmTemplate.hasResourceProperties('AWS::IAM::Policy', {
+    PolicyDocument: Match.objectLike({
+      Statement: Match.arrayWith([Match.objectLike({
+        Action: Match.arrayWith(['secretsmanager:GetSecretValue']),
+        Effect: 'Allow',
+        Resource: Match.anyValue(),
+      })]),
+    }),
+  });
+});
+
+test('auth session route has its own throttle and stage dependency', () => {
+  const routes = Object.entries(alarmTemplate.findResources('AWS::ApiGatewayV2::Route'));
+  const stage = Object.values(alarmTemplate.findResources('AWS::ApiGatewayV2::Stage'))[0];
+  const route = routes.find(([, resource]) => resource.Properties.RouteKey === 'POST /api/auth/session');
+
+  assert.ok(route);
+  assert.deepEqual(stage.Properties.RouteSettings['POST /api/auth/session'], { ThrottlingBurstLimit: 5, ThrottlingRateLimit: 2 });
+  assert.ok(stage.DependsOn.includes(route[0]));
+});
+
 test('write routes have isolated throttles and explicit stage dependencies', () => {
   const routes = Object.entries(alarmTemplate.findResources('AWS::ApiGatewayV2::Route'));
   const stage = Object.values(alarmTemplate.findResources('AWS::ApiGatewayV2::Stage'))[0];
