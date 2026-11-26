@@ -129,6 +129,15 @@ Damage falloff: `max(0.22, 1 - distance / (radius + 11))`. A worm on the edge st
 
 Reset with **Reset demo data** in Options, or `localStorage.removeItem('wormage.mockdb.v1')`.
 
+## Anonymous authentication
+
+- `POST /api/auth/session` issues an HS256 bearer token and anonymous `playerId`; a valid token refreshes the same identity.
+- Token lifetime is 180 days. The client refreshes during the final 7 days and stores the session in `wormage.auth.v1`.
+- Production signing keys live in Secrets Manager; the Lambda receives only `AUTH_SECRET_ARN`.
+- `AUTH_MODE=observe` accepts legacy anonymous requests during rollout. `AUTH_MODE=enforce` requires a valid token on protected routes and derives identity from the token subject.
+- Existing public IDs are not migrated into credentials. Historical records remain intact, but a newly issued token receives a new identity unless it refreshes an existing valid token.
+- See [ADR 0008](adr/0008-anonymous-player-auth.md) for the decision and trade-offs.
+
 ## Debug logging
 
 - Engine state: `GameEngine.debugLog` (bounded to 5000 entries) and `debugSnapshots` (bounded to 200).
@@ -152,10 +161,11 @@ Reset with **Reset demo data** in Options, or `localStorage.removeItem('wormage.
 - Client budget: PNG up to 2.4 MB raw, downscaled in 0.8 steps if needed, JPEG at 0.92 only as a last resort. The preview shows exactly what is sent. Uploads use a 60 s request timeout.
 - Payload: URL, app version, user agent, locale/timezone, viewport/DPR, seed and full match config, current snapshot, latest 1000 debug entries and 20 snapshots, the online action log and the screenshot.
 - Server: `POST /api/bug-reports`; 4 MB body cap (`BUG_REPORT_MAX_BYTES`), PNG/JPEG magic-byte check, 2.6 MB screenshot cap and 40 MP cap. The Lambda env values are authoritative; the client mirrors them to fail early and budget the payload. Kill switch `/wormage/bug-reports/enabled` (default `false`) feeds `BUG_REPORTS_ENABLED`; prefix `BUG_REPORT_PREFIX` (default `bug-reports`). SSM values are read at deploy time, so changing a parameter requires a redeploy (emergency: `aws lambda update-function-configuration`, then reconcile in CDK). A missing env value means disabled. When disabled, the endpoint returns `202 {stored:false}` for a valid body (invalid bodies still return `400` because validation runs first) and the client surfaces a temporary-unavailable error without discarding the preview. The debug-log client stops POSTing after the first `stored:false`. Re-enable only after per-IP control (WAF per-IP or auth), not on per-route throttling alone.
-- Throttle: the HTTP API default stage allows 10 rps with a burst of 20 across all routes, including bug reports. A throttled request returns `429`; the client shows the generic send error and keeps the preview for retry. Per-route throttling is deferred by a CloudFormation stage/route dependency constraint noted in `infra/lib/wormage-stack.ts`.
+- Throttle: the HTTP API default stage allows 10 rps with a burst of 20. Isolated limits: bug reports 1 rps / burst 2, debug logs 2 / 5, match registration and online create/join/action/forfeit 5 / 10 (300 writes/minute per route, shared across matches), online polling 5 / 10 and replay 1 / 2. A throttled request returns `429`; the client shows the generic send error and keeps the preview for retry. Limits live in `infra/lib/wormage-stack.ts`; route throttling is per API route, not per IP.
 - S3: `bug-reports/<env>/<yyyy>/<mm>/<dd>/<reportId>.json` + `.png`, same bucket and 7-day lifecycle as the debug logs. There is no listing UI; read with the AWS CLI or console.
 - Fallback: iOS Safari, denied permissions, and browsers that cannot confirm the tab send the data without a screenshot. The UI never uploads an approximate or unintended image.
 - Trust boundary: `note`, `url`, `userAgent`, `timezone` and the screenshot are stored verbatim. Escape them before rendering in any future admin view.
+- Alerts and operations: bug-report volume, handled application errors, API 5xx, Lambda and DynamoDB signals route to SNS; see [RUNBOOK.md](RUNBOOK.md).
 
 ## Common tweaks
 

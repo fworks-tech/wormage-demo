@@ -65,13 +65,17 @@ export interface PlayerIdentity {
   name: string;
 }
 
+let memoryPlayer: PlayerIdentity | null = null;
+
 export function loadPlayer(): PlayerIdentity {
+  if (memoryPlayer) return memoryPlayer;
   try {
     const raw = localStorage.getItem(PLAYER_KEY);
     if (raw) {
       const parsed = JSON.parse(raw) as Partial<PlayerIdentity>;
       if (typeof parsed?.id === 'string' && parsed.id && typeof parsed.name === 'string' && parsed.name) {
-        return { id: parsed.id, name: parsed.name };
+        memoryPlayer = { id: parsed.id, name: parsed.name };
+        return memoryPlayer;
       }
     }
   } catch {
@@ -81,6 +85,7 @@ export function loadPlayer(): PlayerIdentity {
     id: `player-${Math.random().toString(36).slice(2, 10)}`,
     name: 'Field Commander',
   };
+  memoryPlayer = player;
   try {
     localStorage.setItem(PLAYER_KEY, JSON.stringify(player));
   } catch {
@@ -90,6 +95,7 @@ export function loadPlayer(): PlayerIdentity {
 }
 
 export function savePlayer(player: PlayerIdentity): void {
+  memoryPlayer = player;
   try {
     localStorage.setItem(PLAYER_KEY, JSON.stringify(player));
   } catch {

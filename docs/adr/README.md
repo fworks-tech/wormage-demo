@@ -13,6 +13,7 @@ Status values: **Proposed** (under discussion), **Accepted** (the direction), **
 | [0005](0005-fixed-timestep-simulation.md) | Fixed 60 Hz simulation step | Accepted |
 | [0006](0006-dynamodb-single-table.md) | DynamoDB single-table design for matches and leaderboard | Accepted |
 | [0007](0007-lambda-engine-bundle.md) | Bundle the renderer-free engine for Lambda replay | Accepted |
+| [0008](0008-anonymous-player-auth.md) | Anonymous HS256 bearer identity without public-playerId trust | Proposed |
 
 ## Template
 

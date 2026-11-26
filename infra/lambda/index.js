@@ -4,14 +4,24 @@ const crypto = require('crypto');
 const { DynamoDBClient, TransactWriteItemsCommand } = require('@aws-sdk/client-dynamodb');
 const { DynamoDBDocumentClient, GetCommand, PutCommand, QueryCommand, UpdateCommand } = require('@aws-sdk/lib-dynamodb');
 const { S3Client, PutObjectCommand, DeleteObjectCommand } = require('@aws-sdk/client-s3');
+const { SecretsManagerClient, GetSecretValueCommand } = require('@aws-sdk/client-secrets-manager');
 const { GameEngine, WEAPONS } = require('./engine.cjs');
 const { replayActionLog, sortActions, ENGINE_VERSION } = require('./replay.js');
 
 const TABLE = process.env.TABLE_NAME;
 const ACTION_LOG_VERSION = 2;
 const LEGACY_MATCH = Object.freeze({ legacy: true });
+const FORBIDDEN_MATCH = Object.freeze({ forbidden: true });
 const ddb = DynamoDBDocumentClient.from(new DynamoDBClient({}));
 const s3 = new S3Client({});
+const secrets = new SecretsManagerClient({});
+const AUTH_SECRET_ARN = process.env.AUTH_SECRET_ARN;
+const AUTH_TTL_SECONDS = 180 * 24 * 60 * 60;
+const AUTH_ISSUER = 'wormage';
+const AUTH_AUDIENCE = 'wormage-client';
+let authSecretPromise;
+
+class AuthError extends Error {}
 
 function json(statusCode, body) {
   return {
@@ -19,6 +29,91 @@ function json(statusCode, body) {
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify(body),
   };
+}
+
+function logError(err, event, type = 'application-error', level = 'error') {
+  console.error(JSON.stringify({
+    level,
+    type,
+    name: err && err.name ? err.name : 'Error',
+    message: err && err.message ? err.message : 'Unknown error',
+    stack: err && err.stack ? String(err.stack).split('\n').slice(0, 5).join('\n') : undefined,
+    requestId: event && event.requestContext && event.requestContext.requestId,
+    path: event && (event.rawPath || event.path),
+  }));
+}
+
+function base64url(value) {
+  return Buffer.from(JSON.stringify(value)).toString('base64url');
+}
+
+function createSession(secret, now = Date.now(), playerId = `player-${crypto.randomBytes(12).toString('base64url')}`) {
+  if (typeof secret !== 'string' || secret.length < 32) throw new Error('auth secret must be at least 32 characters');
+  const iat = Math.floor(now / 1000);
+  const exp = iat + AUTH_TTL_SECONDS;
+  const header = base64url({ alg: 'HS256', typ: 'JWT' });
+  const payload = base64url({ sub: playerId, iat, exp, iss: AUTH_ISSUER, aud: AUTH_AUDIENCE });
+  const signature = crypto.createHmac('sha256', secret).update(`${header}.${payload}`).digest('base64url');
+  return { token: `${header}.${payload}.${signature}`, playerId, expiresAt: new Date(exp * 1000).toISOString() };
+}
+
+function verifyToken(token, secret, now = Date.now()) {
+  try {
+    if (typeof token !== 'string' || typeof secret !== 'string' || secret.length < 32) throw new AuthError('invalid token');
+    const parts = token.split('.');
+    if (parts.length !== 3) throw new AuthError('invalid token');
+    const [headerPart, payloadPart, signaturePart] = parts;
+    const header = JSON.parse(Buffer.from(headerPart, 'base64url').toString('utf8'));
+    const payload = JSON.parse(Buffer.from(payloadPart, 'base64url').toString('utf8'));
+    if (header.alg !== 'HS256' || header.typ !== 'JWT') throw new AuthError('invalid token');
+    if (payload.iss !== AUTH_ISSUER || payload.aud !== AUTH_AUDIENCE || !isPlayerId(payload.sub)) throw new AuthError('invalid token');
+    if (!Number.isInteger(payload.iat) || !Number.isInteger(payload.exp) || payload.exp <= Math.floor(now / 1000) || payload.iat > Math.floor(now / 1000) + 60) throw new AuthError('invalid token');
+    const expected = crypto.createHmac('sha256', secret).update(`${headerPart}.${payloadPart}`).digest();
+    const received = Buffer.from(signaturePart, 'base64url');
+    if (received.length !== expected.length || !crypto.timingSafeEqual(received, expected)) throw new AuthError('invalid token');
+    return { playerId: payload.sub };
+  } catch (error) {
+    if (error instanceof AuthError) throw error;
+    throw new AuthError('invalid token');
+  }
+}
+
+async function getAuthSecret() {
+  if (!AUTH_SECRET_ARN) throw new Error('auth secret is not configured');
+  if (!authSecretPromise) {
+    authSecretPromise = secrets.send(new GetSecretValueCommand({ SecretId: AUTH_SECRET_ARN }))
+      .then((result) => {
+        const value = JSON.parse(result.SecretString || '{}').secret;
+        if (typeof value !== 'string' || value.length < 32) throw new Error('auth secret is invalid');
+        return value;
+      })
+      .catch((error) => {
+        authSecretPromise = undefined;
+        throw error;
+      });
+  }
+  return authSecretPromise;
+}
+
+function bearerToken(event) {
+  const headers = (event && event.headers) || {};
+  const value = headers.authorization || headers.Authorization || '';
+  const match = /^Bearer\s+(.+)$/i.exec(value);
+  return match ? match[1] : null;
+}
+
+async function requestIdentity(event, getSecret = getAuthSecret) {
+  const token = bearerToken(event);
+  if (!token) return null;
+  return verifyToken(token, await getSecret());
+}
+
+function resolvePlayerId(body, authenticatedPlayerId) {
+  if (!authenticatedPlayerId) return { playerId: body && body.playerId };
+  if (body && body.playerId && body.playerId !== authenticatedPlayerId) {
+    return { error: json(403, { message: 'playerId does not match authenticated session' }) };
+  }
+  return { playerId: authenticatedPlayerId };
 }
 
 function parseBody(event) {
@@ -36,6 +131,19 @@ function qs(event) {
 
 async function health() {
   return json(200, { ok: true, service: 'wormage', time: new Date().toISOString() });
+}
+
+async function postAuthSession(event, getSecret = getAuthSecret) {
+  const secret = await getSecret();
+  const token = bearerToken(event);
+  if (!token) return json(201, createSession(secret));
+  try {
+    const identity = verifyToken(token, secret);
+    return json(200, createSession(secret, Date.now(), identity.playerId));
+  } catch (error) {
+    if (error instanceof AuthError) return json(401, { message: 'invalid or expired token' });
+    throw error;
+  }
 }
 
 async function getLeaderboard(event, ddbClient = ddb) {
@@ -80,9 +188,9 @@ async function getLeaderboard(event, ddbClient = ddb) {
   return json(200, { items: rows.slice(start, start + pageSize), page, pageSize, total, totalPages });
 }
 
-async function getMatches(event, ddbClient = ddb) {
+async function getMatches(event, ddbClient = ddb, authenticatedPlayerId) {
   const q = qs(event);
-  const playerId = q.playerId || '';
+  const playerId = authenticatedPlayerId || q.playerId || '';
   const page = Math.max(1, Number(q.page) || 1);
   const pageSize = Math.max(1, Math.min(50, Number(q.pageSize) || 8));
   if (!playerId) return json(400, { message: 'playerId is required' });
@@ -150,6 +258,7 @@ const ALLOWED_LOADOUT = new Set(['default', 'heavy', 'scout']);
 const ALLOWED_END = new Set(['time', 'wipeout', 'surrender']);
 
 function isStr(v, max) { return typeof v === 'string' && v.length > 0 && v.length <= (max || 64); }
+function isPlayerId(v) { return typeof v === 'string' && /^player-[A-Za-z0-9_-]{1,100}$/.test(v); }
 function isNum(v, min, max) { return typeof v === 'number' && Number.isFinite(v) && v >= min && v <= max; }
 function isDirection(v) { return v === -1 || v === 0 || v === 1; }
 function hasOnlyKeys(value, allowed) {
@@ -208,8 +317,12 @@ function validateBody(body) {
   return null;
 }
 
-async function postMatch(event, ddbClient = ddb) {
+async function postMatch(event, ddbClient = ddb, authenticatedPlayerId) {
   const body = parseBody(event);
+  if (!body || typeof body !== 'object' || Array.isArray(body)) return json(400, { message: 'invalid body' });
+  const identity = resolvePlayerId(body, authenticatedPlayerId);
+  if (identity.error) return identity.error;
+  body.playerId = identity.playerId;
   const err = validateBody(body);
   if (err) return json(400, { message: err });
   if (!body.clientMatchId) return json(400, { message: 'clientMatchId is required' });
@@ -219,6 +332,7 @@ async function postMatch(event, ddbClient = ddb) {
     Key: { pk: `CLIENT#${body.clientMatchId}`, sk: 'META' },
   }));
   if (existing.Item) {
+    if (existing.Item.playerId !== body.playerId) return json(403, { message: 'match belongs to another player' });
     return json(200, toRecord(existing.Item));
   }
 
@@ -381,8 +495,11 @@ function decodeScreenshot(shot) {
   return bytes;
 }
 
-async function postBugReport(event, s3Client = s3) {
+async function postBugReport(event, s3Client = s3, authenticatedPlayerId) {
   const body = parseBody(event);
+  if (authenticatedPlayerId && body && body.online && typeof body.online === 'object' && !Array.isArray(body.online)) {
+    body.online.playerId = authenticatedPlayerId;
+  }
   const err = validateBugReportBody(body);
   if (err) return json(400, { message: err });
 
@@ -517,8 +634,12 @@ function toOnlineMatch(m) {
   };
 }
 
-async function postOnlineMatch(event, ddbClient = ddb) {
+async function postOnlineMatch(event, ddbClient = ddb, authenticatedPlayerId) {
   const body = parseBody(event);
+  if (!body || typeof body !== 'object' || Array.isArray(body)) return json(400, { message: 'invalid body' });
+  const identity = resolvePlayerId(body, authenticatedPlayerId);
+  if (identity.error) return identity.error;
+  body.playerId = identity.playerId;
   if (!isStr(body.playerId)) return json(400, { message: 'playerId is required' });
   if (!isStr(body.playerName)) return json(400, { message: 'playerName is required' });
   const teamName = isStr(body.teamName) ? body.teamName : 'Team 1';
@@ -574,9 +695,13 @@ async function postOnlineMatch(event, ddbClient = ddb) {
   return json(500, { message: 'could not allocate a unique code' });
 }
 
-async function joinOnlineMatch(event, rawCode, ddbClient = ddb) {
+async function joinOnlineMatch(event, rawCode, ddbClient = ddb, authenticatedPlayerId) {
   const code = String(rawCode || '').toUpperCase().trim();
   const body = parseBody(event);
+  if (!body || typeof body !== 'object' || Array.isArray(body)) return json(400, { message: 'invalid body' });
+  const identity = resolvePlayerId(body, authenticatedPlayerId);
+  if (identity.error) return identity.error;
+  body.playerId = identity.playerId;
   if (!isStr(body.playerId)) return json(400, { message: 'playerId is required' });
   if (!isStr(body.playerName)) return json(400, { message: 'playerName is required' });
   const got = await ddbClient.send(new GetCommand({
@@ -626,7 +751,7 @@ async function joinOnlineMatch(event, rawCode, ddbClient = ddb) {
   return json(200, { code: after.Item.code, match: toOnlineMatch(after.Item) });
 }
 
-async function getOnlineMatch(event, rawCode, ddbClient = ddb) {
+async function getOnlineMatch(event, rawCode, ddbClient = ddb, authenticatedPlayerId) {
   const code = String(rawCode || '').toUpperCase().trim();
   const got = await ddbClient.send(new GetCommand({
     TableName: TABLE,
@@ -635,6 +760,9 @@ async function getOnlineMatch(event, rawCode, ddbClient = ddb) {
   if (!got.Item) return json(404, { message: 'match not found' });
   let match = got.Item;
   if (match.actionLogVersion !== ACTION_LOG_VERSION) return legacyGone();
+  if (authenticatedPlayerId && !(Array.isArray(match.players) && match.players.some((player) => player && player.playerId === authenticatedPlayerId))) {
+    return json(403, { message: 'not a participant' });
+  }
 
   const log = await getActionLog(code, ddbClient);
   const actions = log.actions;
@@ -737,20 +865,27 @@ async function getActionLog(code, ddbClient = ddb, includeSync = false) {
   return { actions: includeSync ? sorted : sorted.filter((entry) => !entry.syncOnly) };
 }
 
-async function replayOnlineMatch(code, ddbClient) {
+async function replayOnlineMatch(code, ddbClient, authenticatedPlayerId) {
   const client = ddbClient || ddb;
   const normalized = String(code).toUpperCase().trim();
   const got = await client.send(new GetCommand({ TableName: TABLE, Key: { pk: 'ONLINE#' + normalized, sk: 'META' } }));
   if (!got.Item) return null;
   if (got.Item.actionLogVersion !== ACTION_LOG_VERSION) return LEGACY_MATCH;
+  if (authenticatedPlayerId && !(Array.isArray(got.Item.players) && got.Item.players.some((player) => player && player.playerId === authenticatedPlayerId))) {
+    return FORBIDDEN_MATCH;
+  }
   const log = await getActionLog(normalized, client);
   return replayActionLog({ GameEngine, match: got.Item, actions: log.actions });
 }
 
-async function submitAction(event, rawCode, ddbClient) {
+async function submitAction(event, rawCode, ddbClient, authenticatedPlayerId) {
   if (!ddbClient) ddbClient = ddb;
   const code = String(rawCode || '').toUpperCase().trim();
   const body = parseBody(event);
+  if (!body || typeof body !== 'object' || Array.isArray(body)) return json(400, { message: 'invalid body' });
+  const identity = resolvePlayerId(body, authenticatedPlayerId);
+  if (identity.error) return identity.error;
+  body.playerId = identity.playerId;
   if (!isStr(body.playerId)) return json(400, { message: 'playerId is required' });
   if (!isStr(body.clientActionId)) return json(400, { message: 'clientActionId is required' });
   if (!body.action || typeof body.action !== 'object' || Array.isArray(body.action)) return json(400, { message: 'action is required' });
@@ -835,7 +970,7 @@ async function submitAction(event, rawCode, ddbClient) {
         return json(409, { message: 'stale action tick' });
       }
     } catch (err) {
-      console.error('replay failed', err);
+      logError(err, event, 'replay-rejected', 'warn');
       return json(409, { message: 'illegal action' });
     }
   }
@@ -851,7 +986,7 @@ async function submitAction(event, rawCode, ddbClient) {
       stopTick: syncOnly ? actionTick + 1 : actionTick,
     });
   } catch (err) {
-    console.error('replay failed', err);
+    logError(err, event, 'replay-rejected', 'warn');
     return json(409, { message: 'illegal action' });
   }
   const snap = replay.snapshot;
@@ -944,10 +1079,14 @@ async function submitAction(event, rawCode, ddbClient) {
   return json(200, { code, match: toOnlineMatch(stored) });
 }
 
-async function forfeitOnlineMatch(event, rawCode, ddbClient) {
+async function forfeitOnlineMatch(event, rawCode, ddbClient, authenticatedPlayerId) {
   if (!ddbClient) ddbClient = ddb;
   const code = String(rawCode || '').toUpperCase().trim();
   const body = parseBody(event);
+  if (!body || typeof body !== 'object' || Array.isArray(body)) return json(400, { message: 'invalid body' });
+  const identity = resolvePlayerId(body, authenticatedPlayerId);
+  if (identity.error) return identity.error;
+  body.playerId = identity.playerId;
   if (!isStr(body.playerId)) return json(400, { message: 'playerId is required' });
 
   const got = await ddbClient.send(new GetCommand({ TableName: TABLE, Key: { pk: 'ONLINE#' + code, sk: 'META' } }));
@@ -977,9 +1116,11 @@ async function forfeitOnlineMatch(event, rawCode, ddbClient) {
   return json(200, { code: stored.code, match: toOnlineMatch(stored) });
 }
 
-exports.handler = async (event) => {
+exports.handler = async (event, dependencies = {}) => {
   const method = (event.requestContext && event.requestContext.http && event.requestContext.http.method) || event.httpMethod || 'GET';
   const path = (event.rawPath || event.path || '/').replace(/\/+$/, '') || '/';
+  const mode = process.env.AUTH_MODE || 'observe';
+  const getSecret = dependencies.getSecret || getAuthSecret;
   try {
     // CORS preflight: API Gateway forwards OPTIONS to this Lambda via the
     // catch-all route, so answer 2xx here instead of falling through to 404
@@ -987,27 +1128,41 @@ exports.handler = async (event) => {
     if (method === 'OPTIONS') return { statusCode: 204, headers: {}, body: '' };
     if (method === 'GET' && path === '/health') return await health();
     if (method === 'GET' && path === '/api/leaderboard') return await getLeaderboard(event);
-    if (method === 'GET' && path === '/api/matches') return await getMatches(event);
-    if (method === 'POST' && path === '/api/matches') return await postMatch(event);
-    if (method === 'GET' && /^\/api\/matches\/online\/[^/]+$/.test(path)) { const c = path.match(/^\/api\/matches\/online\/([^/]+)$/)[1]; return await getOnlineMatch(event, decodeURIComponent(c)); }
-    if (method === 'POST' && path === '/api/matches/online') return await postOnlineMatch(event);
+    if (method === 'POST' && path === '/api/auth/session') return await postAuthSession(event, getSecret);
+
+    let identity = null;
+    try {
+      identity = await requestIdentity(event, getSecret);
+    } catch (error) {
+      if (!(error instanceof AuthError)) throw error;
+      console.log(JSON.stringify({ type: 'auth-invalid', path, requestId: event.requestContext && event.requestContext.requestId }));
+      if (mode === 'enforce') return json(401, { message: 'invalid or expired token' });
+    }
+    if (mode === 'enforce' && !identity) return json(401, { message: 'authentication required' });
+    const playerId = identity && identity.playerId;
+
+    if (method === 'GET' && path === '/api/matches') return await getMatches(event, dependencies.ddb, playerId);
+    if (method === 'POST' && path === '/api/matches') return await postMatch(event, dependencies.ddb, playerId);
+    if (method === 'GET' && /^\/api\/matches\/online\/[^/]+$/.test(path)) { const c = path.match(/^\/api\/matches\/online\/([^/]+)$/)[1]; return await getOnlineMatch(event, decodeURIComponent(c), dependencies.ddb, playerId); }
+    if (method === 'POST' && path === '/api/matches/online') return await postOnlineMatch(event, dependencies.ddb, playerId);
     const onlineJoin = path.match(/^\/api\/matches\/online\/([^/]+)\/join$/);
-    if (method === 'POST' && onlineJoin) return await joinOnlineMatch(event, decodeURIComponent(onlineJoin[1]));
+    if (method === 'POST' && onlineJoin) return await joinOnlineMatch(event, decodeURIComponent(onlineJoin[1]), dependencies.ddb, playerId);
     const onlineAction = path.match(/^\/api\/matches\/online\/([^/]+)\/action$/);
-    if (method === 'POST' && onlineAction) return await submitAction(event, decodeURIComponent(onlineAction[1]));
+    if (method === 'POST' && onlineAction) return await submitAction(event, decodeURIComponent(onlineAction[1]), dependencies.ddb, playerId);
     const onlineForfeit = path.match(/^\/api\/matches\/online\/([^/]+)\/forfeit$/);
-    if (method === 'POST' && onlineForfeit) return await forfeitOnlineMatch(event, decodeURIComponent(onlineForfeit[1]));
+    if (method === 'POST' && onlineForfeit) return await forfeitOnlineMatch(event, decodeURIComponent(onlineForfeit[1]), dependencies.ddb, playerId);
     const onlineReplay = path.match(/^\/api\/matches\/online\/([^/]+)\/replay$/);
     if (method === 'GET' && onlineReplay) {
-      const replay = await replayOnlineMatch(decodeURIComponent(onlineReplay[1]));
+      const replay = await replayOnlineMatch(decodeURIComponent(onlineReplay[1]), dependencies.ddb, playerId);
       if (replay === LEGACY_MATCH) return legacyGone();
+      if (replay === FORBIDDEN_MATCH) return json(403, { message: 'not a participant' });
       return replay ? json(200, replay) : json(404, { message: 'match not found' });
     }
     if (method === 'POST' && path === '/api/debug-logs') return await postDebugLog(event);
-    if (method === 'POST' && path === '/api/bug-reports') return await postBugReport(event);
+    if (method === 'POST' && path === '/api/bug-reports') return await postBugReport(event, undefined, playerId);
     return json(404, { message: 'Not found' });
   } catch (err) {
-    console.error(err);
+    logError(err, event);
     return json(500, { message: 'Internal error' });
   }
 };
@@ -1034,3 +1189,7 @@ exports.postBugReport = postBugReport;
 exports.validateBugReportBody = validateBugReportBody;
 exports.keyOf = keyOf;
 exports.validateBody = validateBody;
+exports.logError = logError;
+exports.createSession = createSession;
+exports.verifyToken = verifyToken;
+exports.postAuthSession = postAuthSession;

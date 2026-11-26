@@ -1,4 +1,18 @@
-import { expect, test } from '@playwright/test';
+import { expect, test, type Page } from '@playwright/test';
+
+async function joinAsBob(page: Page, matchCode: string) {
+  await page.evaluate(async (code) => {
+    const sessionResponse = await fetch('/api/auth/session', { method: 'POST' });
+    if (!sessionResponse.ok) throw new Error('Bob could not create a session');
+    const session = await sessionResponse.json() as { token: string };
+    const response = await fetch(`/api/matches/online/${code}/join`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', authorization: `Bearer ${session.token}` },
+      body: JSON.stringify({ playerName: 'Bob' }),
+    });
+    if (!response.ok) throw new Error('Bob could not join');
+  }, matchCode);
+}
 
 test.beforeEach(async ({ page }) => {
   await page.addInitScript(() => {
@@ -17,14 +31,7 @@ test('@smoke can create and join an online match', async ({ page }) => {
   const code = await page.getByTestId('online-code').textContent();
   expect(code?.trim()).toMatch(/^[A-Z2-9]{6}$/);
 
-  await page.evaluate(async (matchCode) => {
-    const response = await fetch(`/api/matches/online/${matchCode}/join`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ playerId: 'e2e-bob', playerName: 'Bob' }),
-    });
-    if (!response.ok) throw new Error('Bob could not join');
-  }, code!.trim());
+  await joinAsBob(page, code!.trim());
   await expect(page.getByTestId('btn-start-online')).toBeVisible({ timeout: 5000 });
 });
 
@@ -37,14 +44,7 @@ test('@smoke a shot hands the online turn to the other human before the timer', 
   await expect(page.getByTestId('online-code')).toBeVisible({ timeout: 5000 });
   const code = (await page.getByTestId('online-code').textContent())!.trim();
 
-  await page.evaluate(async (matchCode) => {
-    const response = await fetch(`/api/matches/online/${matchCode}/join`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ playerId: 'e2e-bob', playerName: 'Bob' }),
-    });
-    if (!response.ok) throw new Error('Bob could not join');
-  }, code);
+  await joinAsBob(page, code);
   await expect(page.getByTestId('btn-start-online')).toBeVisible({ timeout: 5000 });
   await page.getByTestId('btn-start-online').click();
   await expect(page.getByTestId('arena').locator('canvas')).toBeVisible();
@@ -72,7 +72,10 @@ test('@smoke a shot hands the online turn to the other human before the timer', 
     { timeout: 30000 },
   );
   await page.waitForFunction(async (matchCode) => {
-    const response = await fetch(`/api/matches/online/${matchCode}`);
+    const session = JSON.parse(window.localStorage.getItem('wormage.auth.v1') ?? '{}') as { token?: string };
+    const response = await fetch(`/api/matches/online/${matchCode}`, {
+      headers: session.token ? { authorization: `Bearer ${session.token}` } : undefined,
+    });
     const { match } = await response.json() as { match: { activeTeam: number; phase: string } };
     return match.activeTeam === 1 && match.phase === 'aim';
   }, code, { timeout: 15000 });

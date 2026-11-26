@@ -11,6 +11,7 @@ import * as acm from 'aws-cdk-lib/aws-certificatemanager';
 import * as route53 from 'aws-cdk-lib/aws-route53';
 import * as route53Targets from 'aws-cdk-lib/aws-route53-targets';
 import * as sns from 'aws-cdk-lib/aws-sns';
+import * as secretsmanager from 'aws-cdk-lib/aws-secretsmanager';
 import * as cloudwatch from 'aws-cdk-lib/aws-cloudwatch';
 import * as cwActions from 'aws-cdk-lib/aws-cloudwatch-actions';
 import * as wafv2 from 'aws-cdk-lib/aws-wafv2';
@@ -23,6 +24,10 @@ export interface WormageStackProps extends cdk.StackProps {
   apiDomainName?: string;
   /** CORS allowlist for the HTTP API. Defaults to production site + localhost dev. */
   corsOrigins?: string[];
+  /** Email recipient for SNS alarm notifications. The subscription requires confirmation. */
+  alarmEmail?: string;
+  /** Anonymous auth rollout mode. Defaults to observe for legacy compatibility. */
+  authMode?: 'observe' | 'enforce';
 }
 
 export class WormageStack extends cdk.Stack {
@@ -90,6 +95,15 @@ export class WormageStack extends cdk.Stack {
       parameterName: '/wormage/debug-logs/prefix',
       stringValue: 'debug-logs',
     });
+    const authSecret = new secretsmanager.Secret(this, 'AnonymousAuthSecret', {
+      description: 'HS256 signing key for anonymous Wormage player sessions',
+      generateSecretString: {
+        secretStringTemplate: '{}',
+        generateStringKey: 'secret',
+        passwordLength: 32,
+        excludePunctuation: true,
+      },
+    });
 
     this.handler = new lambda.Function(this, 'WormageHandler', {
       runtime: lambda.Runtime.NODEJS_22_X,
@@ -106,6 +120,8 @@ export class WormageStack extends cdk.Stack {
         BUG_REPORTS_ENABLED: bugReportsEnabled.stringValue,
         BUG_REPORT_MAX_BYTES: '4000000',
         BUG_REPORT_PREFIX: 'bug-reports',
+        AUTH_SECRET_ARN: authSecret.secretArn,
+        AUTH_MODE: props?.authMode ?? 'observe',
       },
       timeout: cdk.Duration.seconds(10),
       memorySize: 256,
@@ -115,6 +131,7 @@ export class WormageStack extends cdk.Stack {
 
     this.table.grantReadWriteData(this.handler);
     debugLogBucket.grantWrite(this.handler);
+    authSecret.grantRead(this.handler);
 
 
     const corsOrigins = props?.corsOrigins && props.corsOrigins.length > 0
@@ -146,34 +163,100 @@ export class WormageStack extends cdk.Stack {
       ],
       integration,
     });
-    this.httpApi.addRoutes({
-      path: '/api/debug-logs',
-      methods: [apigwv2.HttpMethod.POST],
-      integration,
-    });
-    this.httpApi.addRoutes({
-      path: '/api/bug-reports',
-      methods: [apigwv2.HttpMethod.POST],
-      integration,
-    });
+    const addRoute = (path: string, methods: apigwv2.HttpMethod[]) =>
+      this.httpApi.addRoutes({ path, methods, integration })[0];
 
-    // Default-stage throttle covers every route, including POST /api/bug-reports.
+    addRoute('/health', [apigwv2.HttpMethod.GET]);
+    const authSessionRoute = addRoute('/api/auth/session', [apigwv2.HttpMethod.POST]);
+    addRoute('/api/leaderboard', [apigwv2.HttpMethod.GET]);
+    addRoute('/api/matches', [apigwv2.HttpMethod.GET]);
+    const matchRoute = addRoute('/api/matches', [apigwv2.HttpMethod.POST]);
+    const createOnlineRoute = addRoute('/api/matches/online', [apigwv2.HttpMethod.POST]);
+    const pollOnlineRoute = addRoute('/api/matches/online/{code}', [apigwv2.HttpMethod.GET]);
+    const joinOnlineRoute = addRoute('/api/matches/online/{code}/join', [apigwv2.HttpMethod.POST]);
+    const actionOnlineRoute = addRoute('/api/matches/online/{code}/action', [apigwv2.HttpMethod.POST]);
+    const forfeitOnlineRoute = addRoute('/api/matches/online/{code}/forfeit', [apigwv2.HttpMethod.POST]);
+    const replayRoute = addRoute('/api/matches/online/{code}/replay', [apigwv2.HttpMethod.GET]);
+    const debugLogRoute = addRoute('/api/debug-logs', [apigwv2.HttpMethod.POST]);
+    const bugReportRoute = addRoute('/api/bug-reports', [apigwv2.HttpMethod.POST]);
+
+    // Route settings reference route keys, so the stage must wait for those routes.
+    // NB: routeSettings is an any/passthrough — CloudFormation requires PascalCase
+    // here, unlike defaultRouteSettings which converts camelCase automatically.
+    // One map drives both routeSettings and stage dependencies so a new entry
+    // cannot reintroduce the "Unable to find Route by key" update failure.
+    const throttledRoutes = [
+      { key: 'POST /api/auth/session', route: authSessionRoute, burst: 5, rate: 2 },
+      { key: 'POST /api/debug-logs', route: debugLogRoute, burst: 5, rate: 2 },
+      { key: 'POST /api/bug-reports', route: bugReportRoute, burst: 2, rate: 1 },
+      { key: 'POST /api/matches', route: matchRoute, burst: 10, rate: 5 },
+      { key: 'POST /api/matches/online', route: createOnlineRoute, burst: 10, rate: 5 },
+      { key: 'POST /api/matches/online/{code}/join', route: joinOnlineRoute, burst: 10, rate: 5 },
+      { key: 'POST /api/matches/online/{code}/action', route: actionOnlineRoute, burst: 10, rate: 5 },
+      { key: 'POST /api/matches/online/{code}/forfeit', route: forfeitOnlineRoute, burst: 10, rate: 5 },
+      // Costly reads share the default throttle without this: replay runs a full
+      // action-log replay (up to 108k ticks) and polling at 1-2s per match adds up.
+      { key: 'GET /api/matches/online/{code}', route: pollOnlineRoute, burst: 10, rate: 5 },
+      { key: 'GET /api/matches/online/{code}/replay', route: replayRoute, burst: 2, rate: 1 },
+    ];
     const cfnStage = this.httpApi.defaultStage?.node.defaultChild as apigwv2.CfnStage | undefined;
     if (cfnStage) {
       cfnStage.defaultRouteSettings = {
         throttlingBurstLimit: 20,
         throttlingRateLimit: 10,
       };
-      // shortcut: per-route routeSettings caused CloudFormation UPDATE failures
-      // ("Unable to find Route by key ...") when the stage update ran before the
-      // route resource existed in the same changeset. Revisit per-route throttling
-      // via a separate stage update or WAF rate-based rule when traffic demands it.
+      cfnStage.routeSettings = Object.fromEntries(
+        throttledRoutes.map(({ key, burst, rate }) => [key, { ThrottlingBurstLimit: burst, ThrottlingRateLimit: rate }]),
+      );
+      for (const { route } of throttledRoutes) {
+        cfnStage.addResourceDependency(route.node.defaultChild as apigwv2.CfnRoute);
+      }
     }
 
     // Observability: SNS topic + CloudWatch alarms for the backend.
     const alarmTopic = new sns.Topic(this, 'WormageAlarmTopic', {
       displayName: 'Wormage backend alarms',
     });
+    if (props?.alarmEmail) {
+      new sns.Subscription(this, 'WormageAlarmEmailSubscription', {
+        topic: alarmTopic,
+        protocol: sns.SubscriptionProtocol.EMAIL,
+        endpoint: props.alarmEmail,
+      });
+    }
+
+    const applicationErrorFilter = new logs.MetricFilter(this, 'ApplicationErrorMetricFilter', {
+      logGroup: this.handler.logGroup,
+      metricNamespace: 'Wormage/Application',
+      metricName: 'ApplicationErrors',
+      filterPattern: logs.FilterPattern.literal('{ $.level = "error" }'),
+      defaultValue: 0,
+    });
+    new cloudwatch.Alarm(this, 'ApplicationErrorsAlarm', {
+      metric: applicationErrorFilter.metric({ period: cdk.Duration.minutes(5), statistic: 'Sum' }),
+      threshold: 1,
+      evaluationPeriods: 1,
+      datapointsToAlarm: 1,
+      treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
+      alarmDescription: 'Handled application errors',
+    }).addAlarmAction(new cwActions.SnsAction(alarmTopic));
+
+    const bugReportFilter = new logs.MetricFilter(this, 'BugReportMetricFilter', {
+      logGroup: this.handler.logGroup,
+      metricNamespace: 'Wormage/Application',
+      metricName: 'BugReportCount',
+      filterPattern: logs.FilterPattern.literal('{ $.type = "bug-report" }'),
+      defaultValue: 0,
+    });
+    new cloudwatch.Alarm(this, 'BugReportVolumeAlarm', {
+      metric: bugReportFilter.metric({ period: cdk.Duration.hours(1), statistic: 'Sum' }),
+      threshold: 20,
+      evaluationPeriods: 1,
+      datapointsToAlarm: 1,
+      comparisonOperator: cloudwatch.ComparisonOperator.GREATER_THAN_THRESHOLD,
+      treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
+      alarmDescription: 'Bug-report volume above 20 per hour',
+    }).addAlarmAction(new cwActions.SnsAction(alarmTopic));
 
     const lambdaErrors = this.handler.metricErrors({ period: cdk.Duration.minutes(5) });
     new cloudwatch.Alarm(this, 'LambdaErrorsAlarm', {
@@ -205,20 +288,29 @@ export class WormageStack extends cdk.Stack {
       alarmDescription: 'Lambda p99 duration above 8s',
     }).addAlarmAction(new cwActions.SnsAction(alarmTopic));
 
-    const tableThrottles = this.table.metricUserErrors({ period: cdk.Duration.minutes(5) });
+    const tableThrottles = this.table.metricThrottledRequestsForOperations({
+      period: cdk.Duration.minutes(5),
+      operations: [
+        dynamodb.Operation.GET_ITEM,
+        dynamodb.Operation.PUT_ITEM,
+        dynamodb.Operation.QUERY,
+        dynamodb.Operation.UPDATE_ITEM,
+        dynamodb.Operation.TRANSACT_WRITE_ITEMS,
+      ],
+    });
     new cloudwatch.Alarm(this, 'DynamoThrottlesAlarm', {
       metric: tableThrottles,
       threshold: 1,
       evaluationPeriods: 1,
       datapointsToAlarm: 1,
       treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
-      alarmDescription: 'DynamoDB user errors (includes throttles)',
+      alarmDescription: 'DynamoDB throttled requests',
     }).addAlarmAction(new cwActions.SnsAction(alarmTopic));
 
     const api5xx = this.httpApi.metricServerError({ period: cdk.Duration.minutes(5) });
     new cloudwatch.Alarm(this, 'Api5xxAlarm', {
       metric: api5xx,
-      threshold: 5,
+      threshold: 2,
       evaluationPeriods: 1,
       datapointsToAlarm: 1,
       treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
