@@ -204,3 +204,9 @@ test('reserved concurrency is applied when explicitly configured', () => {
   const handler = Object.values(configured.findResources('AWS::Lambda::Function'))[0];
   assert.equal(handler.Properties.ReservedConcurrentExecutions, 10);
 });
+
+test('monthly budget limit is configurable', () => {
+  const configured = template({ monthlyBudgetLimitUsd: 20 });
+  const budget = Object.values(configured.findResources('AWS::Budgets::Budget'))[0];
+  assert.equal(budget.Properties.Budget.BudgetLimit.Amount, 20);
+});
