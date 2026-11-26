@@ -7,6 +7,7 @@ import {
   GRAVITY,
   JUMP_REACH,
   LOOT,
+  MOB,
   PROJECTILE_GRAVITY,
   RETREAT_SECONDS,
   ROPE,
@@ -64,6 +65,21 @@ interface LootItem {
   ammoGrant: number;
 }
 
+interface Mob {
+  id: number;
+  x: number;
+  y: number;
+  vy: number;
+  hp: number;
+  maxHp: number;
+  damage: number;
+  speed: number;
+  radius: number;
+  alive: boolean;
+  moveDir: -1 | 0 | 1;
+  moveLeft: number;
+}
+
 export class GameEngine {
   readonly config: MatchConfig;
   readonly terrain: Terrain;
@@ -116,7 +132,7 @@ export class GameEngine {
   private revengeTurnsByTeam: Record<number, number> = {};
   private readonly rng: () => number;
   loot: LootItem[] = [];
-  mobs: Array<{ id: number; x: number; y: number; hp: number; maxHp: number; damage: number; speed: number; radius: number; alive: boolean }> = [];
+  mobs: Mob[] = [];
   private mobId = 0;
   private lootId = 0;
   private readonly lastWormByTeam: Record<number, string> = {};
@@ -826,7 +842,20 @@ export class GameEngine {
         }
       }
       x = Math.max(60, Math.min(WORLD_W - 60, x));
-      this.mobs.push({ id: ++this.mobId, x, y: ground(x) - 12, hp: 60, maxHp: 60, damage: 5, speed: 160, radius: 18, alive: true });
+      this.mobs.push({
+        id: ++this.mobId,
+        x,
+        y: ground(x) - MOB.radius,
+        vy: 0,
+        hp: MOB.maxHp,
+        maxHp: MOB.maxHp,
+        damage: MOB.damage,
+        speed: MOB.speed,
+        radius: MOB.radius,
+        alive: true,
+        moveDir: 0,
+        moveLeft: 0,
+      });
     }
   }
 
@@ -837,40 +866,24 @@ export class GameEngine {
     }, 'system');
     for (const mob of this.mobs) {
       if (!mob.alive) continue;
-      const fromX = mob.x;
-      const fromY = mob.y;
-      let best: { w: any; d: number } | null = null;
+      let best: { w: Worm; d: number } | null = null;
       for (const t of this.teams) for (const w of t.worms) {
         if (!w.alive) continue;
         const d = Math.hypot(w.x - mob.x, w.y - mob.y);
         if (!best || d < best.d) best = { w, d };
       }
       if (!best) {
+        mob.moveDir = 0;
+        mob.moveLeft = 0;
         this.logDebug('mob.idle', 'Mob found no target', { mobId: mob.id, x: mob.x, y: mob.y }, 'mob', `mob-${mob.id}`);
         continue;
       }
       const dx = best.w.x - mob.x;
       const dy = best.w.y - mob.y;
       const dist = Math.hypot(dx, dy) || 1;
-      const dir = dx >= 0 ? 1 : -1;
-      const budget = Math.min(mob.speed * 2, dist);
-      let moved = 0;
-      let x = mob.x;
-      while (moved < budget) {
-        const step = Math.min(8, budget - moved);
-        const nx = x + dir * step;
-        if (nx < 0 || nx > WORLD_W) break;
-        const g = this.terrain.groundY(nx, 120, WATER_Y - 120);
-        if (g === null) break;
-        const curG = this.terrain.groundY(x, 120, WATER_Y - 120);
-        if (curG === null || Math.abs(g - curG) > 40) break;
-        x = nx;
-        moved += step;
-      }
-      mob.x = x;
-      const g = this.terrain.groundY(mob.x, 120, WATER_Y - 120);
-      if (g !== null) mob.y = g - mob.radius;
-      const attacked = dist <= 60;
+      const attacked = dist <= MOB.attackRange;
+      mob.moveDir = attacked ? 0 : dx >= 0 ? 1 : -1;
+      mob.moveLeft = attacked ? 0 : Math.min(mob.speed * MOB.orderSeconds, dist);
       if (attacked) {
         best.w.hp = Math.max(0, best.w.hp - mob.damage);
         if (best.w.hp <= 0) {
@@ -878,14 +891,14 @@ export class GameEngine {
           this.events.push({ type: 'death', x: best.w.x, y: best.w.y, color: this.teams[best.w.teamId].color });
         }
       }
-      this.logDebug('mob.move', 'Mob moved', {
+      this.logDebug('mob.order', 'Mob movement ordered', {
         mobId: mob.id,
-        from: { x: Math.round(fromX), y: Math.round(fromY) },
-        to: { x: Math.round(mob.x), y: Math.round(mob.y) },
+        from: { x: Math.round(mob.x), y: Math.round(mob.y) },
         targetId: best.w.id,
         targetTeam: best.w.teamId,
         distance: Math.round(dist),
-        moved: Math.round(moved),
+        direction: mob.moveDir,
+        budget: Math.round(mob.moveLeft),
         attacked,
         damage: attacked ? mob.damage : 0,
         killed: attacked && best.w.hp <= 0,
@@ -1138,6 +1151,75 @@ export class GameEngine {
     worm.vy = -rope.length * Math.sin(rope.angle) * rope.angularVelocity;
     worm.onGround = false;
     worm.fallDistance = 0;
+  }
+
+  private stepMobs(dt: number): void {
+    for (const mob of this.mobs) {
+      if (!mob.alive) continue;
+      const feet = mob.y + mob.radius;
+      const ground = this.terrain.groundY(
+        mob.x,
+        Math.max(0, feet - MOB.groundProbe),
+        Math.max(0, WATER_Y - feet + MOB.groundProbe),
+      );
+      if (ground !== null && feet >= ground - MOB.groundTolerance) {
+        mob.y = ground - mob.radius;
+        mob.vy = 0;
+      } else {
+        mob.vy += GRAVITY * dt;
+        const distance = mob.vy * dt;
+        const steps = Math.max(1, Math.ceil(Math.abs(distance) / MOB.collisionStep));
+        for (let i = 0; i < steps; i += 1) {
+          const stepDistance = distance / steps;
+          const nextY = mob.y + stepDistance;
+          const nextFeet = nextY + mob.radius;
+          if (this.terrain.isSolid(mob.x, nextFeet)) {
+            const landing = this.terrain.groundY(
+              mob.x,
+              Math.max(0, nextFeet - Math.abs(stepDistance) - MOB.groundProbe),
+              MOB.landingRange,
+            );
+            mob.y = (landing ?? nextFeet) - mob.radius;
+            mob.vy = 0;
+            break;
+          }
+          mob.y = nextY;
+          if (nextFeet >= WATER_Y) {
+            mob.alive = false;
+            this.logDebug('mob.death', 'Mob drowned', { mobId: mob.id }, 'mob', `mob-${mob.id}`);
+            break;
+          }
+        }
+      }
+      if (mob.alive && mob.moveDir !== 0 && mob.moveLeft > 0) this.walkMob(mob, dt);
+    }
+  }
+
+  private walkMob(mob: Mob, dt: number): void {
+    const support = this.terrain.groundY(mob.x, Math.max(0, mob.y - MOB.groundProbe), MOB.supportRange);
+    if (support === null || Math.abs(mob.y + mob.radius - support) > MOB.groundTolerance) return;
+    const budget = Math.min(mob.moveLeft, mob.speed * dt);
+    const steps = Math.max(1, Math.ceil(budget / MOB.collisionStep));
+    let moved = 0;
+    for (let i = 0; i < steps; i += 1) {
+      const previousX = mob.x;
+      const nx = worldClamp(previousX + mob.moveDir * budget / steps, 0, WORLD_W);
+      if (nx === previousX) {
+        mob.moveLeft = 0;
+        break;
+      }
+      const currentGround = this.terrain.groundY(mob.x, Math.max(0, mob.y - MOB.groundProbe), MOB.supportRange);
+      const nextGround = this.terrain.groundY(nx, Math.max(0, mob.y - MOB.groundProbe), MOB.supportRange);
+      if (currentGround === null || nextGround === null || Math.abs(nextGround - currentGround) > MOB.maxGroundStep) {
+        mob.moveLeft = 0;
+        break;
+      }
+      mob.x = nx;
+      mob.y = nextGround - mob.radius;
+      moved += Math.abs(nx - previousX);
+    }
+    mob.moveLeft = Math.max(0, mob.moveLeft - moved);
+    if (mob.moveLeft === 0) mob.moveDir = 0;
   }
 
   private stepWorm(worm: Worm, dt: number): void {
@@ -1672,6 +1754,7 @@ export class GameEngine {
 
     for (const t of this.teams) for (const w of t.worms) this.stepWorm(w, dt);
     if (this.phase === 'aim' && this.activeWorm && !this.activeWorm.alive) this.finishTurn();
+    if ((this.phase as string) !== 'gameover') this.stepMobs(dt);
     this.updateLoot(dt);
 
     // Only aim once the CPU stops: the animation is the tell that it is about to fire.
