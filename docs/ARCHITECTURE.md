@@ -81,6 +81,8 @@ Destruction (`Terrain.carve`) zeroes the mask circle, then fires `onCarve`. The 
 
 Mobs are hazards, not a faction. `hostilePhase` selects targets only from `teams[*].worms`, so a mob never attacks another mob or itself. They spawn in a central band when it has room; a full band pushes the extra mobs just outside it, still at least 48 px apart and clear of worm spawns and mines, and they do not arm mines (only worms do). Blast damage to mobs uses the same `blastFalloff` as worms, so one bazooka hit leaves a full-health mob alive; a chained mine can still finish it. The engine resolves hostile movement once per turn; the renderer interpolates each mob toward its new position at `mob.speed` so the walk is visible instead of a teleport.
 
+Standard two-team CPU deathmatches right-align the CPU formation against the 120 px spawn margin so it starts beyond the central mob band. Hotseat, multi-team and other modes retain the equal-band layout.
+
 ### Turn state machine
 
 ```

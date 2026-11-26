@@ -12,6 +12,8 @@ const config = (): MatchConfig => ({
   difficulty: 'veteran',
   seed: 777,
   wormsPerTeam: 3,
+  // Keep the scripted wipeout on the unchanged spawn layout.
+  mode: 'fort',
 });
 
 /**
