@@ -106,3 +106,25 @@ test('API 5xx alarm triggers after two errors', () => {
     EvaluationPeriods: 1,
   });
 });
+
+test('write routes have isolated throttles and explicit stage dependencies', () => {
+  const routes = Object.entries(alarmTemplate.findResources('AWS::ApiGatewayV2::Route'));
+  const stage = Object.values(alarmTemplate.findResources('AWS::ApiGatewayV2::Stage'))[0];
+  const expected = {
+    'POST /api/debug-logs': { ThrottlingBurstLimit: 5, ThrottlingRateLimit: 2 },
+    'POST /api/bug-reports': { ThrottlingBurstLimit: 2, ThrottlingRateLimit: 1 },
+    'POST /api/matches': { ThrottlingBurstLimit: 10, ThrottlingRateLimit: 5 },
+    'POST /api/matches/online': { ThrottlingBurstLimit: 10, ThrottlingRateLimit: 5 },
+    'POST /api/matches/online/{code}/join': { ThrottlingBurstLimit: 10, ThrottlingRateLimit: 5 },
+    'POST /api/matches/online/{code}/action': { ThrottlingBurstLimit: 10, ThrottlingRateLimit: 5 },
+    'POST /api/matches/online/{code}/forfeit': { ThrottlingBurstLimit: 10, ThrottlingRateLimit: 5 },
+  };
+
+  assert.deepEqual(stage.Properties.DefaultRouteSettings, { ThrottlingBurstLimit: 20, ThrottlingRateLimit: 10 });
+  for (const [routeKey, settings] of Object.entries(expected)) {
+    assert.deepEqual(stage.Properties.RouteSettings[routeKey], settings);
+    const route = routes.find(([, resource]) => resource.Properties.RouteKey === routeKey);
+    assert.ok(route, `missing route ${routeKey}`);
+    assert.ok(stage.DependsOn.includes(route[0]), `stage must depend on ${routeKey}`);
+  }
+});

@@ -46,6 +46,10 @@ aws s3 ls s3://<debug-log-bucket>/bug-reports/ --recursive
 
 Download a specific JSON report with `aws s3 cp s3://<bucket>/<key> .`. Treat report text, URLs, user-agent strings and screenshots as untrusted content.
 
+## Throttling
+
+Per-route limits are defined in `infra/lib/wormage-stack.ts`. Bug reports default to 1 request/second with burst 2; debug logs to 2 / 5; match and online writes to 5 / 10. To tighten a route, lower its `RouteSettings` values and deploy. To stop uploads entirely, use the kill switches above rather than relying on throttling.
+
 ## Rollback
 
 Infrastructure rollback is a revert plus redeploy through the same approved workflow. Do not use `cdk destroy` as a rollback. Removing an SNS subscription stops notification delivery but leaves the alarms in place.

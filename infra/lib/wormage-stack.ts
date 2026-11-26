@@ -148,28 +148,41 @@ export class WormageStack extends cdk.Stack {
       ],
       integration,
     });
-    this.httpApi.addRoutes({
-      path: '/api/debug-logs',
-      methods: [apigwv2.HttpMethod.POST],
-      integration,
-    });
-    this.httpApi.addRoutes({
-      path: '/api/bug-reports',
-      methods: [apigwv2.HttpMethod.POST],
-      integration,
-    });
+    const addRoute = (path: string, methods: apigwv2.HttpMethod[]) =>
+      this.httpApi.addRoutes({ path, methods, integration })[0];
 
-    // Default-stage throttle covers every route, including POST /api/bug-reports.
+    addRoute('/health', [apigwv2.HttpMethod.GET]);
+    addRoute('/api/leaderboard', [apigwv2.HttpMethod.GET]);
+    addRoute('/api/matches', [apigwv2.HttpMethod.GET]);
+    const matchRoute = addRoute('/api/matches', [apigwv2.HttpMethod.POST]);
+    const createOnlineRoute = addRoute('/api/matches/online', [apigwv2.HttpMethod.POST]);
+    addRoute('/api/matches/online/{code}', [apigwv2.HttpMethod.GET]);
+    const joinOnlineRoute = addRoute('/api/matches/online/{code}/join', [apigwv2.HttpMethod.POST]);
+    const actionOnlineRoute = addRoute('/api/matches/online/{code}/action', [apigwv2.HttpMethod.POST]);
+    const forfeitOnlineRoute = addRoute('/api/matches/online/{code}/forfeit', [apigwv2.HttpMethod.POST]);
+    addRoute('/api/matches/online/{code}/replay', [apigwv2.HttpMethod.GET]);
+    const debugLogRoute = addRoute('/api/debug-logs', [apigwv2.HttpMethod.POST]);
+    const bugReportRoute = addRoute('/api/bug-reports', [apigwv2.HttpMethod.POST]);
+
+    // Route settings reference route keys, so the stage must wait for those routes.
     const cfnStage = this.httpApi.defaultStage?.node.defaultChild as apigwv2.CfnStage | undefined;
     if (cfnStage) {
       cfnStage.defaultRouteSettings = {
         throttlingBurstLimit: 20,
         throttlingRateLimit: 10,
       };
-      // shortcut: per-route routeSettings caused CloudFormation UPDATE failures
-      // ("Unable to find Route by key ...") when the stage update ran before the
-      // route resource existed in the same changeset. Revisit per-route throttling
-      // via a separate stage update or WAF rate-based rule when traffic demands it.
+      cfnStage.routeSettings = {
+        'POST /api/debug-logs': { ThrottlingBurstLimit: 5, ThrottlingRateLimit: 2 },
+        'POST /api/bug-reports': { ThrottlingBurstLimit: 2, ThrottlingRateLimit: 1 },
+        'POST /api/matches': { ThrottlingBurstLimit: 10, ThrottlingRateLimit: 5 },
+        'POST /api/matches/online': { ThrottlingBurstLimit: 10, ThrottlingRateLimit: 5 },
+        'POST /api/matches/online/{code}/join': { ThrottlingBurstLimit: 10, ThrottlingRateLimit: 5 },
+        'POST /api/matches/online/{code}/action': { ThrottlingBurstLimit: 10, ThrottlingRateLimit: 5 },
+        'POST /api/matches/online/{code}/forfeit': { ThrottlingBurstLimit: 10, ThrottlingRateLimit: 5 },
+      };
+      for (const route of [matchRoute, createOnlineRoute, joinOnlineRoute, actionOnlineRoute, forfeitOnlineRoute, debugLogRoute, bugReportRoute]) {
+        cfnStage.addResourceDependency(route.node.defaultChild as apigwv2.CfnRoute);
+      }
     }
 
     // Observability: SNS topic + CloudWatch alarms for the backend.
