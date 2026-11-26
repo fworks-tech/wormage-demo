@@ -212,18 +212,17 @@ test('@smoke pause freezes the turn timer until resumed', async ({ page }) => {
   expect((await snapshot(page)).timeLeft).toBeLessThan(frozen);
 });
 
-test('the HUD stays inside the letterboxed arena on wide screens', async ({ page }) => {
+test('the HUD uses the full arena width on wide screens', async ({ page }) => {
   await page.setViewportSize({ width: 1900, height: 940 });
   await startMatch(page);
 
-  const bar = (1900 - (940 * 16) / 9) / 2;
   const top = await page.locator('.hud-top').boundingBox();
-  expect(top!.x).toBeGreaterThanOrEqual(bar - 1);
-  expect(top!.x + top!.width).toBeLessThanOrEqual(1900 - bar + 1);
+  expect(top!.x).toBeLessThanOrEqual(20);
+  expect(top!.x + top!.width).toBeGreaterThanOrEqual(1880);
 
   const dock = await page.locator('.weapon-dock').boundingBox();
-  expect(dock!.x).toBeGreaterThanOrEqual(bar - 1);
-  expect(dock!.x + dock!.width).toBeLessThanOrEqual(1900 - bar + 1);
+  expect(dock!.x).toBeGreaterThanOrEqual(0);
+  expect(dock!.x + dock!.width).toBeLessThanOrEqual(1900);
 });
 
 test('the fuse countdown shows the real fuse and scales its bar', async ({ page }) => {
