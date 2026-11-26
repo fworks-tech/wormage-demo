@@ -184,13 +184,7 @@ export class WormageStack extends cdk.Stack {
       });
     }
 
-    const applicationErrorMetric = new cloudwatch.Metric({
-      namespace: 'Wormage/Application',
-      metricName: 'ApplicationErrors',
-      period: cdk.Duration.minutes(5),
-      statistic: 'Sum',
-    });
-    new logs.MetricFilter(this, 'ApplicationErrorMetricFilter', {
+    const applicationErrorFilter = new logs.MetricFilter(this, 'ApplicationErrorMetricFilter', {
       logGroup: this.handler.logGroup,
       metricNamespace: 'Wormage/Application',
       metricName: 'ApplicationErrors',
@@ -198,7 +192,7 @@ export class WormageStack extends cdk.Stack {
       defaultValue: 0,
     });
     new cloudwatch.Alarm(this, 'ApplicationErrorsAlarm', {
-      metric: applicationErrorMetric,
+      metric: applicationErrorFilter.metric({ period: cdk.Duration.minutes(5), statistic: 'Sum' }),
       threshold: 1,
       evaluationPeriods: 1,
       datapointsToAlarm: 1,
@@ -206,13 +200,7 @@ export class WormageStack extends cdk.Stack {
       alarmDescription: 'Handled application errors',
     }).addAlarmAction(new cwActions.SnsAction(alarmTopic));
 
-    const bugReportMetric = new cloudwatch.Metric({
-      namespace: 'Wormage/Application',
-      metricName: 'BugReportCount',
-      period: cdk.Duration.hours(1),
-      statistic: 'Sum',
-    });
-    new logs.MetricFilter(this, 'BugReportMetricFilter', {
+    const bugReportFilter = new logs.MetricFilter(this, 'BugReportMetricFilter', {
       logGroup: this.handler.logGroup,
       metricNamespace: 'Wormage/Application',
       metricName: 'BugReportCount',
@@ -220,13 +208,13 @@ export class WormageStack extends cdk.Stack {
       defaultValue: 0,
     });
     new cloudwatch.Alarm(this, 'BugReportVolumeAlarm', {
-      metric: bugReportMetric,
+      metric: bugReportFilter.metric({ period: cdk.Duration.hours(1), statistic: 'Sum' }),
       threshold: 20,
-      evaluationPeriods: 2,
-      datapointsToAlarm: 2,
+      evaluationPeriods: 1,
+      datapointsToAlarm: 1,
       comparisonOperator: cloudwatch.ComparisonOperator.GREATER_THAN_THRESHOLD,
       treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
-      alarmDescription: 'Bug-report volume above 20 per hour for two hours',
+      alarmDescription: 'Bug-report volume above 20 per hour',
     }).addAlarmAction(new cwActions.SnsAction(alarmTopic));
 
     const lambdaErrors = this.handler.metricErrors({ period: cdk.Duration.minutes(5) });

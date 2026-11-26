@@ -267,14 +267,31 @@ test('logError emits structured application error metadata', () => {
   }
 
   assert.equal(lines.length, 1);
-  assert.deepEqual(JSON.parse(lines[0]), {
-    level: 'error',
-    type: 'application-error',
-    name: 'TypeError',
-    message: 'sdk failed',
-    requestId: 'req-1',
-    path: '/api/matches',
-  });
+  const logged = JSON.parse(lines[0]);
+  assert.equal(logged.level, 'error');
+  assert.equal(logged.type, 'application-error');
+  assert.equal(logged.name, 'TypeError');
+  assert.equal(logged.message, 'sdk failed');
+  assert.equal(logged.requestId, 'req-1');
+  assert.equal(logged.path, '/api/matches');
+  assert.ok(typeof logged.stack === 'string' && logged.stack.includes('TypeError'));
+});
+
+test('replay rejections log as warn so 409s do not page', () => {
+  const original = console.error;
+  const lines = [];
+  console.error = (line) => lines.push(line);
+  const event = ev('POST', '/api/matches/online/ABC/action');
+  try {
+    L.logError(new Error('bad tick'), event, 'replay-rejected', 'warn');
+  } finally {
+    console.error = original;
+  }
+
+  assert.equal(lines.length, 1);
+  const logged = JSON.parse(lines[0]);
+  assert.equal(logged.level, 'warn');
+  assert.equal(logged.type, 'replay-rejected');
 });
 
 test('submitAction advances turn on endTurn', async () => {

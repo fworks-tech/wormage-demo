@@ -21,12 +21,13 @@ function json(statusCode, body) {
   };
 }
 
-function logError(err, event) {
+function logError(err, event, type = 'application-error', level = 'error') {
   console.error(JSON.stringify({
-    level: 'error',
-    type: 'application-error',
+    level,
+    type,
     name: err && err.name ? err.name : 'Error',
     message: err && err.message ? err.message : 'Unknown error',
+    stack: err && err.stack ? String(err.stack).split('\n').slice(0, 5).join('\n') : undefined,
     requestId: event && event.requestContext && event.requestContext.requestId,
     path: event && (event.rawPath || event.path),
   }));
@@ -846,7 +847,7 @@ async function submitAction(event, rawCode, ddbClient) {
         return json(409, { message: 'stale action tick' });
       }
     } catch (err) {
-      console.error('replay failed', err);
+      logError(err, event, 'replay-rejected', 'warn');
       return json(409, { message: 'illegal action' });
     }
   }
@@ -862,7 +863,7 @@ async function submitAction(event, rawCode, ddbClient) {
       stopTick: syncOnly ? actionTick + 1 : actionTick,
     });
   } catch (err) {
-    console.error('replay failed', err);
+    logError(err, event, 'replay-rejected', 'warn');
     return json(409, { message: 'illegal action' });
   }
   const snap = replay.snapshot;

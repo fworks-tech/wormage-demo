@@ -7,10 +7,12 @@ Backend alarms publish to the `WormageAlarmTopic` SNS topic. When `WORMAGE_ALARM
 Covered signals:
 
 - Lambda invocation errors, throttles and p99 duration above 8 seconds.
-- Handled application errors logged as `{ "level": "error" }`.
-- More than 20 bug reports per hour for two consecutive hours.
-- DynamoDB `ThrottledRequests` on the `wormage` table.
-- HTTP API 5xx responses (threshold: 2 in five minutes).
+- Handled application errors logged as `{ "level": "error" }`. Replay rejections log as `{ "level": "warn", "type": "replay-rejected" }` and do not page; expected 409s (stale tick, illegal action) are excluded by design.
+- More than 20 bug reports per hour (stored reports only).
+- DynamoDB `ThrottledRequests` on the `wormage` table. The table is on-demand, so this is a backstop; treat API 5xx and Lambda p99 as the real overload signals.
+- HTTP API 5xx responses (threshold: 2 in five minutes). One handled 500 pages twice (ApplicationErrors plus 5xx); treat them as one incident. There is no 4xx/429 alarm; throttled abuse is tracked separately.
+
+Without `WORMAGE_ALARM_EMAIL` the topic has no subscription and alarms fire silently. Keep the address in secrets rather than vars when possible; changing it replaces the subscription and requires re-confirmation, with a silent gap in between. Calibrate the bug-report threshold after the first production week.
 
 To test delivery without changing metrics, set an alarm to `ALARM` in the CloudWatch console or with:
 
@@ -32,7 +34,7 @@ The SSM parameters are read at deploy time:
 - `/wormage/debug-logs/enabled`
 - `/wormage/bug-reports/enabled`
 
-Change the value in `infra/lib/wormage-stack.ts` and deploy through the approved infrastructure workflow. Do not re-enable bug reports until anonymous authentication and per-route throttling are live. Debug logs should remain disabled until there is an explicit operational need.
+Change the value in `infra/lib/wormage-stack.ts` and deploy through the approved infrastructure workflow. Emergency: `aws lambda update-function-configuration` can flip the env immediately, then reconcile in CDK. Do not re-enable bug reports until per-IP control (WAF per-IP or auth) is live, not on per-route throttling alone. Debug logs should remain disabled until there is an explicit operational need.
 
 ## Read stored reports
 

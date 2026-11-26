@@ -78,10 +78,25 @@ test('application errors and bug reports have metric filters and alarms', () => 
     Namespace: 'Wormage/Application',
     MetricName: 'BugReportCount',
     Threshold: 20,
-    EvaluationPeriods: 2,
+    EvaluationPeriods: 1,
     Period: 3600,
     ComparisonOperator: 'GreaterThanThreshold',
   });
+});
+
+test('alarms notify the alarm topic', () => {
+  const topics = alarmTemplate.findResources('AWS::SNS::Topic');
+  const topicLogicalId = Object.keys(topics)[0];
+  const alarms = alarmTemplate.findResources('AWS::CloudWatch::Alarm');
+  assert.ok(Object.keys(alarms).length >= 6);
+  for (const [, alarm] of Object.entries(alarms)) {
+    assert.deepStrictEqual(alarm.Properties.AlarmActions, [{ Ref: topicLogicalId }]);
+  }
+});
+
+test('no email subscription without an alarm address', () => {
+  const plain = template();
+  assert.deepStrictEqual(plain.findResources('AWS::SNS::Subscription'), {});
 });
 
 test('API 5xx alarm triggers after two errors', () => {
