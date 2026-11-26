@@ -25,6 +25,12 @@ aws cloudwatch set-alarm-state \
 
 Return the alarm to `OK` afterward. Confirm the SNS email subscription before treating the alert path as operational.
 
+## Anonymous authentication
+
+Production uses `AUTH_MODE=observe` until the new client is deployed and no legacy `waiting` or `ready` matches remain. Switch `WORMAGE_AUTH_MODE` to `enforce` and redeploy through the approved workflow only after checking current clients and active matches.
+
+A `401` means the token is missing, invalid or expired; the client refreshes once and retries. A `403` means the authenticated player does not own the record or participate in the match. Do not log bearer tokens. Secret rotation is not automated yet; coordinate a new Secrets Manager value with a client refresh window before rotating.
+
 ## Upload kill switches
 
 Debug logs and bug reports are disabled by default. While disabled, both endpoints return `202 { "stored": false, "reason": "disabled" }` and write nothing to S3.

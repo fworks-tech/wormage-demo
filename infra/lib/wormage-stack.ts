@@ -11,6 +11,7 @@ import * as acm from 'aws-cdk-lib/aws-certificatemanager';
 import * as route53 from 'aws-cdk-lib/aws-route53';
 import * as route53Targets from 'aws-cdk-lib/aws-route53-targets';
 import * as sns from 'aws-cdk-lib/aws-sns';
+import * as secretsmanager from 'aws-cdk-lib/aws-secretsmanager';
 import * as cloudwatch from 'aws-cdk-lib/aws-cloudwatch';
 import * as cwActions from 'aws-cdk-lib/aws-cloudwatch-actions';
 import * as wafv2 from 'aws-cdk-lib/aws-wafv2';
@@ -25,6 +26,8 @@ export interface WormageStackProps extends cdk.StackProps {
   corsOrigins?: string[];
   /** Email recipient for SNS alarm notifications. The subscription requires confirmation. */
   alarmEmail?: string;
+  /** Anonymous auth rollout mode. Defaults to observe for legacy compatibility. */
+  authMode?: 'observe' | 'enforce';
 }
 
 export class WormageStack extends cdk.Stack {
@@ -92,6 +95,15 @@ export class WormageStack extends cdk.Stack {
       parameterName: '/wormage/debug-logs/prefix',
       stringValue: 'debug-logs',
     });
+    const authSecret = new secretsmanager.Secret(this, 'AnonymousAuthSecret', {
+      description: 'HS256 signing key for anonymous Wormage player sessions',
+      generateSecretString: {
+        secretStringTemplate: '{}',
+        generateStringKey: 'secret',
+        passwordLength: 32,
+        excludePunctuation: true,
+      },
+    });
 
     this.handler = new lambda.Function(this, 'WormageHandler', {
       runtime: lambda.Runtime.NODEJS_22_X,
@@ -108,6 +120,8 @@ export class WormageStack extends cdk.Stack {
         BUG_REPORTS_ENABLED: bugReportsEnabled.stringValue,
         BUG_REPORT_MAX_BYTES: '4000000',
         BUG_REPORT_PREFIX: 'bug-reports',
+        AUTH_SECRET_ARN: authSecret.secretArn,
+        AUTH_MODE: props?.authMode ?? 'observe',
       },
       timeout: cdk.Duration.seconds(10),
       memorySize: 256,
@@ -117,6 +131,7 @@ export class WormageStack extends cdk.Stack {
 
     this.table.grantReadWriteData(this.handler);
     debugLogBucket.grantWrite(this.handler);
+    authSecret.grantRead(this.handler);
 
 
     const corsOrigins = props?.corsOrigins && props.corsOrigins.length > 0
@@ -152,6 +167,7 @@ export class WormageStack extends cdk.Stack {
       this.httpApi.addRoutes({ path, methods, integration })[0];
 
     addRoute('/health', [apigwv2.HttpMethod.GET]);
+    const authSessionRoute = addRoute('/api/auth/session', [apigwv2.HttpMethod.POST]);
     addRoute('/api/leaderboard', [apigwv2.HttpMethod.GET]);
     addRoute('/api/matches', [apigwv2.HttpMethod.GET]);
     const matchRoute = addRoute('/api/matches', [apigwv2.HttpMethod.POST]);
@@ -170,6 +186,7 @@ export class WormageStack extends cdk.Stack {
     // One map drives both routeSettings and stage dependencies so a new entry
     // cannot reintroduce the "Unable to find Route by key" update failure.
     const throttledRoutes = [
+      { key: 'POST /api/auth/session', route: authSessionRoute, burst: 5, rate: 2 },
       { key: 'POST /api/debug-logs', route: debugLogRoute, burst: 5, rate: 2 },
       { key: 'POST /api/bug-reports', route: bugReportRoute, burst: 2, rate: 1 },
       { key: 'POST /api/matches', route: matchRoute, burst: 10, rate: 5 },

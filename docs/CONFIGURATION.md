@@ -129,6 +129,15 @@ Damage falloff: `max(0.22, 1 - distance / (radius + 11))`. A worm on the edge st
 
 Reset with **Reset demo data** in Options, or `localStorage.removeItem('wormage.mockdb.v1')`.
 
+## Anonymous authentication
+
+- `POST /api/auth/session` issues an HS256 bearer token and anonymous `playerId`; a valid token refreshes the same identity.
+- Token lifetime is 180 days. The client refreshes during the final 7 days and stores the session in `wormage.auth.v1`.
+- Production signing keys live in Secrets Manager; the Lambda receives only `AUTH_SECRET_ARN`.
+- `AUTH_MODE=observe` accepts legacy anonymous requests during rollout. `AUTH_MODE=enforce` requires a valid token on protected routes and derives identity from the token subject.
+- Existing public IDs are not migrated into credentials. Historical records remain intact, but a newly issued token receives a new identity unless it refreshes an existing valid token.
+- See [ADR 0008](adr/0008-anonymous-player-auth.md) for the decision and trade-offs.
+
 ## Debug logging
 
 - Engine state: `GameEngine.debugLog` (bounded to 5000 entries) and `debugSnapshots` (bounded to 200).

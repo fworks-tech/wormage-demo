@@ -294,6 +294,159 @@ test('replay rejections log as warn so 409s do not page', () => {
   assert.equal(logged.type, 'replay-rejected');
 });
 
+test('anonymous session token round-trips its player identity', () => {
+  const now = Date.UTC(2026, 10, 26);
+  const session = L.createSession('0123456789abcdef0123456789abcdef', now);
+
+  assert.match(session.playerId, /^player-[A-Za-z0-9_-]+$/);
+  assert.equal(new Date(session.expiresAt).getTime() - now, 180 * 24 * 60 * 60 * 1000);
+  assert.deepEqual(L.verifyToken(session.token, '0123456789abcdef0123456789abcdef', now), { playerId: session.playerId });
+});
+
+test('verifyToken rejects expired, tampered and wrong-algorithm tokens', () => {
+  const now = Date.UTC(2026, 10, 26);
+  const session = L.createSession('0123456789abcdef0123456789abcdef', now);
+  assert.throws(() => L.verifyToken(session.token, '0123456789abcdef0123456789abcdef', now + 181 * 24 * 60 * 60 * 1000), /invalid token/);
+  assert.throws(() => L.verifyToken(`${session.token}x`, '0123456789abcdef0123456789abcdef', now), /invalid token/);
+  assert.throws(() => L.verifyToken(session.token, 'other-secret', now), /invalid token/);
+
+  const encode = (value) => Buffer.from(JSON.stringify(value)).toString('base64url');
+  const payload = encode({ sub: session.playerId, iat: Math.floor(now / 1000), exp: Math.floor(now / 1000) + 60, iss: 'wormage', aud: 'wormage-client' });
+  const unsigned = `${encode({ alg: 'none', typ: 'JWT' })}.${payload}.`;
+  assert.throws(() => L.verifyToken(unsigned, '0123456789abcdef0123456789abcdef', now), /invalid token/);
+});
+
+test('enforce mode rejects protected routes without a bearer token', async () => {
+  const previous = process.env.AUTH_MODE;
+  process.env.AUTH_MODE = 'enforce';
+  try {
+    const response = await L.handler(ev('GET', '/api/matches'));
+    assert.equal(response.statusCode, 401);
+  } finally {
+    process.env.AUTH_MODE = previous;
+  }
+});
+
+test('auth session endpoint issues a verifiable anonymous token', async () => {
+  const secret = '0123456789abcdef0123456789abcdef';
+  const response = await L.handler(ev('POST', '/api/auth/session'), { getSecret: async () => secret });
+  const body = JSON.parse(response.body);
+
+  assert.equal(response.statusCode, 201);
+  assert.deepEqual(L.verifyToken(body.token, secret), { playerId: body.playerId });
+});
+
+test('auth session endpoint refreshes a valid token without changing identity', async () => {
+  const secret = '0123456789abcdef0123456789abcdef';
+  const session = L.createSession(secret);
+  const event = ev('POST', '/api/auth/session');
+  event.headers = { authorization: `Bearer ${session.token}` };
+  const response = await L.handler(event, { getSecret: async () => secret });
+  const body = JSON.parse(response.body);
+
+  assert.equal(response.statusCode, 200);
+  assert.equal(body.playerId, session.playerId);
+  assert.deepEqual(L.verifyToken(body.token, secret), { playerId: session.playerId });
+});
+
+test('enforce mode accepts a valid token and derives match identity', async () => {
+  const previous = process.env.AUTH_MODE;
+  process.env.AUTH_MODE = 'enforce';
+  try {
+    const secret = '0123456789abcdef0123456789abcdef';
+    const session = L.createSession(secret);
+    const event = ev('POST', '/api/matches', {}, { clientMatchId: 'auth-handler', playerName: 'P', teamName: 'T' });
+    event.headers = { authorization: `Bearer ${session.token}` };
+    const response = await L.handler(event, { getSecret: async () => secret, ddb: makeMockDdb() });
+
+    assert.equal(response.statusCode, 201);
+    assert.equal(JSON.parse(response.body).playerId, session.playerId);
+  } finally {
+    process.env.AUTH_MODE = previous;
+  }
+});
+
+test('observe mode still accepts legacy anonymous writes', async () => {
+  const previous = process.env.AUTH_MODE;
+  process.env.AUTH_MODE = 'observe';
+  try {
+    const event = ev('POST', '/api/matches', {}, { clientMatchId: 'legacy-observe', playerId: 'legacy-player', playerName: 'P', teamName: 'T' });
+    const response = await L.handler(event, { ddb: makeMockDdb() });
+
+    assert.equal(response.statusCode, 201);
+    assert.equal(JSON.parse(response.body).playerId, 'legacy-player');
+  } finally {
+    process.env.AUTH_MODE = previous;
+  }
+});
+
+test('authenticated non-participants cannot read or replay an online match', async () => {
+  const previous = process.env.AUTH_MODE;
+  process.env.AUTH_MODE = 'enforce';
+  try {
+    const secret = '0123456789abcdef0123456789abcdef';
+    const session = L.createSession(secret);
+    const ddb = makeMockDdb();
+    const created = await L.postOnlineMatch(ev('POST', '/api/matches/online', {}, { playerId: 'p1', playerName: 'Alice' }), ddb);
+    const code = JSON.parse(created.body).code;
+    await L.joinOnlineMatch(ev('POST', `/api/matches/online/${code}/join`, {}, { playerId: 'p2', playerName: 'Bob' }), code, ddb);
+
+    for (const suffix of ['', '/replay']) {
+      const event = ev('GET', `/api/matches/online/${code}${suffix}`);
+      event.headers = { authorization: `Bearer ${session.token}` };
+      const response = await L.handler(event, { getSecret: async () => secret, ddb });
+      assert.equal(response.statusCode, 403);
+    }
+  } finally {
+    process.env.AUTH_MODE = previous;
+  }
+});
+
+test('postMatch derives playerId from authenticated identity', async () => {
+  const ddb = makeMockDdb();
+  const body = { clientMatchId: 'auth-1', playerName: 'P', teamName: 'T', score: 10, endReason: 'wipeout' };
+  const response = await L.postMatch(ev('POST', '/api/matches', {}, body), ddb, 'player-token');
+
+  assert.equal(response.statusCode, 201);
+  assert.equal(JSON.parse(response.body).playerId, 'player-token');
+});
+
+test('postMatch rejects a client playerId that differs from authenticated identity', async () => {
+  const ddb = makeMockDdb();
+  const body = { clientMatchId: 'auth-2', playerId: 'player-other', playerName: 'P', teamName: 'T', score: 10, endReason: 'wipeout' };
+  const response = await L.postMatch(ev('POST', '/api/matches', {}, body), ddb, 'player-token');
+
+  assert.equal(response.statusCode, 403);
+  assert.equal(ddb.store.size, 0);
+});
+
+test('getMatches ignores a spoofed query playerId when authenticated', async () => {
+  const ddb = makeMockDdb();
+  for (const playerId of ['player-token', 'player-other']) {
+    await ddb.send(new PutCommand({ TableName: 't', Item: {
+      pk: `CLIENT#${playerId}`, sk: 'META', playerId, playerName: 'P', teamName: 'T', score: 1,
+      durationSeconds: 1, endReason: 'wipeout', configKey: 'cfg', createdAt: new Date().toISOString(),
+    } }));
+  }
+
+  const response = await L.getMatches(ev('GET', '/api/matches', { playerId: 'player-other' }), ddb, 'player-token');
+  const body = JSON.parse(response.body);
+  assert.equal(body.total, 1);
+  assert.equal(body.items[0].playerId, 'player-token');
+});
+
+test('submitAction cannot spoof a participant through the body playerId', async () => {
+  const ddb = makeMockDdb();
+  const created = await L.postOnlineMatch(ev('POST', '/api/matches/online', {}, { playerId: 'p1', playerName: 'Alice' }), ddb);
+  const code = JSON.parse(created.body).code;
+  await L.joinOnlineMatch(ev('POST', `/api/matches/online/${code}/join`, {}, { playerId: 'p2', playerName: 'Bob' }), code, ddb);
+
+  const response = await L.submitAction(ev('POST', `/api/matches/online/${code}/action`, {}, {
+    playerId: 'p1', action: { type: 'endTurn' }, clientActionId: 'spoof-1',
+  }), code, ddb, 'p3');
+  assert.equal(response.statusCode, 403);
+});
+
 test('submitAction advances turn on endTurn', async () => {
   const ddb = makeMockDdb();
   const c = await L.postOnlineMatch(ev('POST', '/api/matches/online', {}, { playerId: 'p1', playerName: 'Alice' }), ddb);
@@ -1137,6 +1290,21 @@ test('postBugReport stores metadata and the png in S3', async () => {
   assert.equal(stored.screenshot.key, pngKey);
   assert.equal(stored.screenshot.bytes, 16);
   assert.equal(stored.screenshot.data, undefined);
+});
+
+test('postBugReport replaces online playerId with authenticated identity', async () => {
+  process.env.DEBUG_LOG_BUCKET = 'bucket';
+  process.env.BUG_REPORTS_ENABLED = 'true';
+  const s3 = makeMockS3();
+  const response = await L.postBugReport(
+    ev('POST', '/api/bug-reports', {}, bugReportBody({ online: { playerId: 'player-spoofed' } })),
+    s3,
+    'player-token',
+  );
+
+  assert.equal(response.statusCode, 201);
+  const metadata = [...s3.store.values()].map((value) => value.Body).find((body) => typeof body === 'string');
+  assert.equal(JSON.parse(metadata).online.playerId, 'player-token');
 });
 
 test('postBugReport keeps untrusted report ids inside the prefix', async () => {

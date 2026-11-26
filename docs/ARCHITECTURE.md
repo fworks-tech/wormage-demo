@@ -137,7 +137,7 @@ Because the solver and the game share one integrator, the CPU never "cheats" —
 - **dev / standard build:** start the MSW worker. Requests travel the real network stack and are answered by `src/mocks/handlers.ts`.
 - **MSW unavailable or `--mode single`:** use the adapter, which calls the same `mockServer` functions in-process.
 
-Both paths share `src/api/types.ts` (contracts) and `src/api/mockServer.ts` (fixtures, pagination, idempotent writes, scenario latency/failures). TanStack Query handles caching, retries, background refresh and cache invalidation for both boards after a match is registered.
+Both paths share `src/api/types.ts` (contracts) and `src/api/mockServer.ts` (fixtures, pagination, idempotent writes, scenario latency/failures). Anonymous bearer sessions are created before React mounts; Axios attaches the token to network, MSW and local-adapter requests, and the mock boundary verifies the same HS256 claims as the Lambda. TanStack Query handles caching, retries, background refresh and cache invalidation for both boards after a match is registered.
 
 Match registration is idempotent on `clientMatchId`: a retry after a timeout returns the existing record, so the player never appears twice. The result screen keeps a retry action while the request is failing.
 
