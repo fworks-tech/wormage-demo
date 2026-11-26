@@ -72,6 +72,18 @@ test('the app service worker caches the shell but never API traffic', () => {
   expect(source.indexOf("url.pathname.startsWith('/api/')")).toBeLessThan(source.indexOf('cache.put(request'));
 });
 
+test('every precached shell entry resolves to a shipped file', () => {
+  // cache.addAll is all-or-nothing: one missing icon breaks the whole install.
+  const source = read('public/sw.js').toString('utf8');
+  const start = source.indexOf('const SHELL = [');
+  const shell = source.slice(start, source.indexOf('];', start));
+  for (const [, path] of shell.matchAll(/'(\/[^']*)'/g)) {
+    // Route entries are served as index.html by the SPA fallback.
+    const file = path === '/' || path === '/demo' || path === '/index.html' ? 'index.html' : `public${path}`;
+    expect(existsSync(new URL(`../../${file}`, import.meta.url)), path).toBe(true);
+  }
+});
+
 test('Vercel serves the service worker as a live script', () => {
   const config = JSON.parse(read('vercel.json').toString('utf8')) as {
     rewrites: Array<{ source: string }>;

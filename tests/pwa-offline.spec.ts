@@ -15,7 +15,11 @@ test('the shell loads offline after one visit and recovers online', async ({ pag
   const apiWasCached = await page.evaluate(async () => {
     for (const key of await caches.keys()) {
       const cache = await caches.open(key);
-      if (await cache.match('/api/leaderboard')) return true;
+      // Match by stored key, not by a bare path: the runtime cache keeps the
+      // full request URL, so a lookup without the query string always misses.
+      for (const request of await cache.keys()) {
+        if (new URL(request.url).pathname.startsWith('/api/')) return true;
+      }
     }
     return false;
   });
