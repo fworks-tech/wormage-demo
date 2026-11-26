@@ -29,7 +29,7 @@ Return the alarm to `OK` afterward. Confirm the SNS email subscription before tr
 
 Production uses `AUTH_MODE=observe` until the new client is deployed and no legacy `waiting` or `ready` matches remain. Switch `WORMAGE_AUTH_MODE` to `enforce` and redeploy through the approved workflow only after checking current clients and active matches.
 
-A `401` means the token is missing, invalid or expired; the client refreshes once and retries. A `403` means the authenticated player does not own the record or participate in the match. Do not log bearer tokens. Secret rotation is not automated yet; coordinate a new Secrets Manager value with a client refresh window before rotating.
+A `401` means the token is missing, invalid or expired; the client refreshes once and retries. A `403` means the authenticated player does not own the record or participate in the match. Do not log bearer tokens. Secret rotation is not automated: set a new `WORMAGE_AUTH_SECRET` GitHub secret and redeploy; every session re-authenticates on next refresh, so rotate in a low-traffic window.
 
 ## Upload kill switches
 

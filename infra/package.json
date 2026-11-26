@@ -11,7 +11,7 @@
     "test": "npm run build && node --test lambda/index.test.js test/wormage-stack.test.js"
   },
   "dependencies": {
-    "@aws-sdk/client-secrets-manager": "^3.1175.0",
+    "@aws-sdk/client-ssm": "^3.1175.0",
     "aws-cdk-lib": "^2.170.0",
     "constructs": "^10.4.2"
   },

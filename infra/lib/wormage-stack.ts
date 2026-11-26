@@ -12,7 +12,6 @@ import * as route53 from 'aws-cdk-lib/aws-route53';
 import * as route53Targets from 'aws-cdk-lib/aws-route53-targets';
 import * as sns from 'aws-cdk-lib/aws-sns';
 import * as budgets from 'aws-cdk-lib/aws-budgets';
-import * as secretsmanager from 'aws-cdk-lib/aws-secretsmanager';
 import * as cloudwatch from 'aws-cdk-lib/aws-cloudwatch';
 import * as cwActions from 'aws-cdk-lib/aws-cloudwatch-actions';
 import * as wafv2 from 'aws-cdk-lib/aws-wafv2';
@@ -29,6 +28,12 @@ export interface WormageStackProps extends cdk.StackProps {
   alarmEmail?: string;
   /** Anonymous auth rollout mode. Defaults to observe for legacy compatibility. */
   authMode?: 'observe' | 'enforce';
+  /**
+   * HS256 session key stored as an SSM SecureString (Standard tier, free).
+   * Required: generate once with `openssl rand -hex 32` and pass via
+   * WORMAGE_AUTH_SECRET. Rotating it invalidates all sessions.
+   */
+  authSecretValue?: string;
   /** Monthly COST budget cap in USD. Defaults to 10. */
   monthlyBudgetLimitUsd?: number;
   /**
@@ -104,14 +109,17 @@ export class WormageStack extends cdk.Stack {
       parameterName: '/wormage/debug-logs/prefix',
       stringValue: 'debug-logs',
     });
-    const authSecret = new secretsmanager.Secret(this, 'AnonymousAuthSecret', {
-      description: 'HS256 signing key for anonymous Wormage player sessions',
-      generateSecretString: {
-        secretStringTemplate: '{}',
-        generateStringKey: 'secret',
-        passwordLength: 32,
-        excludePunctuation: true,
-      },
+    // Free-tier posture: the session key is a short static string, so it lives
+    // in a Standard SSM SecureString (free) instead of Secrets Manager
+    // ($0.40/secret/mo). Encrypted with the AWS-managed key: no custom KMS
+    // key (which would bill $1/mo). Fail closed when the value is missing.
+    if (!props?.authSecretValue) {
+      throw new Error('authSecretValue is required: set WORMAGE_AUTH_SECRET (openssl rand -hex 32)');
+    }
+    const authSecret = new ssm.StringParameter(this, 'AnonymousAuthSecret', {
+      parameterName: '/wormage/auth/secret',
+      stringValue: props.authSecretValue,
+      type: ssm.ParameterType.SECURE_STRING,
     });
 
     this.handler = new lambda.Function(this, 'WormageHandler', {
@@ -129,7 +137,7 @@ export class WormageStack extends cdk.Stack {
         BUG_REPORTS_ENABLED: bugReportsEnabled.stringValue,
         BUG_REPORT_MAX_BYTES: '4000000',
         BUG_REPORT_PREFIX: 'bug-reports',
-        AUTH_SECRET_ARN: authSecret.secretArn,
+        AUTH_SECRET_PARAM: authSecret.parameterName,
         AUTH_MODE: props?.authMode ?? 'observe',
       },
       timeout: cdk.Duration.seconds(10),
