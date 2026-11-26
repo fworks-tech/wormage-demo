@@ -3,6 +3,7 @@ import ReactDOM from 'react-dom/client';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import App from './App';
 import { ensureAnonymousSession, initApiLayer } from './api/client';
+import { registerAppShell } from './pwa';
 import './styles.css';
 
 const queryClient = new QueryClient({
@@ -24,8 +25,10 @@ async function boot(): Promise<void> {
   if (window.location.pathname === '/') {
     window.history.replaceState(null, '', `/demo${window.location.search}${window.location.hash}`);
   }
-  await initApiLayer();
+  const mode = await initApiLayer();
   await ensureAnonymousSession();
+  // MSW owns the root worker in dev; the PWA worker owns it everywhere else.
+  if (import.meta.env.MODE !== 'single' && mode !== 'network') void registerAppShell(__BUILD_ID__);
   const container = document.getElementById('root');
   if (!container) throw new Error('Root element missing');
   ReactDOM.createRoot(container).render(

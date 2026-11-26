@@ -38,12 +38,12 @@ Aim is stored as a world angle in `[-3.04, -0.1]` with `cos(angle)` deciding fac
 **Why:** the same number feeds `Math.cos/sin` for the muzzle, the preview and the AI. Flipping direction is `mirrorAngle` (`-π - angle`), which keeps the barrel pointing where it pointed.
 **Cost:** special cases for clamping and mirroring live in one place (`clampAngle`, `mirrorAngle`) and must be used everywhere.
 
-## 6. MSW in dev, an in-process adapter for the single-file build
+## 6. MSW in dev, an in-process adapter everywhere else
 
-The spec-style requirement is network-level mocking. Service workers do not exist inside a sandboxed iframe or a `file://` page, and the portfolio also ships as one HTML file.
+The spec-style requirement is network-level mocking, but service workers do not exist inside a sandboxed iframe or a `file://` page. A PWA service worker also cannot share MSW's root scope, so production uses the adapter instead.
 
-**Why:** one mock implementation (`mockServer.ts`), two transports (`handlers.ts` for MSW, `localAdapter` for Axios). Tests and production builds use the same fixtures and idempotency logic.
-**Cost:** two code paths to keep honest. `docs/ARCHITECTURE.md` §8 documents the split; both call the same functions.
+**Why:** one mock implementation (`mockServer.ts`), two transports (`handlers.ts` for MSW, `localAdapter` for Axios). The dev suite keeps real network mocks; production and the single-file build keep the same fixtures and idempotency logic while leaving `/` free for the offline shell.
+**Cost:** two code paths to keep honest. `docs/ARCHITECTURE.md` §8 documents the split; both call the same functions, and [ADR 0009](adr/0009-pwa-service-worker-scope.md) records the scope decision.
 
 ## 7. Idempotent match registration
 
@@ -121,7 +121,7 @@ Persisted state is small and synchronous: settings, player identity, profile, la
 `public/manifest.webmanifest` names the app, pins `start_url` to `/demo` with scope `/`, declares `display: standalone` and carries the 192/512 icons; `index.html` also adds the favicon, Apple touch icon and Apple web-app metas. Installing from iOS Safari (Share → Add to Home Screen) therefore launches the demo without Safari's chrome. `display: fullscreen` is deliberately not used: iOS ignores it and falls back to standalone, while a desktop install would start borderless outside the match.
 
 **Why:** an iPhone tab cannot fullscreen an element at all, and a Home Screen web app is the only chrome-free path there. iOS 26 makes every Home Screen site a web app by default; the manifest still supplies the name, icon and launch URL on older iOS and Android.
-**Cost:** Android Chrome needs a service worker to mint a WebAPK, so without one Add to Home screen only creates a browser shortcut. The offline shell, real install prompt and cross-device profile stay in M6 (#20), and true fullscreen on iOS remains impossible.
+**Cost:** the service worker now exists in production, so Android Chrome can mint a WebAPK. The real install prompt and cross-device profile stay in M6 (#20), and true fullscreen on iOS remains impossible.
 
 ## 18. Landscape only while the match is fullscreen
 

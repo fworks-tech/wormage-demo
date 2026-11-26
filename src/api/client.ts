@@ -317,8 +317,9 @@ for (const instance of [wired, local, live]) {
 }
 
 /**
- * Prefer real network mocks (MSW) everywhere except the single-file build,
- * where service workers are not available in the sandboxed preview.
+ * Prefer real network mocks (MSW) in development. Production and the
+ * single-file build use the in-process adapter so a service worker can own
+ * the root scope without competing with MSW.
  */
 export async function initApiLayer(): Promise<Mode> {
   if (import.meta.env.VITE_API_MODE === 'live' || import.meta.env.VITE_LIVE_API === 'true') {
@@ -329,7 +330,8 @@ export async function initApiLayer(): Promise<Mode> {
     mode = 'live';
     return mode;
   }
-  if (import.meta.env.MODE === 'single' || import.meta.env.VITE_LOCAL_API === 'true') {
+  // Production uses the local adapter so the PWA can own the root service-worker scope.
+  if (import.meta.env.MODE === 'single' || import.meta.env.PROD || import.meta.env.VITE_LOCAL_API === 'true') {
     mode = 'local';
     return mode;
   }
