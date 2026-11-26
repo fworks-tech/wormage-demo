@@ -90,7 +90,7 @@ export class WormageStack extends cdk.Stack {
     });
     const bugReportsEnabled = new ssm.StringParameter(this, 'BugReportsEnabled', {
       parameterName: '/wormage/bug-reports/enabled',
-      stringValue: 'false',
+      stringValue: 'true',
     });
     const debugLogsRetentionDays = new ssm.StringParameter(this, 'DebugLogsRetentionDays', {
       parameterName: '/wormage/debug-logs/retention-days',

@@ -12,13 +12,13 @@ function template(props = {}) {
 
 const alarmTemplate = template({ alarmEmail: 'ops@example.com' });
 
-test('telemetry uploads are disabled by default', () => {
+test('bug reports are enabled by default, debug logs stay disabled', () => {
   const stack = template();
   const parameters = Object.entries(stack.findResources('AWS::SSM::Parameter'));
   const defaults = Object.fromEntries(parameters.map(([, parameter]) => [parameter.Properties.Name, parameter.Properties.Value]));
 
   assert.equal(defaults['/wormage/debug-logs/enabled'], 'false');
-  assert.equal(defaults['/wormage/bug-reports/enabled'], 'false');
+  assert.equal(defaults['/wormage/bug-reports/enabled'], 'true');
 
   const handler = Object.values(stack.findResources('AWS::Lambda::Function')).find(
     (f) => f.Properties && f.Properties.Environment && f.Properties.Environment.Variables && f.Properties.Environment.Variables.TABLE_NAME,

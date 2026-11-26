@@ -33,14 +33,14 @@ A `401` means the token is missing, invalid or expired; the client refreshes onc
 
 ## Upload kill switches
 
-Debug logs and bug reports are disabled by default. While disabled, both endpoints return `202 { "stored": false, "reason": "disabled" }` and write nothing to S3.
+Debug logs are disabled by default; bug reports are enabled. While disabled, both endpoints return `202 { "stored": false, "reason": "disabled" }` and write nothing to S3.
 
 The SSM parameters are read at deploy time:
 
 - `/wormage/debug-logs/enabled`
 - `/wormage/bug-reports/enabled`
 
-Change the value in `infra/lib/wormage-stack.ts` and deploy through the approved infrastructure workflow. Emergency: `aws lambda update-function-configuration` can flip the env immediately, then reconcile in CDK. Do not re-enable bug reports until per-IP control (WAF per-IP or auth) is live, not on per-route throttling alone. Debug logs should remain disabled until there is an explicit operational need.
+Change the value in `infra/lib/wormage-stack.ts` and deploy through the approved infrastructure workflow. Emergency: `aws lambda update-function-configuration` can flip the env immediately, then reconcile in CDK. Bug reports stay on because anonymous auth gives per-actor attribution on top of per-route throttling and the >20/hour alarm; re-disable via the SSM default if abuse ever outruns those controls. Debug logs should remain disabled until there is an explicit operational need.
 
 ## Read stored reports
 
