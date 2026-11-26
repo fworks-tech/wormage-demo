@@ -10,7 +10,7 @@ This folder has **no React imports**. It can be unit-tested or moved to a worker
 | `engine.ts` | turn state machine, input actions, worm physics, projectiles, damage, scoring, AI scheduling |
 | `aim.ts` | bounded aim reticle: fixed-radius circle, stops on terrain inside it |
 | `ai.ts` | ballistic forward simulation (`simulateShot`), turn planner (`planAiTurn`), fallback shot planner, angle helpers |
-| `renderer.ts` | Pixi application, scene graph, worms, particles, aim preview, camera shake, resize/letterbox |
+| `renderer.ts` | Pixi application, scene graph, worms, particles, aim preview, camera shake, resize/camera |
 | `audio.ts` | WebAudio synth for fire/explosion/jump/turn/victory |
 
 ## Rules of the folder

@@ -41,6 +41,11 @@ const checkViewport = async (page: import('@playwright/test').Page, viewport: { 
   expectTarget(await box(page, '[data-testid="weapon-bazooka"]'), 'weapon');
   expectTarget(await box(page, '[data-testid="btn-rope"]'), 'rope');
   expectTarget(await box(page, '[data-testid="btn-fire"]'), 'fire');
+  expectTarget(await box(page, '[data-testid="btn-minimap"]'), 'map');
+
+  const hudBox = await box(page, '.hud');
+  expect(hudBox.x, 'HUD uses the left edge of the arena').toBeLessThanOrEqual(16);
+  expect(hudBox.x + hudBox.width, 'HUD uses the right edge of the arena').toBeGreaterThanOrEqual(viewport.width - 16);
 
   await expect(page.locator('.power-wrap')).toBeHidden();
   await expect(page.getByTestId('btn-fire')).toContainText('hold');
@@ -68,6 +73,7 @@ const checkViewport = async (page: import('@playwright/test').Page, viewport: { 
       expect(overlaps(topBoxes[i], topBoxes[j]), `${top[i]} overlaps ${top[j]}`).toBe(false);
     }
   }
+  const topBox = await box(page, '.hud-top');
 
   const bottom = '.hud-bottom';
   const bottomBox = await box(page, bottom);
@@ -81,18 +87,43 @@ const checkViewport = async (page: import('@playwright/test').Page, viewport: { 
     '[data-testid="btn-jump"]',
     '[data-testid="btn-fire"]',
     '[data-testid="btn-end-turn"]',
+    '[data-testid="btn-minimap"]',
+    '[data-testid="weapon-bazooka"]',
+    '[data-testid="weapon-grenade"]',
+    '[data-testid="weapon-shotgun"]',
+    '[data-testid="weapon-dynamite"]',
+    '[data-testid="weapon-medkit"]',
+    '[data-testid="weapon-shield"]',
+    '[data-testid="btn-rope"]',
   ];
   const controlBoxes = await Promise.all(controls.map((selector) => box(page, selector)));
+  for (let i = 0; i < controlBoxes.length; i += 1) {
+    const control = controlBoxes[i];
+    expect(control.x, `${controls[i]} left edge`).toBeGreaterThanOrEqual(-0.5);
+    expect(control.y, `${controls[i]} top edge`).toBeGreaterThanOrEqual(-0.5);
+    expect(control.x + control.width, `${controls[i]} right edge`).toBeLessThanOrEqual(viewport.width + 0.5);
+    expect(control.y + control.height, `${controls[i]} bottom edge`).toBeLessThanOrEqual(viewport.height + 0.5);
+  }
   for (let i = 0; i < controlBoxes.length; i += 1) {
     for (let j = i + 1; j < controlBoxes.length; j += 1) {
       expect(overlaps(controlBoxes[i], controlBoxes[j]), `${controls[i]} overlaps ${controls[j]}`).toBe(false);
     }
   }
 
+  const weaponCards = await page.locator('.weapon-card').evaluateAll((els) =>
+    els.map((el) => {
+      const rect = el.getBoundingClientRect();
+      return { y: rect.y, height: rect.height };
+    }),
+  );
+  expect(new Set(weaponCards.map((card) => card.y)).size, 'weapon cards in one row').toBe(1);
+  expect(Math.max(...weaponCards.map((card) => card.height))).toBeGreaterThanOrEqual(44);
+  expect((await box(page, '.weapon-dock')).height).toBeLessThanOrEqual(52);
+
   const scrollWidth = await page.evaluate(() => document.documentElement.scrollWidth);
   expect(scrollWidth).toBeLessThanOrEqual(viewport.width);
 
-  return { bottomBox };
+  return { bottomBox, topBox };
 };
 
 test.describe('HUD layout 412x839', () => {
@@ -126,22 +157,39 @@ test.describe('HUD layout 915x412 landscape', () => {
   test.use({ viewport: { width: 915, height: 412 }, isMobile: true, hasTouch: true, deviceScaleFactor: 2.625 });
 
   test('landscape 915', async ({ page }) => {
-    const { bottomBox } = await checkViewport(page, { width: 915, height: 412 });
+    const { bottomBox, topBox } = await checkViewport(page, { width: 915, height: 412 });
     expect(bottomBox.height).toBeLessThanOrEqual(105);
+    expect(topBox.height).toBeLessThanOrEqual(90);
+  });
+});
 
-    const map = await box(page, '.minimap-wrap');
-    const endTurn = await box(page, '[data-testid="btn-end-turn"]');
-    expect(overlaps(map, endTurn), 'map button overlaps End turn').toBe(false);
+test.describe('HUD layout 932x430 iPhone landscape', () => {
+  test.use({ viewport: { width: 932, height: 430 }, isMobile: true, hasTouch: true, deviceScaleFactor: 3 });
 
-    const cards = await page.locator('.weapon-card').evaluateAll((els) =>
-      els.map((el) => {
-        const rect = el.getBoundingClientRect();
-        return { x: +rect.x.toFixed(1), y: +rect.y.toFixed(1), w: +rect.width.toFixed(1), h: +rect.height.toFixed(1) };
-      }),
-    );
-    expect(new Set(cards.map((card) => card.y)).size, 'weapon cards in one row').toBe(1);
-    expect(Math.max(...cards.map((card) => card.h))).toBeGreaterThanOrEqual(44);
-    expect((await box(page, '.weapon-dock')).height).toBeLessThanOrEqual(52);
+  test('large iPhone uses the full arena width without cramped controls', async ({ page }) => {
+    const { bottomBox, topBox } = await checkViewport(page, { width: 932, height: 430 });
+    expect(bottomBox.height).toBeLessThanOrEqual(105);
+    expect(topBox.height).toBeLessThanOrEqual(90);
+  });
+});
+
+test.describe('HUD layout 844x390 wide iPhone landscape', () => {
+  test.use({ viewport: { width: 844, height: 390 }, isMobile: true, hasTouch: true, deviceScaleFactor: 3 });
+
+  test('wide iPhone keeps two rows for safe-area headroom', async ({ page }) => {
+    const { bottomBox, topBox } = await checkViewport(page, { width: 844, height: 390 });
+    expect(bottomBox.height).toBeLessThanOrEqual(120);
+    expect(topBox.height).toBeLessThanOrEqual(90);
+  });
+});
+
+test.describe('HUD layout 667x375 compact iPhone landscape', () => {
+  test.use({ viewport: { width: 667, height: 375 }, isMobile: true, hasTouch: true, deviceScaleFactor: 2 });
+
+  test('compact iPhone keeps weapons and actions in separate rows', async ({ page }) => {
+    const { bottomBox, topBox } = await checkViewport(page, { width: 667, height: 375 });
+    expect(bottomBox.height).toBeLessThanOrEqual(120);
+    expect(topBox.height).toBeLessThanOrEqual(90);
   });
 });
 

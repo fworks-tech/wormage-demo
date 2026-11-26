@@ -59,12 +59,13 @@ Terrain, worms, explosions, HUD and sounds are generated at runtime.
 **Why:** licensing is unambiguous, the download is tiny, and the portfolio demonstrates canvas/graphics work instead of asset gathering.
 **Cost:** a real production game would hire an artist. The renderer is structured so sprite atlases can replace `WormView` and `drawProjectile` without touching the simulation.
 
-## 9. Fixed 1280×720 world, letterboxed
+## 9. Fixed world, camera-panning renderer
 
-The simulation always runs in the same logical coordinates.
+The simulation uses a fixed 3840×2160 world by default, three times the 1280×720 render reference. The renderer keeps one scale transform and pans a camera through that world; `?mapSize=1` provides a fixed 1280×720 debug arena.
 
-**Why:** balance, AI ranges and terrain generation stay meaningful on every device; input is mapped with one inverse transform.
-**Cost:** ultra-wide screens get letterbox bars. The alternative (resizing the world) changes gameplay per viewport.
+**Why:** balance, AI ranges and terrain generation stay meaningful on every device; input is mapped with one inverse transform, while the larger world gives landscape screens a full arena instead of letterbox bars.
+
+**Cost:** very tall viewports can expose empty space beyond the fixed world, and the 1× debug arena letterboxes. The alternative (resizing the simulation world) changes gameplay per viewport.
 
 ## 10. Settings are snapshotted per match
 
