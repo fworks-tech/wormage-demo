@@ -6,20 +6,96 @@ on:
     paths:
       - 'infra/**'
       - '.github/workflows/deploy-infra.yml'
+  pull_request:
+    paths:
+      - 'infra/**'
+      - '.github/workflows/deploy-infra.yml'
   workflow_dispatch:
+
+concurrency:
+  group: deploy-infra
+  cancel-in-progress: false
 
 permissions:
   id-token: write
   contents: read
 
 jobs:
-  deploy:
+  plan:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            infra/package-lock.json
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: us-east-1
+      - name: Install root deps
+        run: npm ci
+      - name: Install infra deps
+        working-directory: infra
+        run: npm ci
+      - name: Test infra
+        working-directory: infra
+        run: npm test
+      - name: Synth
+        working-directory: infra
+        run: npm run synth
+        env:
+          WORMAGE_HOSTED_ZONE_ID: ${{ vars.WORMAGE_HOSTED_ZONE_ID }}
+          WORMAGE_HOSTED_ZONE_NAME: ${{ vars.WORMAGE_HOSTED_ZONE_NAME }}
+          WORMAGE_CERTIFICATE_ARN: ${{ secrets.WORMAGE_CERTIFICATE_ARN }}
+          WORMAGE_API_DOMAIN: ${{ vars.WORMAGE_API_DOMAIN }}
+      - name: Diff
+        working-directory: infra
+        run: |
+          set +e
+          npx cdk diff > cdk-diff.txt 2>&1
+          status=$?
+          cat cdk-diff.txt
+          {
+            echo '## CDK diff'
+            echo '```text'
+            cat cdk-diff.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          if [ "$status" -ne 0 ]; then exit "$status"; fi
+        env:
+          WORMAGE_HOSTED_ZONE_ID: ${{ vars.WORMAGE_HOSTED_ZONE_ID }}
+          WORMAGE_HOSTED_ZONE_NAME: ${{ vars.WORMAGE_HOSTED_ZONE_NAME }}
+          WORMAGE_CERTIFICATE_ARN: ${{ secrets.WORMAGE_CERTIFICATE_ARN }}
+          WORMAGE_API_DOMAIN: ${{ vars.WORMAGE_API_DOMAIN }}
+      - name: Upload CDK diff
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cdk-diff
+          path: infra/cdk-diff.txt
+          if-no-files-found: warn
+
+  deploy:
+    if: github.ref == 'refs/heads/main'
+    needs: plan
+    environment: production
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            infra/package-lock.json
       - name: Configure AWS credentials (OIDC)
         uses: aws-actions/configure-aws-credentials@v4
         with:
@@ -33,14 +109,6 @@ jobs:
       - name: Build
         working-directory: infra
         run: npm run build
-      - name: Synth
-        working-directory: infra
-        run: npm run synth
-        env:
-          WORMAGE_HOSTED_ZONE_ID: ${{ vars.WORMAGE_HOSTED_ZONE_ID }}
-          WORMAGE_HOSTED_ZONE_NAME: ${{ vars.WORMAGE_HOSTED_ZONE_NAME }}
-          WORMAGE_CERTIFICATE_ARN: ${{ secrets.WORMAGE_CERTIFICATE_ARN }}
-          WORMAGE_API_DOMAIN: ${{ vars.WORMAGE_API_DOMAIN }}
       - name: Deploy
         working-directory: infra
         run: npx cdk deploy --require-approval never
