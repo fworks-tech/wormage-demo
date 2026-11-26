@@ -62,3 +62,25 @@ test('index.html wires the manifest, icons and iOS title', () => {
     expect(existsSync(new URL(`../../public${href}`, import.meta.url)), href).toBe(true);
   }
 });
+
+test('the app service worker caches the shell but never API traffic', () => {
+  const source = read('public/sw.js').toString('utf8');
+  expect(source).toContain("url.pathname.startsWith('/api/')");
+  expect(source).toContain("url.pathname === '/mockServiceWorker.js'");
+  expect(source).toContain('self.skipWaiting()');
+  expect(source).toContain('self.clients.claim()');
+  expect(source.indexOf("url.pathname.startsWith('/api/')")).toBeLessThan(source.indexOf('cache.put(request'));
+});
+
+test('Vercel serves the service worker as a live script', () => {
+  const config = JSON.parse(read('vercel.json').toString('utf8')) as {
+    rewrites: Array<{ source: string }>;
+    headers: Array<{ source: string; headers: Array<{ key: string; value: string }> }>;
+  };
+  expect(config.rewrites[0].source).toContain('sw\\.js');
+  const swHeaders = config.headers.find((entry) => entry.source === '/sw.js');
+  expect(swHeaders).toBeDefined();
+  expect(swHeaders?.headers).toEqual(
+    expect.arrayContaining([{ key: 'Cache-Control', value: 'public, max-age=0, must-revalidate' }]),
+  );
+});

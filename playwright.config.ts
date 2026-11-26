@@ -30,12 +30,21 @@ export default defineConfig({
     video: 'off',
     launchOptions: { args: ['--no-sandbox'] },
   },
-  webServer: {
-    command: 'npm run dev -- --port 5173 --strictPort',
-    url: 'http://localhost:5173',
-    reuseExistingServer: true,
-    timeout: 90_000,
-  },
+  webServer: [
+    {
+      command: 'npm run dev -- --port 5173 --strictPort',
+      url: 'http://localhost:5173',
+      reuseExistingServer: true,
+      timeout: 90_000,
+    },
+    {
+      // The PWA worker cannot coexist with MSW, so offline tests use the in-process adapter.
+      command: 'npm run dev -- --mode local-api --port 5184 --strictPort',
+      url: 'http://localhost:5184',
+      reuseExistingServer: true,
+      timeout: 90_000,
+    },
+  ],
   projects: [
     {
       name: 'desktop',
