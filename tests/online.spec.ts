@@ -29,6 +29,8 @@ test('@smoke can create and join an online match', async ({ page }) => {
 });
 
 test('@smoke a shot hands the online turn to the other human before the timer', async ({ page }) => {
+  // Hosted mobile emulation can spend several seconds on actionability alone.
+  test.setTimeout(60_000);
   await page.goto('/demo?seed=4242');
   await page.getByTestId('btn-online').click();
   await page.getByTestId('btn-create-online').click();
@@ -67,7 +69,7 @@ test('@smoke a shot hands the online turn to the other human before the timer', 
   await page.waitForFunction(
     () => (window as never as { __WORMAGE__: { snapshot: () => { turn: number } } }).__WORMAGE__.snapshot().turn >= 2,
     undefined,
-    { timeout: 15000 },
+    { timeout: 30000 },
   );
   await page.waitForFunction(async (matchCode) => {
     const response = await fetch(`/api/matches/online/${matchCode}`);

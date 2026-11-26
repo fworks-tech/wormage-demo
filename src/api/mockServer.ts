@@ -283,6 +283,11 @@ function genOnlineCode(): string {
   return code;
 }
 
+export function isLegacyOnlineMatch(code: string): boolean {
+  const match = getOnlineDb().matches[code.toUpperCase()];
+  return !!match && match.actionLogVersion !== 2;
+}
+
 export function createOnlineMatch(input: {
   playerId: string;
   playerName: string;
@@ -299,6 +304,7 @@ export function createOnlineMatch(input: {
   }
   const match: OnlineMatch = {
     code,
+    actionLogVersion: 2,
     status: 'waiting',
     createdAt: now,
     maxPlayers: 2,
@@ -317,10 +323,11 @@ export function createOnlineMatch(input: {
   return { code, link: `/online/${code}`, match };
 }
 
-export function joinOnlineMatch(code: string, input: { playerId: string; playerName: string; teamName?: string }): { code: string; match: OnlineMatch } | { error: 'not_found' | 'full' } {
+export function joinOnlineMatch(code: string, input: { playerId: string; playerName: string; teamName?: string }): { code: string; match: OnlineMatch } | { error: 'not_found' | 'full' } | { error: string; status: number } {
   const db = getOnlineDb();
   const match = db.matches[code.toUpperCase()];
   if (!match) return { error: 'not_found' };
+  if (match.actionLogVersion !== 2) return { error: 'legacy online match is no longer supported', status: 410 };
   if (match.players.some((p) => p.playerId === input.playerId)) {
     return { code: match.code, match };
   }
@@ -339,36 +346,82 @@ export function joinOnlineMatch(code: string, input: { playerId: string; playerN
   return { code: match.code, match };
 }
 
+function sameAction(a: { type: string; [k: string]: unknown }, b: { type: string; [k: string]: unknown }): boolean {
+  const aKeys = Object.keys(a).sort();
+  const bKeys = Object.keys(b).sort();
+  return aKeys.length === bKeys.length && aKeys.every((key, index) => key === bKeys[index] && a[key] === b[key]);
+}
 
-export function submitOnlineAction(code: string, input: { playerId: string; action: { type: string; [k: string]: unknown }; clientActionId?: string; tick?: number; engineTick?: number }): { code: string; match: OnlineMatch } | { error: string; status: number } {
+// shortcut: online actions are fixed-shape and tiny; revisit only if a future action needs a larger payload.
+const MAX_ACTION_BYTES = 512;
+
+function isDirection(value: unknown): value is -1 | 0 | 1 {
+  return value === -1 || value === 0 || value === 1;
+}
+
+function validateAction(action: { type: string; [k: string]: unknown }): string | null {
+  const only = (keys: string[]) => Object.keys(action).every((key) => keys.includes(key));
+  const type = action.type;
+  if (type === 'move' || type === 'reel') {
+    return only(['type', 'dir']) && isDirection(action.dir) ? null : 'invalid action';
+  }
+  if (type === 'aim') {
+    return only(['type', 'delta']) && typeof action.delta === 'number' && Number.isFinite(action.delta) ? null : 'invalid action';
+  }
+  if (type === 'jump') {
+    return only(['type', 'dir']) && (action.dir === undefined || isDirection(action.dir)) ? null : 'invalid action';
+  }
+  if (type === 'weapon') {
+    if (!only(['type', 'id'])) return 'invalid action';
+    return typeof action.id === 'string' && Object.prototype.hasOwnProperty.call(WEAPONS, action.id) ? null : 'unknown weapon';
+  }
+  if (['rope', 'startCharge', 'releaseCharge', 'fire', 'endTurn'].includes(type)) {
+    return only(['type']) ? null : 'invalid action';
+  }
+  return 'unknown action type';
+}
+
+export function submitOnlineAction(code: string, input: { playerId: string; action: { type: string; [k: string]: unknown }; clientActionId: string; tick?: number; engineTick?: number }): { code: string; match: OnlineMatch; duplicate?: true } | { error: string; status: number } {
+  if (typeof input.clientActionId !== 'string' || !input.clientActionId || input.clientActionId.length > 64) return { error: 'clientActionId is required', status: 400 };
+  if (!input.action || typeof input.action !== 'object' || Array.isArray(input.action)) return { error: 'action is required', status: 400 };
+  if (typeof input.action.type !== 'string' || !input.action.type) return { error: 'action.type is required', status: 400 };
   const db = getOnlineDb();
   const match = db.matches[code.toUpperCase()];
   if (!match) return { error: 'match not found', status: 404 };
+  if (match.actionLogVersion !== 2) return { error: 'legacy online match is no longer supported', status: 410 };
+
+  const syncId = input.action.type === 'endTurn' && input.clientActionId.endsWith('-endTurn-sync')
+    ? input.clientActionId
+    : null;
+  // Idempotency (before readiness, turn and phase validation)
+  if (!db.actionLogs) db.actionLogs = {};
+  const log = db.actionLogs[code.toUpperCase()] || { actions: [] };
+  const allActions = log.actions;
+  const actions = allActions.filter((entry) => !entry.syncOnly);
+  const existing = allActions.find((entry) => entry.clientActionId === input.clientActionId);
+  if (existing) {
+    if (existing.playerId !== input.playerId || !sameAction(existing.action, input.action)) {
+      return { error: 'clientActionId already used', status: 409 };
+    }
+    return { code: match.code, match, duplicate: true };
+  }
+
+  if (new TextEncoder().encode(JSON.stringify(input.action)).byteLength > MAX_ACTION_BYTES) {
+    return { error: 'action too large', status: 413 };
+  }
+  const actionError = validateAction(input.action);
+  if (actionError) return { error: actionError, status: 400 };
+
   if (match.status !== 'ready') return { error: 'match not ready', status: 409 };
   if (match.winnerTeam != null) return { error: 'match finished', status: 409 };
   if (!match.players.some((p) => p.playerId === input.playerId)) return { error: 'not a participant', status: 403 };
-
-  const syncId = input.clientActionId?.endsWith('-endTurn-sync') ? input.clientActionId : null;
-  if (syncId) {
-    if (match.lastSyncId === syncId) return { code: match.code, match };
-    if ((match.phase || 'aim') === 'aim') return { error: 'shot not found', status: 409 };
-  }
-
-  // Idempotency (before turn/phase validation)
-  if (!db.actionLogs) db.actionLogs = {};
-  const log = db.actionLogs[code.toUpperCase()] || { actions: [] };
-  if (input.clientActionId && log.actions.some((a) => a.clientActionId === input.clientActionId)) {
-    return { code: match.code, match };
-  }
+  if (syncId && (match.phase || 'aim') === 'aim') return { error: 'shot not found', status: 409 };
 
   if (match.players[match.activeTeam]?.playerId !== input.playerId) return { error: 'not your turn', status: 409 };
 
   const phase = match.phase || 'aim';
   const type = input.action.type;
   if (phase === 'gameover') return { error: 'match finished', status: 409 };
-  if (type === 'weapon' && !(typeof input.action.id === 'string' && Object.prototype.hasOwnProperty.call(WEAPONS, input.action.id))) {
-    return { error: 'unknown weapon', status: 400 };
-  }
   const aimOnly = ['move', 'aim', 'jump', 'rope', 'reel', 'weapon', 'startCharge', 'releaseCharge'];
   if (type === 'fire' || type === 'startCharge') {
     if (phase !== 'aim' || match.hasFired) return { error: 'illegal action for current phase', status: 409 };
@@ -382,10 +435,10 @@ export function submitOnlineAction(code: string, input: { playerId: string; acti
   }
 
   const syncOnly = type === 'endTurn' && phase !== 'aim';
-  if (!syncOnly && log.actions.length >= 500) return { error: 'action log full', status: 409 };
+  if (allActions.length >= 500) return { error: 'action log full', status: 409 };
 
   const now = new Date().toISOString();
-  const seq = log.actions.reduce((max, entry) => Math.max(max, entry.seq ?? 0), 0) + 1;
+  const seq = allActions.reduce((max, entry) => Math.max(max, entry.seq ?? 0), 0) + 1;
   const currentTick = match.snapshotTick ?? 0;
   const turnTicks = Math.ceil((match.turnSeconds > 0 ? match.turnSeconds : 45) * 60) + 1;
   const rawTick = typeof input.tick === 'number' ? input.tick : input.engineTick;
@@ -401,24 +454,25 @@ export function submitOnlineAction(code: string, input: { playerId: string; acti
     engineTick: tick,
     action: input.action,
     playerId: input.playerId,
-    clientActionId: input.clientActionId || null,
+    clientActionId: input.clientActionId,
     at: now,
+    ...(syncOnly ? { syncOnly: true } : {}),
   });
   let entry = makeEntry(actionTick);
   if (!syncOnly) {
-    let before = replayActions(match, log.actions, actionTick);
+    let before = replayActions(match, actions, actionTick);
     if (before.turn < matchTurn || before.activeTeam !== actorIndex) {
       const recoveryTick = Math.max(actionTick, (matchTurn - 1) * turnTicks);
       actionTick = Math.min(recoveryTick, currentTick + turnTicks * Math.max(1, matchTurn));
       entry = makeEntry(actionTick);
-      before = replayActions(match, log.actions, actionTick);
+      before = replayActions(match, actions, actionTick);
     }
     if (before.turn !== matchTurn || before.activeTeam !== actorIndex) {
       return { error: 'stale action tick', status: 409 };
     }
   }
 
-  const engine = replayActions(match, syncOnly ? log.actions : [...log.actions, entry], syncOnly ? actionTick + 1 : actionTick);
+  const engine = replayActions(match, syncOnly ? actions : [...actions, entry], syncOnly ? actionTick + 1 : actionTick);
   const snap = engine.snapshot();
   if (type === 'fire' && snap.phase === 'aim' && snap.turn === matchTurn) {
     return { error: 'fire had no effect', status: 409 };
@@ -449,10 +503,9 @@ export function submitOnlineAction(code: string, input: { playerId: string; acti
     match.snapshot = snap;
     match.snapshotTick = engine.tick;
     match.revision = revision + 1;
-    if (syncOnly) match.lastSyncId = input.clientActionId;
     if (snap.phase === 'gameover') match.status = 'finished';
   }
-  if (!syncOnly) log.actions.push(entry);
+  log.actions.push(entry);
   db.actionLogs[code.toUpperCase()] = log;
   persistOnline(db);
 
@@ -463,6 +516,7 @@ export function forfeitOnlineMatch(code: string, playerId: string): { code: stri
   const db = getOnlineDb();
   const match = db.matches[code.toUpperCase()];
   if (!match) return { error: 'match not found', status: 404 };
+  if (match.actionLogVersion !== 2) return { error: 'legacy online match is no longer supported', status: 410 };
   if (!match.players.some((p) => p.playerId === playerId)) return { error: 'not a participant', status: 403 };
 
   if (match.winnerTeam != null) {
@@ -480,11 +534,11 @@ export function forfeitOnlineMatch(code: string, playerId: string): { code: stri
 export function getOnlineMatch(code: string): OnlineMatch | null {
   const db = getOnlineDb();
   const match = db.matches[code.toUpperCase()];
-  if (!match) return null;
+  if (!match || match.actionLogVersion !== 2) return null;
   // Attach action log for replay.
   const log = (db.actionLogs || {})[code.toUpperCase()];
   if (log && Array.isArray(log.actions)) {
-    (match as OnlineMatch & { actions?: unknown[] }).actions = log.actions;
+    (match as OnlineMatch & { actions?: unknown[] }).actions = getActionLog(code);
   }
   // A draw has no winnerTeam, so phase is the authoritative terminal marker.
   if (match.status === 'ready' && (match.phase === 'gameover' || match.snapshot?.phase === 'gameover')) {
@@ -532,7 +586,7 @@ function compareActionEntries(a: OnlineActionLogEntry, b: OnlineActionLogEntry):
 export function getActionLog(code: string): OnlineActionLogEntry[] {
   const db = getOnlineDb();
   const log = (db.actionLogs || {})[code.toUpperCase()];
-  const actions = Array.isArray(log?.actions) ? [...log.actions] : [];
+  const actions = Array.isArray(log?.actions) ? log.actions.filter((entry) => !entry.syncOnly) : [];
   return actions.sort(compareActionEntries);
 }
 

@@ -1,5 +1,8 @@
-import { beforeEach, expect, test } from 'vitest';
+import { beforeEach, expect, test, vi } from 'vitest';
+import { setupServer } from 'msw/node';
 import { GameEngine } from '../../src/game/engine';
+import { api, apiMode } from '../../src/api/client';
+import { onlineMatchRefetchInterval } from '../../src/api/queries';
 import {
   createOnlineMatch,
   joinOnlineMatch,
@@ -20,7 +23,17 @@ test('create returns a 6-char code and stores the creator as first player', () =
   expect(res.match.players).toHaveLength(1);
   expect(res.match.players[0].playerId).toBe('p1');
   expect(res.match.status).toBe('waiting');
+  expect(res.match.actionLogVersion).toBe(2);
   expect(getOnlineMatch(res.code)?.code).toBe(res.code);
+});
+
+test('online polling stops for every terminal match, including draws', () => {
+  const { match } = createOnlineMatch({ playerId: 'p1', playerName: 'Alice' });
+  expect(onlineMatchRefetchInterval(undefined)).toBe(false);
+  expect(onlineMatchRefetchInterval({ ...match, status: 'waiting' })).toBe(2000);
+  expect(onlineMatchRefetchInterval({ ...match, status: 'ready' })).toBe(1000);
+  expect(onlineMatchRefetchInterval({ ...match, status: 'ready', winnerTeam: 1 })).toBe(false);
+  expect(onlineMatchRefetchInterval({ ...match, status: 'finished', winnerTeam: null })).toBe(false);
 });
 
 test('join adds a second player and flips status to ready', () => {
@@ -63,7 +76,7 @@ test('code lookup is case-insensitive', () => {
 test('submitAction advances turn on endTurn', () => {
   const created = createOnlineMatch({ playerId: 'p1', playerName: 'Alice' });
   joinOnlineMatch(created.code, { playerId: 'p2', playerName: 'Bob' });
-  const res = submitOnlineAction(created.code, { playerId: 'p1', action: { type: 'endTurn' } });
+  const res = submitOnlineAction(created.code, { playerId: 'p1', action: { type: 'endTurn' }, clientActionId: 'endTurn-1' });
   expect('error' in res).toBe(false);
   if ('error' in res) return;
   expect(res.match.activeTeam).toBe(1);
@@ -73,8 +86,8 @@ test('submitAction advances turn on endTurn', () => {
 test('firing a utility ends the turn without a projectile phase', () => {
   const created = createOnlineMatch({ playerId: 'p1', playerName: 'Alice' });
   joinOnlineMatch(created.code, { playerId: 'p2', playerName: 'Bob' });
-  submitOnlineAction(created.code, { playerId: 'p1', action: { type: 'weapon', id: 'medkit' } });
-  const res = submitOnlineAction(created.code, { playerId: 'p1', action: { type: 'fire' } });
+  submitOnlineAction(created.code, { playerId: 'p1', action: { type: 'weapon', id: 'medkit' }, clientActionId: 'weapon-medkit' });
+  const res = submitOnlineAction(created.code, { playerId: 'p1', action: { type: 'fire' }, clientActionId: 'fire-1' });
   if ('error' in res) throw new Error(res.error);
   expect(res.match.activeTeam).toBe(1);
   expect(res.match.turn).toBe(2);
@@ -85,22 +98,67 @@ test('firing a utility ends the turn without a projectile phase', () => {
 test('submitAction rejects not-your-turn with 409', () => {
   const created = createOnlineMatch({ playerId: 'p1', playerName: 'Alice' });
   joinOnlineMatch(created.code, { playerId: 'p2', playerName: 'Bob' });
-  const res = submitOnlineAction(created.code, { playerId: 'p2', action: { type: 'endTurn' } });
+  const res = submitOnlineAction(created.code, { playerId: 'p2', action: { type: 'endTurn' }, clientActionId: 'endTurn-p2' });
   expect(res).toMatchObject({ error: 'not your turn', status: 409 });
 });
 
 test('submitAction rejects unknown action type with 400', () => {
   const created = createOnlineMatch({ playerId: 'p1', playerName: 'Alice' });
   joinOnlineMatch(created.code, { playerId: 'p2', playerName: 'Bob' });
-  const res = submitOnlineAction(created.code, { playerId: 'p1', action: { type: 'teleport' } });
+  const res = submitOnlineAction(created.code, { playerId: 'p1', action: { type: 'teleport' }, clientActionId: 'teleport-1' });
   expect(res).toMatchObject({ error: 'unknown action type', status: 400 });
+});
+
+for (const [name, action] of [
+  ['a non-numeric aim delta', { type: 'aim', delta: 'x' }],
+  ['a missing movement direction', { type: 'move' }],
+  ['an invalid reel direction', { type: 'reel', dir: 2 }],
+  ['an invalid jump direction', { type: 'jump', dir: 0.5 }],
+  ['unknown action fields', { type: 'endTurn', extra: true }],
+] as const) {
+  test(`submitAction rejects ${name} without writing`, () => {
+    const created = createOnlineMatch({ playerId: 'p1', playerName: 'Alice' });
+    joinOnlineMatch(created.code, { playerId: 'p2', playerName: 'Bob' });
+    const res = submitOnlineAction(created.code, { playerId: 'p1', action, clientActionId: 'invalid-action' });
+    expect(res).toMatchObject({ status: 400 });
+    expect(getActionLog(created.code)).toHaveLength(0);
+    expect(getOnlineMatch(created.code)?.revision).toBe(0);
+    expect(getOnlineMatch(created.code)?.snapshot).toBeUndefined();
+  });
+}
+
+test('submitAction accepts valid directional fields and an omitted jump direction', () => {
+  const created = createOnlineMatch({ playerId: 'p1', playerName: 'Alice' });
+  joinOnlineMatch(created.code, { playerId: 'p2', playerName: 'Bob' });
+  for (const [clientActionId, action] of [
+    ['move-1', { type: 'move', dir: 0 }],
+    ['jump-1', { type: 'jump' }],
+    ['aim-1', { type: 'aim', delta: 0 }],
+  ] as const) {
+    const res = submitOnlineAction(created.code, { playerId: 'p1', action, clientActionId });
+    expect('error' in res).toBe(false);
+  }
+  expect(getActionLog(created.code)).toHaveLength(3);
+});
+
+test('submitAction rejects an oversized action without writing', () => {
+  const created = createOnlineMatch({ playerId: 'p1', playerName: 'Alice' });
+  joinOnlineMatch(created.code, { playerId: 'p2', playerName: 'Bob' });
+  const res = submitOnlineAction(created.code, {
+    playerId: 'p1',
+    action: { type: 'aim', delta: 0, padding: 'x'.repeat(1024) },
+    clientActionId: 'oversized-action',
+  });
+  expect(res).toMatchObject({ status: 413 });
+  expect(getActionLog(created.code)).toHaveLength(0);
+  expect(getOnlineMatch(created.code)?.revision).toBe(0);
 });
 
 test('submitAction rejects illegal phase (fire during projectile)', () => {
   const created = createOnlineMatch({ playerId: 'p1', playerName: 'Alice' });
   joinOnlineMatch(created.code, { playerId: 'p2', playerName: 'Bob' });
-  submitOnlineAction(created.code, { playerId: 'p1', action: { type: 'fire' } });
-  const res = submitOnlineAction(created.code, { playerId: 'p1', action: { type: 'fire' } });
+  submitOnlineAction(created.code, { playerId: 'p1', action: { type: 'fire' }, clientActionId: 'fire-1' });
+  const res = submitOnlineAction(created.code, { playerId: 'p1', action: { type: 'fire' }, clientActionId: 'fire-2' });
   expect(res).toMatchObject({ error: 'illegal action for current phase', status: 409 });
 });
 
@@ -112,18 +170,52 @@ test('submitAction is idempotent on clientActionId', () => {
   expect('error' in res).toBe(false);
   if ('error' in res) return;
   expect(res.match.turn).toBe(2); // not advanced again
+  expect(res.duplicate).toBe(true);
+});
+
+test('submitAction requires clientActionId', () => {
+  const created = createOnlineMatch({ playerId: 'p1', playerName: 'Alice' });
+  joinOnlineMatch(created.code, { playerId: 'p2', playerName: 'Bob' });
+  // @ts-expect-error runtime validation must reject older clients.
+  const res = submitOnlineAction(created.code, { playerId: 'p1', action: { type: 'endTurn' } });
+  expect(res).toMatchObject({ error: 'clientActionId is required', status: 400 });
+  const invalid = submitOnlineAction(created.code, {
+    playerId: 'p1', action: { type: 'endTurn' }, clientActionId: 42,
+  } as unknown as Parameters<typeof submitOnlineAction>[1]);
+  expect(invalid).toMatchObject({ error: 'clientActionId is required', status: 400 });
+  expect(getActionLog(created.code)).toHaveLength(0);
+});
+
+test('submitAction rejects clientActionId reuse with a different payload', () => {
+  const created = createOnlineMatch({ playerId: 'p1', playerName: 'Alice' });
+  joinOnlineMatch(created.code, { playerId: 'p2', playerName: 'Bob' });
+  submitOnlineAction(created.code, { playerId: 'p1', action: { type: 'endTurn' }, clientActionId: 'reused' });
+  const res = submitOnlineAction(created.code, { playerId: 'p1', action: { type: 'weapon', id: 'grenade' }, clientActionId: 'reused' });
+  expect(res).toMatchObject({ error: 'clientActionId already used', status: 409 });
+  expect(getActionLog(created.code)).toHaveLength(1);
+});
+
+test('submitAction returns a duplicate after the match has finished', () => {
+  const created = createOnlineMatch({ playerId: 'p1', playerName: 'Alice' });
+  joinOnlineMatch(created.code, { playerId: 'p2', playerName: 'Bob' });
+  const body = { playerId: 'p1', action: { type: 'endTurn' }, clientActionId: 'finished-retry' };
+  submitOnlineAction(created.code, body);
+  forfeitOnlineMatch(created.code, 'p1');
+  const retry = submitOnlineAction(created.code, body);
+  expect('error' in retry).toBe(false);
+  if (!('error' in retry)) expect(retry.duplicate).toBe(true);
 });
 
 test('submitAction rejects non-participant with 403', () => {
   const created = createOnlineMatch({ playerId: 'p1', playerName: 'Alice' });
   joinOnlineMatch(created.code, { playerId: 'p2', playerName: 'Bob' });
-  const res = submitOnlineAction(created.code, { playerId: 'p3', action: { type: 'endTurn' } });
+  const res = submitOnlineAction(created.code, { playerId: 'p3', action: { type: 'endTurn' }, clientActionId: 'endTurn-p3' });
   expect(res).toMatchObject({ error: 'not a participant', status: 403 });
 });
 
 test('submitAction rejects when match not ready', () => {
   const created = createOnlineMatch({ playerId: 'p1', playerName: 'Alice' });
-  const res = submitOnlineAction(created.code, { playerId: 'p1', action: { type: 'endTurn' } });
+  const res = submitOnlineAction(created.code, { playerId: 'p1', action: { type: 'endTurn' }, clientActionId: 'endTurn-1' });
   expect(res).toMatchObject({ error: 'match not ready', status: 409 });
 });
 
@@ -167,7 +259,7 @@ test('forfeit returns 404 for unknown code', () => {
 test('a post-shot sync cannot cancel a projectile still in flight', () => {
   const created = createOnlineMatch({ playerId: 'p1', playerName: 'Alice', settings: { seed: 777 } });
   joinOnlineMatch(created.code, { playerId: 'p2', playerName: 'Bob' });
-  submitOnlineAction(created.code, { playerId: 'p1', action: { type: 'fire' }, tick: 0 });
+  submitOnlineAction(created.code, { playerId: 'p1', action: { type: 'fire' }, clientActionId: 'fire-1', tick: 0 });
 
   const early = submitOnlineAction(created.code, {
     playerId: 'p1',
@@ -182,7 +274,7 @@ test('a post-shot sync cannot cancel a projectile still in flight', () => {
 test('a post-shot sync hands over after the shot resolves without entering the log', () => {
   const created = createOnlineMatch({ playerId: 'p1', playerName: 'Alice', settings: { seed: 777 } });
   joinOnlineMatch(created.code, { playerId: 'p2', playerName: 'Bob' });
-  submitOnlineAction(created.code, { playerId: 'p1', action: { type: 'fire' }, tick: 0 });
+  submitOnlineAction(created.code, { playerId: 'p1', action: { type: 'fire' }, clientActionId: 'fire-1', tick: 0 });
 
   const probe = new GameEngine({ turnSeconds: 45, wind: 'light', difficulty: 'veteran', seed: 777, wormsPerTeam: 3, hotseat: true });
   probe.applyAction({ type: 'fire' });
@@ -226,7 +318,7 @@ test('getOnlineMatch advances turn when expired', () => {
 test('a fired turn hands over without waiting for the timer', () => {
   const created = createOnlineMatch({ playerId: 'p1', playerName: 'Alice', settings: { turnSeconds: 0, seed: 777 } });
   joinOnlineMatch(created.code, { playerId: 'p2', playerName: 'Bob' });
-  const fired = submitOnlineAction(created.code, { playerId: 'p1', action: { type: 'fire' } });
+  const fired = submitOnlineAction(created.code, { playerId: 'p1', action: { type: 'fire' }, clientActionId: 'fire-1' });
   if ('error' in fired) throw new Error(fired.error);
   expect(fired.match.phase).toBe('projectile');
 
@@ -241,9 +333,9 @@ test('submitAction rejects an unknown weapon without changing the match', () => 
   const created = createOnlineMatch({ playerId: 'p1', playerName: 'Alice' });
   joinOnlineMatch(created.code, { playerId: 'p2', playerName: 'Bob' });
 
-  const res = submitOnlineAction(created.code, { playerId: 'p1', action: { type: 'weapon', id: 'nuke' } });
+  const res = submitOnlineAction(created.code, { playerId: 'p1', action: { type: 'weapon', id: 'nuke' }, clientActionId: 'weapon-nuke' });
   expect(res).toMatchObject({ error: 'unknown weapon', status: 400 });
-  const inherited = submitOnlineAction(created.code, { playerId: 'p1', action: { type: 'weapon', id: 'toString' } });
+  const inherited = submitOnlineAction(created.code, { playerId: 'p1', action: { type: 'weapon', id: 'toString' }, clientActionId: 'weapon-inherited' });
   expect(inherited).toMatchObject({ error: 'unknown weapon', status: 400 });
   expect(getOnlineMatch(created.code)?.weapon).toBeUndefined();
   expect(getActionLog(created.code)).toHaveLength(0);
@@ -253,7 +345,7 @@ test('submitAction rejects a release with no charge', () => {
   const created = createOnlineMatch({ playerId: 'p1', playerName: 'Alice' });
   joinOnlineMatch(created.code, { playerId: 'p2', playerName: 'Bob' });
 
-  const res = submitOnlineAction(created.code, { playerId: 'p1', action: { type: 'releaseCharge' }, tick: 0 });
+  const res = submitOnlineAction(created.code, { playerId: 'p1', action: { type: 'releaseCharge' }, clientActionId: 'release-1', tick: 0 });
   expect(res).toMatchObject({ error: 'release had no effect', status: 409 });
   expect(getActionLog(created.code)).toHaveLength(0);
 });
@@ -275,7 +367,7 @@ test('an action stamped after the turn expires cannot fire on the opponent worm'
   const created = createOnlineMatch({ playerId: 'p1', playerName: 'Alice', settings: { turnSeconds: 45, seed: 777 } });
   joinOnlineMatch(created.code, { playerId: 'p2', playerName: 'Bob' });
 
-  const res = submitOnlineAction(created.code, { playerId: 'p1', action: { type: 'fire' }, tick: 2701 });
+  const res = submitOnlineAction(created.code, { playerId: 'p1', action: { type: 'fire' }, clientActionId: 'fire-stale', tick: 2701 });
   expect(res).toMatchObject({ error: 'stale action tick', status: 409 });
   expect(getOnlineMatch(created.code)?.activeTeam).toBe(0);
   expect(getActionLog(created.code)).toHaveLength(0);
@@ -312,4 +404,52 @@ test('replayOnlineMatch returns a snapshot', () => {
   expect(r!.snapshot).toBeTruthy();
   expect(r!.snapshot.teams.map((team) => team.isAi)).toEqual([false, false]);
   expect(typeof r!.tick).toBe('number');
+});
+
+test('local adapter returns legacy 410 on every online route', async () => {
+  const created = createOnlineMatch({ playerId: 'p1', playerName: 'Alice' });
+  (created.match as { actionLogVersion?: number }).actionLogVersion = undefined;
+  const base = `/api/matches/online/${created.code}`;
+  const legacy = { response: { status: 410, data: { message: 'legacy online match is no longer supported' } } };
+  vi.stubGlobal('window', { location: { origin: 'http://localhost' } });
+  try {
+    expect(apiMode()).toBe('local');
+    await expect(api.get(base)).rejects.toMatchObject(legacy);
+    await expect(api.get(`${base}/replay`)).rejects.toMatchObject(legacy);
+    await expect(api.post(`${base}/join`, { playerId: 'p2', playerName: 'Bob' })).rejects.toMatchObject(legacy);
+    await expect(api.post(`${base}/action`, { playerId: 'p1', action: { type: 'endTurn' }, clientActionId: 'legacy-action' })).rejects.toMatchObject(legacy);
+    await expect(api.post(`${base}/forfeit`, { playerId: 'p1' })).rejects.toMatchObject(legacy);
+  } finally {
+    vi.unstubAllGlobals();
+  }
+});
+
+test('MSW handlers return legacy 410 on every online route', async () => {
+  const created = createOnlineMatch({ playerId: 'p1', playerName: 'Alice' });
+  (created.match as { actionLogVersion?: number }).actionLogVersion = undefined;
+  const base = `http://localhost/api/matches/online/${created.code}`;
+  vi.stubGlobal('location', new URL('http://localhost'));
+  const { handlers } = await import('../../src/mocks/handlers');
+  const server = setupServer(...handlers);
+  server.listen({ onUnhandledRequest: 'error' });
+  try {
+    for (const [method, suffix, body] of [
+      ['GET', '', undefined],
+      ['GET', '/replay', undefined],
+      ['POST', '/join', { playerId: 'p2', playerName: 'Bob' }],
+      ['POST', '/action', { playerId: 'p1', action: { type: 'endTurn' }, clientActionId: 'legacy-action' }],
+      ['POST', '/forfeit', { playerId: 'p1' }],
+    ] as const) {
+      const response = await fetch(`${base}${suffix}`, {
+        method,
+        headers: body ? { 'content-type': 'application/json' } : undefined,
+        body: body ? JSON.stringify(body) : undefined,
+      });
+      expect(response.status).toBe(410);
+      expect(await response.json()).toEqual({ message: 'legacy online match is no longer supported' });
+    }
+  } finally {
+    server.close();
+    vi.unstubAllGlobals();
+  }
 });

@@ -10,6 +10,7 @@ import {
   createOnlineMatch,
   joinOnlineMatch,
   getOnlineMatch,
+  isLegacyOnlineMatch,
   submitOnlineAction,
   forfeitOnlineMatch,
   replayOnlineMatch,
@@ -70,6 +71,7 @@ export const handlers = [
     await delay(latencyMs());
     if (shouldFail()) return HttpResponse.json({ message: 'Upstream unavailable' }, { status: 503 });
     const code = String(params.code);
+    if (isLegacyOnlineMatch(code)) return HttpResponse.json({ message: 'legacy online match is no longer supported' }, { status: 410 });
     const match = getOnlineMatch(code);
     if (!match) return HttpResponse.json({ message: 'match not found' }, { status: 404 });
     return HttpResponse.json({ code: match.code, match }, { status: 200 });
@@ -78,7 +80,9 @@ export const handlers = [
   http.get('/api/matches/online/:code/replay', async ({ params }) => {
     await delay(latencyMs());
     if (shouldFail()) return HttpResponse.json({ message: 'Upstream unavailable' }, { status: 503 });
-    const replay = replayOnlineMatch(String(params.code));
+    const code = String(params.code);
+    if (isLegacyOnlineMatch(code)) return HttpResponse.json({ message: 'legacy online match is no longer supported' }, { status: 410 });
+    const replay = replayOnlineMatch(code);
     if (!replay) return HttpResponse.json({ message: 'match not found' }, { status: 404 });
     return HttpResponse.json(replay, { status: 200 });
   }),
@@ -100,12 +104,12 @@ export const handlers = [
     await delay(latencyMs());
     if (shouldFail()) return HttpResponse.json({ message: 'Upstream unavailable' }, { status: 503 });
     const code = String(params.code);
-    const body = (await request.json()) as { playerId: string; action: { type: string; [k: string]: unknown }; clientActionId?: string; tick?: number; engineTick?: number };
+    const body = (await request.json()) as { playerId: string; action: { type: string; [k: string]: unknown }; clientActionId: string; tick?: number; engineTick?: number };
     const result = submitOnlineAction(code, { playerId: body.playerId, action: body.action, clientActionId: body.clientActionId, tick: body.tick, engineTick: body.engineTick });
     if ('error' in result) {
       return HttpResponse.json({ message: result.error }, { status: result.status });
     }
-    return HttpResponse.json({ code: result.code, match: result.match }, { status: 200 });
+    return HttpResponse.json({ code: result.code, match: result.match, duplicate: result.duplicate }, { status: 200 });
   }),
 
   http.post('/api/matches/online/:code/forfeit', async ({ request, params }) => {
@@ -131,7 +135,7 @@ export const handlers = [
       teamName: body.teamName,
     });
     if ('error' in result) {
-      const status = result.error === 'not_found' ? 404 : 409;
+      const status = 'status' in result ? result.status : result.error === 'not_found' ? 404 : 409;
       return HttpResponse.json({ message: result.error }, { status });
     }
     return HttpResponse.json({ code: result.code, match: result.match }, { status: 200 });

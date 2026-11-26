@@ -53,6 +53,11 @@ export function useRegisterMatch() {
   });
 }
 
+export function onlineMatchRefetchInterval(match: OnlineMatch | undefined): number | false {
+  if (!match || match.winnerTeam != null || match.status === 'finished') return false;
+  return match.status === 'ready' ? 1000 : 2000;
+}
+
 export function useOnlineMatch(code: string | null, enabled = true) {
   return useQuery({
     queryKey: ['online-match', code],
@@ -62,12 +67,7 @@ export function useOnlineMatch(code: string | null, enabled = true) {
       return data.match;
     },
     enabled: enabled && !!code,
-    refetchInterval: (q) => {
-      const m = q.state.data;
-      if (!m || m.winnerTeam != null) return false;
-      if (m.status !== 'ready') return 2000;
-      return 1000;
-    },
+    refetchInterval: (q) => onlineMatchRefetchInterval(q.state.data),
     refetchIntervalInBackground: false,
     staleTime: 0,
     retry: 1,
@@ -76,8 +76,8 @@ export function useOnlineMatch(code: string | null, enabled = true) {
 
 export function useSubmitOnlineAction() {
   return useMutation({
-    mutationFn: async ({ code, playerId, action, clientActionId, tick }: { code: string; playerId: string; action: { type: string; [k: string]: unknown }; clientActionId?: string; tick?: number }) => {
-      const { data } = await api.post<{ code: string; match: import('./types').OnlineMatch }>(`/api/matches/online/${encodeURIComponent(code)}/action`, { playerId, action, clientActionId, tick });
+    mutationFn: async ({ code, playerId, action, clientActionId, tick }: { code: string; playerId: string; action: { type: string; [k: string]: unknown }; clientActionId: string; tick?: number }) => {
+      const { data } = await api.post<{ code: string; match: import('./types').OnlineMatch; duplicate?: true }>(`/api/matches/online/${encodeURIComponent(code)}/action`, { playerId, action, clientActionId, tick });
       return data;
     },
     retry: 0,
