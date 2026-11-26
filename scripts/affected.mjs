@@ -33,6 +33,7 @@ const UI_E2E = [
   'tests/fullscreen.spec.ts',
   'tests/hud-layout.spec.ts',
   'tests/jump.spec.ts',
+  'tests/landscape-gate.spec.ts',
   'tests/menu.spec.ts',
   'tests/mobile-hud.spec.ts',
   'tests/pwa.spec.ts',
@@ -69,7 +70,7 @@ const RULES = [
   {
     files: ['src/ui/GameView.tsx'],
     unit: [],
-    e2e: ['tests/combat.spec.ts', 'tests/fullscreen.spec.ts', 'tests/jump.spec.ts', 'tests/mobile-hud.spec.ts', 'tests/hud-layout.spec.ts', 'tests/data.spec.ts', 'tests/rope.spec.ts', 'tests/settings.spec.ts', 'tests/bug-report.spec.ts', 'tests/bug-report-real-capture.spec.ts', 'tests/online.spec.ts', 'tests/online-two-browsers.spec.ts'],
+    e2e: ['tests/combat.spec.ts', 'tests/fullscreen.spec.ts', 'tests/jump.spec.ts', 'tests/landscape-gate.spec.ts', 'tests/mobile-hud.spec.ts', 'tests/hud-layout.spec.ts', 'tests/data.spec.ts', 'tests/rope.spec.ts', 'tests/settings.spec.ts', 'tests/bug-report.spec.ts', 'tests/bug-report-real-capture.spec.ts', 'tests/online.spec.ts', 'tests/online-two-browsers.spec.ts'],
   },
   {
     files: ['src/ui/Hud.tsx'],
@@ -111,7 +112,7 @@ const RULES = [
     e2e: ['tests/data.spec.ts', 'tests/menu.spec.ts', 'tests/online.spec.ts', 'tests/online-two-browsers.spec.ts', 'tests/pwa-offline.spec.ts'],
   },
   {
-    files: ['src/pwa.ts', 'public/sw.js', 'vercel.json'],
+    files: ['src/pwa.ts', 'public/sw.js', 'public/manifest.webmanifest', 'vercel.json'],
     unit: ['tests/unit/manifest.test.ts'],
     e2e: ['tests/pwa-offline.spec.ts', 'tests/pwa.spec.ts'],
   },

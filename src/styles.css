@@ -1270,6 +1270,10 @@ html:fullscreen {
   visibility: hidden;
 }
 
+.rotate-overlay {
+  z-index: 7;
+}
+
 .bug-report-dialog {
   width: min(560px, 100%);
 }

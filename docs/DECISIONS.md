@@ -123,12 +123,12 @@ Persisted state is small and synchronous: settings, player identity, profile, la
 **Why:** an iPhone tab cannot fullscreen an element at all, and a Home Screen web app is the only chrome-free path there. iOS 26 makes every Home Screen site a web app by default; the manifest still supplies the name, icon and launch URL on older iOS and Android.
 **Cost:** the service worker now exists in production, so Android Chrome can mint a WebAPK. The real install prompt and cross-device profile stay in M6 (#20), and true fullscreen on iOS remains impossible.
 
-## 18. Landscape only while the match is fullscreen
+## 18. Landscape is mandatory for touch matches
 
-After a successful fullscreen request on `/demo`, the page asks for a landscape orientation lock on coarse-pointer devices. Leaving fullscreen releases it. Every refusal is swallowed: Safari has no Screen Orientation API and desktop Chrome always rejects the call. Windowed portrait play is unchanged.
+An installed app declares `orientation: landscape` in the manifest, so a home-screen launch starts in landscape before any gesture. Inside any match on a coarse-pointer device, a portrait viewport is replaced by a "rotate your device" gate that freezes the simulation until the device is landscape; menus stay usable in portrait. A browser match that enters fullscreen also asks for a landscape orientation lock and releases it on exit. Every refusal is swallowed: Safari has no Screen Orientation API and desktop Chrome always rejects the call. Desktop play is unchanged. In dev the gate is opt-in via `?landscapeGate=1` so the portrait layout suites still run.
 
-**Why:** fullscreen is the immersive presentation, and the HUD already has a dedicated landscape-phone layout (`max-height: 480px`). The portrait layout from #59 stays available by leaving fullscreen.
-**Cost:** on Android a fullscreen match rotates even if the player prefers portrait; the way out is exiting fullscreen. iOS players rotate manually, because Safari ignores the lock.
+**Why:** the arena and HUD are built for a wide view (`max-height: 480px` on landscape phones), so portrait play cramps the action the way it would in a mobile game. Fullscreen alone cannot guarantee it: Safari ignores the orientation lock and a tab can stay portrait.
+**Cost:** touch players must rotate before a match runs; the portrait layout survives only in menus and in dev. A fullscreen match on Android overrides the device portrait preference until the player exits fullscreen.
 
 ## 19. The rope is a tool, not a weapon
 

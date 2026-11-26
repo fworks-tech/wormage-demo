@@ -11,6 +11,7 @@ const readManifest = () =>
     start_url: string;
     scope: string;
     display: string;
+    orientation: string;
     background_color: string;
     theme_color: string;
     icons: Array<{ src: string; sizes: string; type: string; purpose: string }>;
@@ -28,6 +29,7 @@ test('the manifest launches the demo as a standalone home-screen app', () => {
   expect(manifest.start_url).toBe('/demo');
   expect(manifest.scope).toBe('/');
   expect(manifest.display).toBe('standalone');
+  expect(manifest.orientation).toBe('landscape');
   expect(manifest.background_color).toMatch(/^#[0-9a-f]{6}$/i);
   expect(manifest.theme_color).toMatch(/^#[0-9a-f]{6}$/i);
 
