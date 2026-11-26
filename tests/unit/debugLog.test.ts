@@ -6,7 +6,7 @@ const { post } = vi.hoisted(() => ({ post: vi.fn() }));
 
 vi.mock('../../src/api/client', () => ({ api: { post } }));
 
-import { flushDebugLog } from '../../src/api/debugLog';
+import { flushDebugLog, resetDebugLogDisabledFlag } from '../../src/api/debugLog';
 
 const config = (overrides: Partial<MatchConfig> = {}): MatchConfig => ({
   turnSeconds: 30,
@@ -34,6 +34,7 @@ describe('debug logging', () => {
   beforeEach(() => {
     post.mockReset();
     post.mockResolvedValue({ status: 201, data: {} });
+    resetDebugLogDisabledFlag();
   });
 
   test('records match and turn snapshots', () => {
@@ -89,5 +90,18 @@ describe('debug logging', () => {
     expect(post).toHaveBeenCalledTimes(1);
     expect(engine.debugLog).toHaveLength(0);
     expect(engine.debugSnapshots).toHaveLength(0);
+  });
+
+  test('stops POSTing after the server reports uploads disabled', async () => {
+    const engine = new GameEngine(config());
+    post.mockResolvedValue({ status: 202, data: { stored: false } });
+
+    await flushDebugLog(engine);
+    expect(post).toHaveBeenCalledTimes(1);
+
+    engine.debugLog = [entry(engine, 1)];
+    await flushDebugLog(engine);
+    expect(post).toHaveBeenCalledTimes(1);
+    expect(engine.debugLog).toHaveLength(0);
   });
 });

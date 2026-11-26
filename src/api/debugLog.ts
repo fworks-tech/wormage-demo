@@ -38,6 +38,14 @@ const TARGET_CHUNK_BYTES = 200_000;
 // Serializing per engine stops two uploads from snapshotting and splicing the same entries.
 const inFlight = new WeakMap<GameEngine, Promise<boolean>>();
 
+// Once the backend reports uploads disabled, stop POSTing for the rest of the session.
+// The buffers are dropped to match the previous 202 handling without paying invocations.
+let disabledByServer = false;
+
+export function resetDebugLogDisabledFlag(): void {
+  disabledByServer = false;
+}
+
 export function flushDebugLog(engine: GameEngine): Promise<boolean> {
   const previous = inFlight.get(engine) ?? Promise.resolve(true);
   const run = previous.then(
@@ -55,6 +63,11 @@ async function sendDebugLog(engine: GameEngine): Promise<boolean> {
   const entries = [...engine.debugLog];
   const snapshots = [...engine.debugSnapshots];
   if (entries.length === 0 && snapshots.length === 0) return true;
+  if (disabledByServer) {
+    engine.debugLog.splice(0, entries.length);
+    engine.debugSnapshots.splice(0, snapshots.length);
+    return true;
+  }
 
   const now = new Date();
   const expires = new Date(now.getTime() + RETENTION_DAYS * 24 * 60 * 60 * 1000);
@@ -138,6 +151,9 @@ async function sendDebugLog(engine: GameEngine): Promise<boolean> {
     try {
       const response = await api.post('/api/debug-logs', payload);
       if (response.status < 200 || response.status >= 300) return false;
+      if ((response.data as { stored?: boolean } | undefined)?.stored === false) {
+        disabledByServer = true;
+      }
     } catch {
       return false;
     }

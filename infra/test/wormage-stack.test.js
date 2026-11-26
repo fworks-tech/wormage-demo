@@ -18,9 +18,11 @@ test('telemetry uploads are disabled by default', () => {
   assert.equal(defaults['/wormage/debug-logs/enabled'], 'false');
   assert.equal(defaults['/wormage/bug-reports/enabled'], 'false');
 
-  const handler = Object.values(stack.findResources('AWS::Lambda::Function'))[0];
+  const handler = Object.values(stack.findResources('AWS::Lambda::Function')).find(
+    (f) => f.Properties && f.Properties.Environment && f.Properties.Environment.Variables && f.Properties.Environment.Variables.TABLE_NAME,
+  );
   const env = handler.Properties.Environment.Variables;
   const logicalId = (name) => parameters.find(([, parameter]) => parameter.Properties.Name === name)[0];
-  assert.deepEqual(env.DEBUG_LOGS_ENABLED, { 'Fn::GetAtt': [logicalId('/wormage/debug-logs/enabled'), 'Value'] });
-  assert.deepEqual(env.BUG_REPORTS_ENABLED, { 'Fn::GetAtt': [logicalId('/wormage/bug-reports/enabled'), 'Value'] });
+  assert.deepStrictEqual(env.DEBUG_LOGS_ENABLED, { 'Fn::GetAtt': [logicalId('/wormage/debug-logs/enabled'), 'Value'] });
+  assert.deepStrictEqual(env.BUG_REPORTS_ENABLED, { 'Fn::GetAtt': [logicalId('/wormage/bug-reports/enabled'), 'Value'] });
 });

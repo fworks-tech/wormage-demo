@@ -282,7 +282,7 @@ async function postDebugLog(event, s3Client = s3) {
   const err = validateDebugLogBody(body);
   if (err) return json(400, { message: err });
 
-  if (process.env.DEBUG_LOGS_ENABLED === 'false') {
+  if (process.env.DEBUG_LOGS_ENABLED !== 'true') {
     return json(202, { stored: false, reason: 'disabled' });
   }
   const bucket = process.env.DEBUG_LOG_BUCKET;
@@ -386,7 +386,7 @@ async function postBugReport(event, s3Client = s3) {
   const err = validateBugReportBody(body);
   if (err) return json(400, { message: err });
 
-  if (process.env.BUG_REPORTS_ENABLED === 'false') {
+  if (process.env.BUG_REPORTS_ENABLED !== 'true') {
     return json(202, { stored: false, reason: 'disabled' });
   }
   const bucket = process.env.DEBUG_LOG_BUCKET;
