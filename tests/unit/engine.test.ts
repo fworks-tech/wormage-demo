@@ -51,6 +51,20 @@ describe('engine rules without a browser', () => {
     expect(worm.x).toBeGreaterThan(startX + 5);
   });
 
+  test('walking during a charge does not flip the aimed shot', () => {
+    const engine = new GameEngine(config());
+    const worm = engine.activeWorm!;
+    worm.aimAngle = -0.55;
+    worm.facing = 1;
+    engine.startCharge();
+    engine.setMove(-1);
+    step(engine, 0.5);
+
+    expect(engine.charging).toBe(true);
+    expect(worm.facing).toBe(-1);
+    expect(worm.aimAngle).toBeCloseTo(-0.55);
+  });
+
   test('holding fire still allows a jump and in-air steering', () => {
     const engine = new GameEngine(config());
     const worm = engine.activeWorm!;
