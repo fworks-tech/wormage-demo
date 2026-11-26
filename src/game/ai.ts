@@ -405,6 +405,7 @@ function planProjectile(
       // Friendly-fire veto: skip shots that would hurt allies/self beyond tolerance.
       if (AI.friendlyFireVeto && coll.ally > AI.friendlyFireTolerance) continue;
       const score = damageScore(result.x, result.y, weapon, worm, worms, revengeFocus);
+      if (score <= 0) continue;
       if (!best || score > best.score) {
         best = { score, angle, power, retreatX };
       }
@@ -421,6 +422,7 @@ function planProjectile(
         const result = simulateShot(terrain, muzzleX, muzzleY, angle, power, weapon, wind, def.fuse, def.bounces, bodies);
         if (!result.valid) continue;
         const score = damageScore(result.x, result.y, weapon, worm, worms, revengeFocus);
+        if (score <= 0) continue;
         if (!best || score > best.score) {
           best = { score, angle, power, retreatX };
         }
@@ -451,8 +453,10 @@ function planDrop(
     const d = Math.hypot(enemy.x - pos.x, enemy.y - pos.y);
     return d < nearest.d ? { enemy, d } : nearest;
   }, { enemy: enemies[0], d: Infinity }).enemy;
+  const score = damageScore(blast.x, blast.y, weapon, worm, worms, revengeFocus);
+  if (score <= 0) return null;
   return {
-    score: damageScore(blast.x, blast.y, weapon, worm, worms, revengeFocus),
+    score,
     // Drops ignore the angle in flight, but the worm and its weapon should face the enemy.
     angle: target.x < pos.x ? mirrorAngle(-0.5) : -0.5,
     power: 0.5,
@@ -534,6 +538,7 @@ function damageScore(
     else if (w.id === shooter.id) self += amount;
     else ally += amount;
   }
+  if (enemy <= 0) return 0;
 
   let score = enemy - ally * 0.9 - self * 0.85;
 
