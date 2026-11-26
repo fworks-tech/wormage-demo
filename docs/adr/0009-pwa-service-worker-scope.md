@@ -34,4 +34,4 @@ The existing API layer already has two transports: MSW over the network and an i
 
 - Issue [#169](https://github.com/fworks-tech/wormage-demo/issues/169)
 - [ADR 0003](0003-server-authoritative-online.md) — live API authority
-- [DECISIONS §6](../DECISIONS.md#6-msw-in-dev-an-in-process-adapter-for-the-single-file-build)
+- [DECISIONS §6](../DECISIONS.md#6-msw-in-dev-an-in-process-adapter-everywhere-else)
