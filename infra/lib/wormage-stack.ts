@@ -11,6 +11,7 @@ import * as acm from 'aws-cdk-lib/aws-certificatemanager';
 import * as route53 from 'aws-cdk-lib/aws-route53';
 import * as route53Targets from 'aws-cdk-lib/aws-route53-targets';
 import * as sns from 'aws-cdk-lib/aws-sns';
+import * as budgets from 'aws-cdk-lib/aws-budgets';
 import * as secretsmanager from 'aws-cdk-lib/aws-secretsmanager';
 import * as cloudwatch from 'aws-cdk-lib/aws-cloudwatch';
 import * as cwActions from 'aws-cdk-lib/aws-cloudwatch-actions';
@@ -28,6 +29,14 @@ export interface WormageStackProps extends cdk.StackProps {
   alarmEmail?: string;
   /** Anonymous auth rollout mode. Defaults to observe for legacy compatibility. */
   authMode?: 'observe' | 'enforce';
+  /** Monthly COST budget cap in USD. Defaults to 10. */
+  monthlyBudgetLimitUsd?: number;
+  /**
+   * Reserved concurrency for the handler. Leave unset until the account
+   * concurrent-execution quota is raised to 200; then set to 10.
+   * See RUNBOOK for the quota request and rollout.
+   */
+  lambdaReservedConcurrency?: number;
 }
 
 export class WormageStack extends cdk.Stack {
@@ -127,6 +136,7 @@ export class WormageStack extends cdk.Stack {
       memorySize: 256,
       logRetention: logs.RetentionDays.ONE_WEEK,
       tracing: lambda.Tracing.ACTIVE,
+      reservedConcurrentExecutions: props?.lambdaReservedConcurrency,
     });
 
     this.table.grantReadWriteData(this.handler);
@@ -224,6 +234,25 @@ export class WormageStack extends cdk.Stack {
         endpoint: props.alarmEmail,
       });
     }
+
+    // Spend guard: USD 10/month COST budget with actual + forecast alerts to
+    // the confirmed alarm topic. Reserved concurrency stays off until the
+    // account quota supports it (see RUNBOOK).
+    const budgetLimit = props?.monthlyBudgetLimitUsd ?? 10;
+    new budgets.CfnBudget(this, 'WormageMonthlyBudget', {
+      budget: {
+        budgetName: 'wormage-monthly',
+        budgetLimit: { amount: budgetLimit, unit: 'USD' },
+        timeUnit: 'MONTHLY',
+        budgetType: 'COST',
+      },
+      notificationsWithSubscribers: [
+        { notification: { notificationType: 'ACTUAL', comparisonOperator: 'GREATER_THAN', threshold: 50, thresholdType: 'PERCENTAGE' }, subscribers: [{ subscriptionType: 'SNS', address: alarmTopic.topicArn }] },
+        { notification: { notificationType: 'ACTUAL', comparisonOperator: 'GREATER_THAN', threshold: 80, thresholdType: 'PERCENTAGE' }, subscribers: [{ subscriptionType: 'SNS', address: alarmTopic.topicArn }] },
+        { notification: { notificationType: 'ACTUAL', comparisonOperator: 'GREATER_THAN', threshold: 100, thresholdType: 'PERCENTAGE' }, subscribers: [{ subscriptionType: 'SNS', address: alarmTopic.topicArn }] },
+        { notification: { notificationType: 'FORECASTED', comparisonOperator: 'GREATER_THAN', threshold: 100, thresholdType: 'PERCENTAGE' }, subscribers: [{ subscriptionType: 'SNS', address: alarmTopic.topicArn }] },
+      ],
+    });
 
     const applicationErrorFilter = new logs.MetricFilter(this, 'ApplicationErrorMetricFilter', {
       logGroup: this.handler.logGroup,
