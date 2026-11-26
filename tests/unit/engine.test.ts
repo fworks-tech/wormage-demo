@@ -367,6 +367,71 @@ describe('mob combat', () => {
   });
 });
 
+describe('mob terrain physics', () => {
+  test('falls and lands after its supporting terrain is carved away', () => {
+    const engine = new GameEngine(config({ wormsPerTeam: 2 }));
+    const mob = engine.mobs[0];
+    const ground = engine.terrain.groundY(mob.x, 120, WATER_Y - 120);
+    expect(ground).not.toBeNull();
+    mob.y = ground! - mob.radius;
+    const startY = mob.y;
+
+    engine.terrain.carve(mob.x, ground!, 56);
+    step(engine, 1);
+
+    const landing = engine.terrain.groundY(mob.x, mob.y - 6, WATER_Y - mob.y);
+    expect(mob.alive).toBe(true);
+    expect(mob.y).toBeGreaterThan(startY);
+    expect(landing).not.toBeNull();
+    expect(mob.y + mob.radius).toBeCloseTo(landing!);
+  });
+
+  test('walks over time against newly carved terrain without floating', () => {
+    const engine = new GameEngine(config({ wormsPerTeam: 2 }));
+    const mob = engine.mobs[0];
+    engine.mobs.splice(1);
+    mob.x = 600;
+    const ground = engine.terrain.groundY(mob.x, 120, WATER_Y - 120);
+    expect(ground).not.toBeNull();
+    mob.y = ground! - mob.radius;
+    const startX = mob.x;
+    const startY = mob.y;
+    const target = engine.teams[0].worms[0];
+    target.x = mob.x + 300;
+    for (const worm of engine.teams[0].worms) {
+      if (worm !== target) worm.alive = false;
+    }
+
+    const craterX = mob.x + 150;
+    const craterGround = engine.terrain.groundY(craterX, 120, WATER_Y - 120);
+    expect(craterGround).not.toBeNull();
+    engine.terrain.carve(craterX, craterGround!, 80);
+
+    engine.endTurn();
+    expect(mob.x).toBe(startX);
+    step(engine, 1);
+
+    const support = engine.terrain.groundY(mob.x, Math.max(0, mob.y - 6), 80);
+    expect(mob.x).toBeGreaterThan(startX);
+    expect(mob.y).toBeGreaterThan(startY);
+    expect(support).not.toBeNull();
+    expect(mob.y + mob.radius).toBeCloseTo(support!);
+  });
+
+  test('disappears when an unsupported fall reaches the water', () => {
+    const engine = new GameEngine(config({ wormsPerTeam: 2 }));
+    const mob = engine.mobs[0];
+    engine.mobs.splice(1);
+    mob.x = 640;
+    mob.y = 100;
+    engine.terrain.carve(mob.x, 400, 300);
+
+    step(engine, 2);
+
+    expect(mob.alive).toBe(false);
+  });
+});
+
 describe('terrain and water share one surface', () => {
   test('the painted surface never drops past the water clamp', () => {
     // At the map edges the raw noise passes the water line; painting the raw
