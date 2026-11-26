@@ -1296,7 +1296,7 @@ export class GameEngine {
         worm.x = nx;
         if (worm.facing !== dir && !keepPlannedAim) {
           worm.facing = dir as 1 | -1;
-          worm.aimAngle = mirrorAngle(worm.aimAngle);
+          if (!this.charging) worm.aimAngle = mirrorAngle(worm.aimAngle);
         }
         if (ahead !== null) {
           worm.y = ahead;
