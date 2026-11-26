@@ -84,7 +84,8 @@ jobs:
           if [[ ",$PR_LABELS," == *",ci:full,"* ]]; then
             npm run test:e2e
           else
-            npm run test:smoke
+            # Concurrent PixiJS matches can exhaust the hosted runner's fixed test budgets.
+            PW_WORKERS=1 npm run test:smoke
           fi
 
       - name: Upload Playwright report

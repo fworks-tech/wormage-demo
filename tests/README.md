@@ -25,7 +25,7 @@ Vitest only picks up `tests/unit/**/*.test.ts`. The Playwright config uses `chan
 
 Run `npm --prefix infra ci` once after cloning so `test:quick` and `test:infra` can use the Lambda dependencies.
 
-Playwright runs in parallel by default with up to four workers, leaving capacity for the Vite server. Set `PW_WORKERS` to a positive integer to override the cap; `PW_WORKERS=1` is the stable serial mode for debugging.
+Playwright runs in parallel by default with up to four workers, leaving capacity for the Vite server. Set `PW_WORKERS` to a positive integer to override the cap; `PW_WORKERS=1` is the stable serial mode for debugging. CI runs the default PR smoke selection with one worker so concurrent PixiJS matches cannot exhaust the hosted runner's fixed test budgets; the `ci:full` matrix keeps the default parallelism.
 
 ## Smoke set
 
