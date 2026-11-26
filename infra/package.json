@@ -8,7 +8,7 @@
     "synth": "npm run build && cdk synth",
     "deploy": "npm run build && cdk deploy",
     "diff": "npm run build && cdk diff",
-    "test": "npm run build:engine && node --test lambda/index.test.js"
+    "test": "npm run build && node --test lambda/index.test.js test/wormage-stack.test.js"
   },
   "dependencies": {
     "aws-cdk-lib": "^2.170.0",

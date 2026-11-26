@@ -72,7 +72,11 @@ export class WormageStack extends cdk.Stack {
     });
     const debugLogsEnabled = new ssm.StringParameter(this, 'DebugLogsEnabled', {
       parameterName: '/wormage/debug-logs/enabled',
-      stringValue: 'true',
+      stringValue: 'false',
+    });
+    const bugReportsEnabled = new ssm.StringParameter(this, 'BugReportsEnabled', {
+      parameterName: '/wormage/bug-reports/enabled',
+      stringValue: 'false',
     });
     const debugLogsRetentionDays = new ssm.StringParameter(this, 'DebugLogsRetentionDays', {
       parameterName: '/wormage/debug-logs/retention-days',
@@ -99,7 +103,7 @@ export class WormageStack extends cdk.Stack {
         DEBUG_LOG_MAX_PAYLOAD_BYTES: debugLogsMaxPayloadBytes.stringValue,
         DEBUG_LOG_PREFIX: debugLogsPrefix.stringValue,
         DEBUG_LOG_ENV: 'prod',
-        BUG_REPORTS_ENABLED: 'true',
+        BUG_REPORTS_ENABLED: bugReportsEnabled.stringValue,
         BUG_REPORT_MAX_BYTES: '4000000',
         BUG_REPORT_PREFIX: 'bug-reports',
       },
