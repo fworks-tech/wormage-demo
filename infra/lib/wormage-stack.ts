@@ -135,7 +135,8 @@ export class WormageStack extends cdk.Stack {
       timeout: cdk.Duration.seconds(10),
       memorySize: 256,
       logRetention: logs.RetentionDays.ONE_WEEK,
-      tracing: lambda.Tracing.ACTIVE,
+      // X-Ray tracing bills per trace and no alarm or dashboard reads traces.
+      tracing: lambda.Tracing.DISABLED,
       reservedConcurrentExecutions: props?.lambdaReservedConcurrency,
     });
 
