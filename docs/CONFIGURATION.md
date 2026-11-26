@@ -16,7 +16,9 @@ Every gameplay number lives in `src/game/config.ts`. Balance changes should neve
 
 | Constant | Value | Unit | Notes |
 | --- | --- | --- | --- |
-| `WORLD_W` / `WORLD_H` | 1280 × 720 | px | logical arena; renderer letterboxes it |
+| `BASE_W` / `BASE_H` | 1280 × 720 | px | renderer scale reference |
+| `WORLD_SCALE` | 3 | × | world size multiplier; `?mapSize=1` selects the 1× debug arena |
+| `WORLD_W` / `WORLD_H` | 3840 × 2160 | px | default logical arena; renderer camera pans through it |
 | `WATER_Y` | 668 | px | below this a worm drowns, projectiles splash |
 | `GRAVITY` | 780 | px/s² | worms only |
 | `PROJECTILE_GRAVITY` | 520 | px/s² | multiplied by the weapon's `gravityScale` |

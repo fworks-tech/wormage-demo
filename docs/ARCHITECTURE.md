@@ -113,7 +113,7 @@ Because the solver and the game share one integrator, the CPU never "cheats" —
 - The active worm holds its selected weapon along the aim angle; the draw switch is exhaustive over `WeaponId`, non-active worms carry a bazooka silhouette, and the sprite hides while the worm hangs from the rope. Airborne shelves are painted by `TerrainPainter` as miniature islands: a soil gradient, clipped strata, a grass cap on the collision ellipse and seeded blades.
 - Particles are plain objects integrated in `render` and drawn into a single cleared `Graphics` per frame (sparks, smoke, dirt, splashes, shockwave rings), capped at 420.
 - Screen shake decays exponentially and offsets the world container only, never the HUD.
-- The world is 1280 × 720 and letterboxed: `scale = min(screenW / 1280, screenH / 720)`. `toWorld()` inverts that transform for pointer input, so aiming stays accurate at any window size or device pixel ratio.
+- The simulation world is 3840 × 2160 by default (3× the 1280 × 720 render reference). The renderer scales with `clamp(min(screenW / 1280, screenH / 720), 0.25, 1)` and pans a camera through the larger world; `?mapSize=1` restores the fixed 1280 × 720 debug arena. `toWorld()` inverts the scale and camera offset for pointer input, so aiming stays accurate at any window size or device pixel ratio.
 - Cleanup: `GameView` removes the ticker callback and calls `renderer.destroy()`, which destroys the Pixi app, all worm views, particle graphics and the texture cache. React StrictMode mounts twice in development; the async renderer creation is guarded by a `disposed` flag so the first instance is destroyed instead of leaking a second canvas.
 
 ## 7. React ↔ game contract

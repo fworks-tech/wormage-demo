@@ -698,7 +698,7 @@ select {
 
 /* ------------------------------------------------------------------ game */
 
-/* The letterbox around the 16:9 world should match the arena, not the page. */
+/* Match the fullscreen backdrop to the arena. */
 html:fullscreen {
   background: #08100f;
 }
@@ -739,14 +739,6 @@ html:fullscreen {
   padding-left: max(clamp(8px, 1.6vw, 18px), env(safe-area-inset-left));
   pointer-events: none;
   gap: 10px;
-}
-
-/* A wide window letterboxes the 16:9 world; keep the HUD on the scene, not the bars. */
-@media (min-aspect-ratio: 16 / 9) {
-  .hud {
-    max-width: calc(100vh * 16 / 9);
-    margin-inline: auto;
-  }
 }
 
 .hud button,
@@ -1008,6 +1000,10 @@ html:fullscreen {
   align-items: center;
   gap: 6px;
   z-index: 2;
+}
+
+.minimap-wrap .ghost-btn {
+  min-height: 44px;
 }
 
 .move-cluster {
@@ -1816,9 +1812,9 @@ html:fullscreen {
     align-self: center;
   }
 
-  /* Clear the FIRE / End turn row; otherwise the Map button eats its clicks. */
+  /* Clear both HUD rows; otherwise the Map button eats weapon clicks. */
   .minimap-wrap {
-    bottom: calc(max(clamp(8px, 1.6vw, 18px), env(safe-area-inset-bottom)) + 74px);
+    bottom: calc(max(clamp(8px, 1.6vw, 18px), env(safe-area-inset-bottom)) + 160px);
   }
 
   .action-cluster {
@@ -1898,26 +1894,110 @@ html:fullscreen {
   }
 }
 
-@media (max-height: 480px) {
+@media (max-height: 480px) and (orientation: landscape) and (pointer: coarse) {
+  .hud-top {
+    position: relative;
+    grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+    grid-template-areas: 'me turn enemy';
+    gap: 6px;
+  }
+
+  .team-panel {
+    grid-area: me;
+    width: 100%;
+    max-width: none;
+    padding: 7px 9px;
+  }
+
+  .team-panel-enemy {
+    grid-area: enemy;
+  }
+
+  .enemy-block {
+    display: contents;
+  }
+
+  .team-name {
+    font-size: 13px;
+  }
+
+  .team-hp {
+    font-size: 10px;
+  }
+
+  .team-bar {
+    margin: 5px 0 6px;
+  }
+
+  .pip {
+    width: 18px;
+    height: 17px;
+    font-size: 9px;
+  }
+
+  .turn-block {
+    flex-direction: row;
+    align-items: center;
+    gap: 10px;
+    padding: 6px 10px;
+    min-width: 0;
+  }
+
+  .timer {
+    font-size: 26px;
+  }
+
+  .timer-bar {
+    width: 80px;
+    margin: 0;
+  }
+
+  .turn-meta {
+    margin: 0;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .wind-gauge {
+    width: 72px;
+    margin: 0;
+  }
+
+  .wind-art {
+    width: 72px;
+  }
+
+  .pause-btn {
+    position: absolute;
+    right: 0;
+    top: calc(100% + 6px);
+    height: 44px;
+    z-index: 2;
+  }
+
   .hud-bottom {
-    display: flex;
-    flex-wrap: nowrap;
-    align-items: flex-end;
+    display: grid;
+    grid-template-columns: auto 1fr;
+    grid-template-areas:
+      'weapons weapons'
+      'move actions';
+    align-items: end;
     gap: 8px;
   }
 
   .weapon-dock {
-    order: 0;
-    flex: 1;
-    width: auto;
-    flex-wrap: nowrap;
-    min-width: 0;
+    grid-area: weapons;
+    order: -1;
+    width: 100%;
+    justify-content: center;
+    gap: 5px;
   }
 
   .weapon-card {
     flex: 1;
-    min-width: 44px;
+    min-width: 0;
     min-height: 44px;
+    max-width: 92px;
     padding: 6px;
   }
 
@@ -1926,8 +2006,8 @@ html:fullscreen {
   }
 
   .move-cluster {
-    align-items: flex-end;
-    gap: 4px;
+    align-items: center;
+    gap: 6px;
   }
 
   .aim-cluster {
@@ -1947,10 +2027,12 @@ html:fullscreen {
 
   .jump-btn {
     width: 48px;
-    height: 44px;
+    height: 48px;
+    align-self: center;
   }
 
   .action-cluster {
+    justify-self: end;
     gap: 8px;
     margin-left: 0;
   }
@@ -1971,11 +2053,27 @@ html:fullscreen {
     font-size: 10px;
   }
 
-  .pause-btn {
-    height: 44px;
+  .minimap-wrap {
+    bottom: calc(max(clamp(8px, 1.6vw, 18px), env(safe-area-inset-bottom)) + 124px);
+  }
+}
+
+@media (max-height: 480px) and (orientation: landscape) and (pointer: coarse) and (min-width: 900px) {
+  .hud-bottom {
+    display: flex;
+    flex-wrap: nowrap;
+    align-items: flex-end;
+    gap: 8px;
   }
 
-  /* Landscape phones are wider than 760px, so the portrait lift does not apply. */
+  .weapon-dock {
+    order: 0;
+    flex: 1;
+    width: auto;
+    flex-wrap: nowrap;
+    min-width: 0;
+  }
+
   .minimap-wrap {
     bottom: calc(max(clamp(8px, 1.6vw, 18px), env(safe-area-inset-bottom)) + 70px);
   }
