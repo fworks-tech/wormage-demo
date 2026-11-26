@@ -62,3 +62,37 @@ test('index.html wires the manifest, icons and iOS title', () => {
     expect(existsSync(new URL(`../../public${href}`, import.meta.url)), href).toBe(true);
   }
 });
+
+test('the app service worker caches the shell but never API traffic', () => {
+  const source = read('public/sw.js').toString('utf8');
+  expect(source).toContain("url.pathname.startsWith('/api/')");
+  expect(source).toContain("url.pathname === '/mockServiceWorker.js'");
+  expect(source).toContain('self.skipWaiting()');
+  expect(source).toContain('self.clients.claim()');
+  expect(source.indexOf("url.pathname.startsWith('/api/')")).toBeLessThan(source.indexOf('cache.put(request'));
+});
+
+test('every precached shell entry resolves to a shipped file', () => {
+  // cache.addAll is all-or-nothing: one missing icon breaks the whole install.
+  const source = read('public/sw.js').toString('utf8');
+  const start = source.indexOf('const SHELL = [');
+  const shell = source.slice(start, source.indexOf('];', start));
+  for (const [, path] of shell.matchAll(/'(\/[^']*)'/g)) {
+    // Route entries are served as index.html by the SPA fallback.
+    const file = path === '/' || path === '/demo' || path === '/index.html' ? 'index.html' : `public${path}`;
+    expect(existsSync(new URL(`../../${file}`, import.meta.url)), path).toBe(true);
+  }
+});
+
+test('Vercel serves the service worker as a live script', () => {
+  const config = JSON.parse(read('vercel.json').toString('utf8')) as {
+    rewrites: Array<{ source: string }>;
+    headers: Array<{ source: string; headers: Array<{ key: string; value: string }> }>;
+  };
+  expect(config.rewrites[0].source).toContain('sw\\.js');
+  const swHeaders = config.headers.find((entry) => entry.source === '/sw.js');
+  expect(swHeaders).toBeDefined();
+  expect(swHeaders?.headers).toEqual(
+    expect.arrayContaining([{ key: 'Cache-Control', value: 'public, max-age=0, must-revalidate' }]),
+  );
+});

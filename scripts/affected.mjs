@@ -107,7 +107,12 @@ const RULES = [
   {
     dirs: ['src/api/', 'src/mocks/', 'src/state/'],
     unit: ['tests/unit/auth.test.ts', 'tests/unit/mockServer.test.ts', 'tests/unit/onlineMatch.test.ts', 'tests/unit/lambdaReplay.test.ts', 'tests/unit/bugReport.test.ts'],
-    e2e: ['tests/data.spec.ts', 'tests/menu.spec.ts', 'tests/online.spec.ts', 'tests/online-two-browsers.spec.ts'],
+    e2e: ['tests/data.spec.ts', 'tests/menu.spec.ts', 'tests/online.spec.ts', 'tests/online-two-browsers.spec.ts', 'tests/pwa-offline.spec.ts'],
+  },
+  {
+    files: ['src/pwa.ts', 'public/sw.js', 'vercel.json'],
+    unit: ['tests/unit/manifest.test.ts'],
+    e2e: ['tests/pwa-offline.spec.ts', 'tests/pwa.spec.ts'],
   },
   { dirs: ['infra/'], unit: ['tests/unit/lambdaReplay.test.ts'], e2e: [], infra: true },
   // A new screen or component still runs every spec: over-selecting is cheap.

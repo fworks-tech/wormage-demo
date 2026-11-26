@@ -132,10 +132,13 @@ Because the solver and the game share one integrator, the CPU never "cheats" —
 
 ## 8. Data layer
 
-`src/api/client.ts` owns two Axios instances: a normal one (MSW intercepts) and one with a local adapter. `initApiLayer()` runs before React mounts and picks a transport:
+`src/api/client.ts` owns two Axios instances: a normal one and one with a local adapter. `initApiLayer()` runs before React mounts and picks a transport:
 
-- **dev / standard build:** start the MSW worker. Requests travel the real network stack and are answered by `src/mocks/handlers.ts`.
-- **MSW unavailable or `--mode single`:** use the adapter, which calls the same `mockServer` functions in-process.
+- **dev:** start the MSW worker. Requests travel the real network stack and are answered by `src/mocks/handlers.ts`.
+- **production without a live API, MSW unavailable or `--mode single`:** use the adapter, which calls the same `mockServer` functions in-process.
+- **`VITE_API_MODE=live`:** send requests over the network to `VITE_API_BASE_URL`.
+
+`src/pwa.ts` registers `public/sw.js` only when MSW is not active and the build is not `--mode single`. The worker precaches the shell and injected hashed assets, serves navigations network-first with a cached fallback, caches other same-origin static files, and never caches `/api/` or `/mockServiceWorker.js`. The registration URL carries a build id so each deploy installs a fresh worker and drops the previous cache. See [ADR 0009](adr/0009-pwa-service-worker-scope.md).
 
 Both paths share `src/api/types.ts` (contracts) and `src/api/mockServer.ts` (fixtures, pagination, idempotent writes, scenario latency/failures). Anonymous bearer sessions are created before React mounts; Axios attaches the token to network, MSW and local-adapter requests, and the mock boundary verifies the same HS256 claims as the Lambda. TanStack Query handles caching, retries, background refresh and cache invalidation for both boards after a match is registered.
 
