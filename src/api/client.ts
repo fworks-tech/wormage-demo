@@ -330,6 +330,11 @@ export async function initApiLayer(): Promise<Mode> {
     mode = 'live';
     return mode;
   }
+  // shortcut: dev-only query flag for the PWA offline test, which cannot share MSW's root scope.
+  if (import.meta.env.DEV && new URLSearchParams(window.location.search).has('localApi')) {
+    mode = 'local';
+    return mode;
+  }
   // Production uses the local adapter so the PWA can own the root service-worker scope.
   if (import.meta.env.MODE === 'single' || import.meta.env.PROD || import.meta.env.VITE_LOCAL_API === 'true') {
     mode = 'local';

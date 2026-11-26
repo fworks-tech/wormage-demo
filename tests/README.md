@@ -21,7 +21,7 @@ PW_WORKERS=1 npm run test:online   # serial debugging
 npx playwright show-report         # HTML report
 ```
 
-Vitest only picks up `tests/unit/**/*.test.ts`. The Playwright config uses `channel: 'chrome'` so no browser download is required, and starts/reuses the Vite dev server on `http://localhost:5173`. It also starts a second server on `http://localhost:5184` with `--mode local-api` (`VITE_LOCAL_API=true`) for `pwa-offline.spec.ts`: the PWA service worker cannot share MSW's root scope, so offline tests use the in-process adapter.
+Vitest only picks up `tests/unit/**/*.test.ts`. The Playwright config uses `channel: 'chrome'` so no browser download is required, and starts/reuses the Vite dev server on `http://localhost:5173`. `pwa-offline.spec.ts` adds the dev-only `localApi=1` query flag to skip MSW, because the PWA service worker cannot share its root scope.
 
 Run `npm --prefix infra ci` once after cloning so `test:quick` and `test:infra` can use the Lambda dependencies.
 

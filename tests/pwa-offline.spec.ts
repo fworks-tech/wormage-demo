@@ -1,9 +1,8 @@
 import { expect, test } from '@playwright/test';
 
-const LOCAL_API_URL = 'http://localhost:5184';
-
 test('the shell loads offline after one visit and recovers online', async ({ page, context }) => {
-  await page.goto(`${LOCAL_API_URL}/demo?seed=4242`);
+  // The dev-only flag skips MSW so the PWA can own the root worker scope.
+  await page.goto('/demo?seed=4242&localApi=1');
   await expect(page.getByTestId('btn-play')).toBeVisible();
   await page.waitForFunction(() => Boolean(navigator.serviceWorker?.controller));
 
