@@ -131,6 +131,10 @@ export class GameEngine {
     const margin = 120;
     const usable = WORLD_W - margin * 2;
     const bandW = usable / teamCount;
+    const deathmatchCpu =
+      (config.mode ?? 'deathmatch') === 'deathmatch' &&
+      teamCount === 2 &&
+      !(config.hotseat ?? false);
     // Bands are ordered left-to-right by team index; worms inside a band march left-to-right.
     this.teams = Array.from({ length: teamCount }, (_, teamIndex) => {
       const palette = TEAM_PALETTE[teamIndex];
@@ -139,8 +143,12 @@ export class GameEngine {
       const spacing = Math.min(95, Math.max(40, (bandW - 40) / Math.max(1, config.wormsPerTeam - 1)));
       const bandCenter = bandStart + bandW / 2;
       const facing: 1 | -1 = bandCenter < WORLD_W / 2 ? 1 : -1;
+      // Keep the standard CPU beyond the central mob encounter; other layouts retain their bands.
+      const spawnStart = deathmatchCpu && teamIndex === 1
+        ? WORLD_W - margin - (config.wormsPerTeam - 1) * spacing
+        : bandStart + 40;
       for (let i = 0; i < config.wormsPerTeam; i += 1) {
-        const x = Math.round(bandStart + 40 + i * spacing);
+        const x = Math.round(spawnStart + i * spacing);
         const y = this.terrain.groundY(x, 120, WATER_Y - 120) ?? 470;
         worms.push({
           id: `t${teamIndex}-w${i}`,
