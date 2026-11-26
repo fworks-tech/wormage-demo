@@ -158,6 +158,63 @@ describe('engine rules without a browser', () => {
   });
 });
 
+describe('deathmatch CPU spawns', () => {
+  test('right-aligns the CPU while zombie mobs stay in the central band', () => {
+    const match = config({ mode: 'deathmatch', teamCount: 2, hotseat: false });
+    const engine = new GameEngine(match);
+    const cpuXs = engine.teams[1].worms.map((worm) => worm.x);
+    const mobXs = engine.mobs.map((mob) => mob.x);
+
+    expect(cpuXs[0]).toBeGreaterThan(WORLD_W * 0.75);
+    expect(cpuXs.at(-1)).toBe(WORLD_W - 120);
+    expect(Math.min(...mobXs)).toBeGreaterThanOrEqual(WORLD_W / 2 - 600);
+    expect(Math.max(...mobXs)).toBeLessThanOrEqual(WORLD_W / 2 + 600);
+
+    const worms = engine.teams.flatMap((team) => team.worms);
+    for (const worm of worms) {
+      expect(worm.x).toBeGreaterThanOrEqual(120);
+      expect(worm.x).toBeLessThanOrEqual(WORLD_W - 120);
+      expect(worm.y).toBeLessThan(WATER_Y);
+      expect(engine.terrain.isSolid(worm.x, worm.y)).toBe(true);
+      expect(engine.terrain.isSolid(worm.x, worm.y - 12)).toBe(false);
+    }
+    for (let i = 0; i < worms.length; i += 1) {
+      for (let j = i + 1; j < worms.length; j += 1) {
+        expect(Math.abs(worms[i].x - worms[j].x)).toBeGreaterThanOrEqual(WORM.radius * 2);
+      }
+    }
+    for (const mob of engine.mobs) {
+      for (const worm of worms) {
+        expect(Math.abs(mob.x - worm.x)).toBeGreaterThanOrEqual(60);
+      }
+    }
+
+    const repeat = new GameEngine(match);
+    expect(repeat.teams.map((team) => team.worms.map(({ x, y }) => ({ x, y })))).toEqual(
+      engine.teams.map((team) => team.worms.map(({ x, y }) => ({ x, y }))),
+    );
+    expect(repeat.mobs.map(({ x, y }) => ({ x, y }))).toEqual(
+      engine.mobs.map(({ x, y }) => ({ x, y })),
+    );
+  });
+
+  test.each(['assassinate', 'sudden-death', 'fort'] as const)(
+    'keeps the existing CPU spawn layout in %s',
+    (mode) => {
+      const engine = new GameEngine(config({ mode }));
+      expect(engine.teams[1].worms.map((worm) => worm.x)).toEqual([1960, 2055, 2150]);
+    },
+  );
+
+  test('keeps hotseat and multi-team spawn layouts unchanged', () => {
+    const hotseat = new GameEngine(config({ mode: 'deathmatch', hotseat: true }));
+    expect(hotseat.teams[1].worms.map((worm) => worm.x)).toEqual([1960, 2055, 2150]);
+
+    const multiTeam = new GameEngine(config({ mode: 'deathmatch', teamCount: 3 }));
+    expect(multiTeam.teams[1].worms.map((worm) => worm.x)).toEqual([1360, 1455, 1550]);
+  });
+});
+
 describe('blast damage', () => {
   const reach = WEAPONS.bazooka.radius + WORM.radius;
 
