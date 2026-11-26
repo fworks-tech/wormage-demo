@@ -133,6 +133,32 @@ export function GameView({
   const isMyTurnRef = useRef(isMyTurn);
   isMyTurnRef.current = isMyTurn;
   const fullscreen = useFullscreen();
+  const [rotateGate, setRotateGate] = useState(false);
+  const rotateGateRef = useRef(false);
+
+  // Touch matches are landscape-only; dev opts in so portrait layout suites keep working.
+  useEffect(() => {
+    const coarsePointer = window.matchMedia('(pointer: coarse)');
+    const portrait = window.matchMedia('(orientation: portrait)');
+    const forced = new URLSearchParams(window.location.search).has('landscapeGate');
+    const sync = () => {
+      const next = coarsePointer.matches && portrait.matches && (import.meta.env.PROD || forced);
+      rotateGateRef.current = next;
+      setRotateGate(next);
+      if (next) {
+        keysRef.current.clear();
+        hudMoveRef.current = 0;
+        engineRef.current?.cancelCharge();
+      }
+    };
+    sync();
+    coarsePointer.addEventListener('change', sync);
+    portrait.addEventListener('change', sync);
+    return () => {
+      coarsePointer.removeEventListener('change', sync);
+      portrait.removeEventListener('change', sync);
+    };
+  }, []);
 
   // `?seed=123` makes terrain and AI jitter reproducible for E2E runs.
   const seedRef = useRef(
@@ -292,7 +318,7 @@ export function GameView({
       }
       // Rendering keeps the real frame delta; the simulation only advances in
       // fixed steps. The clamp caps catch-up after a stalled tab.
-      const isPaused = pausedRef.current;
+      const isPaused = pausedRef.current || rotateGateRef.current;
 
       if (!isPaused) {
         accumulator.current += dt;
@@ -878,6 +904,21 @@ export function GameView({
         </div>
       )}
 
+      {rotateGate && (
+        <div
+          className="overlay rotate-overlay"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Rotate your device"
+          data-testid="rotate-gate"
+        >
+          <div className="overlay-card">
+            <p className="eyebrow">Landscape only</p>
+            <h2>Rotate your device</h2>
+            <p className="muted">Wormage is played in landscape. Turn your phone sideways to continue the match.</p>
+          </div>
+        </div>
+      )}
 
       {online && (
         <div style={{ position: 'absolute', top: 8, left: '50%', transform: 'translateX(-50%)', zIndex: 5, display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
