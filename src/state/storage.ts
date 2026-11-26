@@ -69,8 +69,10 @@ export function loadPlayer(): PlayerIdentity {
   try {
     const raw = localStorage.getItem(PLAYER_KEY);
     if (raw) {
-      const parsed = JSON.parse(raw) as PlayerIdentity;
-      if (parsed?.id && parsed?.name) return parsed;
+      const parsed = JSON.parse(raw) as Partial<PlayerIdentity>;
+      if (typeof parsed?.id === 'string' && parsed.id && typeof parsed.name === 'string' && parsed.name) {
+        return { id: parsed.id, name: parsed.name };
+      }
     }
   } catch {
     // fall through to a fresh identity

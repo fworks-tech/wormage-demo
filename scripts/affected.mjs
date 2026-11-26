@@ -91,13 +91,18 @@ const RULES = [
   },
   {
     files: ['src/state/bindings.ts', 'src/state/storage.ts'],
-    unit: ['tests/unit/bindings.test.ts', 'tests/unit/storage.test.ts'],
+    unit: ['tests/unit/bindings.test.ts', 'tests/unit/storage.test.ts', 'tests/unit/profile.test.ts'],
     e2e: ['tests/settings.spec.ts', 'tests/menu.spec.ts'],
   },
   {
     files: ['src/state/stages.ts'],
     unit: ['tests/unit/stages.test.ts'],
     e2e: ['tests/stages.spec.ts'],
+  },
+  {
+    files: ['src/state/profile.ts'],
+    unit: ['tests/unit/profile.test.ts'],
+    e2e: [],
   },
   {
     dirs: ['src/api/', 'src/mocks/', 'src/state/'],

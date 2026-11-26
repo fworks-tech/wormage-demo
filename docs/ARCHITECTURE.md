@@ -148,6 +148,7 @@ Online matches keep the action log as the source of truth. The Lambda bundles th
 - settings (turn timer, wind, difficulty, sound) — validated and clamped on read;
 - key bindings (action → `KeyboardEvent.code`) — validated with Zod per action; reserved or corrupt values fall back to the defaults;
 - player identity (id + display name);
+- profile repository (versioned id, name, XP, level, unlocks and mission progress; defaults on corrupt or mismatched data, not yet wired into React);
 - last completed result, restored after refresh;
 - mock database + demo network scenario.
 

@@ -82,7 +82,7 @@ Changing options only affects the next match; `GameView` reads `settings` once a
 
 ## 12. localStorage, not IndexedDB
 
-Persisted state is small and synchronous: settings, player identity, last result, mock DB.
+Persisted state is small and synchronous: settings, player identity, profile, last result, mock DB.
 
 **Why:** zero dependencies and no migration machinery for a demo.
 **Cost:** no multi-tab sync and a ~5 MB ceiling. Both are documented limitations, not accidents.

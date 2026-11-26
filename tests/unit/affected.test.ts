@@ -72,6 +72,11 @@ test('listTests finds nested specs and unit tests', () => {
   }
 });
 
+test('profile sources and identity storage run the profile repository unit', () => {
+  expect(selection(['src/state/profile.ts']).unit).toEqual(['tests/unit/profile.test.ts']);
+  expect(selection(['src/state/storage.ts']).unit).toContain('tests/unit/profile.test.ts');
+});
+
 test('game view and API changes reach the online player journey', () => {
   const gameView = selection(['src/ui/GameView.tsx']);
   expect(gameView.e2e).toEqual(expect.arrayContaining(['tests/online.spec.ts', 'tests/online-two-browsers.spec.ts']));
