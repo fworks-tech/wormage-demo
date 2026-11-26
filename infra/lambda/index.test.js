@@ -1048,6 +1048,17 @@ test('postDebugLog respects disabled flag', async () => {
   process.env.DEBUG_LOGS_ENABLED = 'true';
 });
 
+test('postDebugLog is disabled when the flag is missing', async () => {
+  delete process.env.DEBUG_LOGS_ENABLED;
+  const s3 = makeMockS3();
+  const body = { sessionId: 's2', matchId: 'm2', entries: [], snapshots: [] };
+  const r = await L.postDebugLog(ev('POST', '/api/debug-logs', {}, body), s3);
+  assert.equal(r.statusCode, 202);
+  assert.equal(JSON.parse(r.body).stored, false);
+  assert.equal(s3.store.size, 0);
+  process.env.DEBUG_LOGS_ENABLED = 'true';
+});
+
 const TINY_PNG = Buffer.from('89504e470d0a1a0a0000000d49484452', 'hex').toString('base64');
 
 function bugReportBody(overrides = {}) {
@@ -1153,6 +1164,16 @@ test('postBugReport respects the disabled flag', async () => {
   const r = await L.postBugReport(ev('POST', '/api/bug-reports', {}, bugReportBody()), s3);
   assert.equal(r.statusCode, 202);
   assert.equal(JSON.parse(r.body).stored, false);
+  process.env.BUG_REPORTS_ENABLED = 'true';
+});
+
+test('postBugReport is disabled when the flag is missing', async () => {
+  delete process.env.BUG_REPORTS_ENABLED;
+  const s3 = makeMockS3();
+  const r = await L.postBugReport(ev('POST', '/api/bug-reports', {}, bugReportBody()), s3);
+  assert.equal(r.statusCode, 202);
+  assert.equal(JSON.parse(r.body).stored, false);
+  assert.equal(s3.store.size, 0);
   process.env.BUG_REPORTS_ENABLED = 'true';
 });
 
