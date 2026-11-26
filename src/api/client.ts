@@ -10,6 +10,7 @@ import {
   createOnlineMatch,
   joinOnlineMatch,
   getOnlineMatch,
+  isLegacyOnlineMatch,
   submitOnlineAction,
   forfeitOnlineMatch,
   replayOnlineMatch,
@@ -83,6 +84,9 @@ const localAdapter: AxiosAdapter = async (config) => {
   const onlineGet = url.pathname.match(/^\/api\/matches\/online\/([^/]+)$/);
   if (method === 'GET' && onlineGet) {
     const code = decodeURIComponent(onlineGet[1]);
+    if (isLegacyOnlineMatch(code)) {
+      throw new AxiosError('legacy online match is no longer supported', 'ERR_BAD_REQUEST', config, null, respond(config, 410, { message: 'legacy online match is no longer supported' }));
+    }
     const match = getOnlineMatch(code);
     if (!match) {
       throw new AxiosError('not found', 'ERR_BAD_REQUEST', config, null, respond(config, 404, { message: 'match not found' }));
@@ -92,7 +96,11 @@ const localAdapter: AxiosAdapter = async (config) => {
 
   const onlineReplay = url.pathname.match(/^\/api\/matches\/online\/([^/]+)\/replay$/);
   if (method === 'GET' && onlineReplay) {
-    const replay = replayOnlineMatch(decodeURIComponent(onlineReplay[1]));
+    const code = decodeURIComponent(onlineReplay[1]);
+    if (isLegacyOnlineMatch(code)) {
+      throw new AxiosError('legacy online match is no longer supported', 'ERR_BAD_REQUEST', config, null, respond(config, 410, { message: 'legacy online match is no longer supported' }));
+    }
+    const replay = replayOnlineMatch(code);
     if (!replay) {
       throw new AxiosError('not found', 'ERR_BAD_REQUEST', config, null, respond(config, 404, { message: 'match not found' }));
     }
@@ -125,7 +133,7 @@ const localAdapter: AxiosAdapter = async (config) => {
       teamName: body.teamName,
     });
     if ('error' in result) {
-      const status = result.error === 'not_found' ? 404 : 409;
+      const status = 'status' in result ? result.status : result.error === 'not_found' ? 404 : 409;
       throw new AxiosError(result.error, 'ERR_BAD_REQUEST', config, null, respond(config, status, { message: result.error }));
     }
     return respond(config, 200, { code: result.code, match: result.match });
@@ -135,13 +143,13 @@ const localAdapter: AxiosAdapter = async (config) => {
   if (method === 'POST' && onlineAction) {
     const code = decodeURIComponent(onlineAction[1]);
     const body = (typeof config.data === 'string' ? JSON.parse(config.data) : config.data) as {
-      playerId: string; action: { type: string; [k: string]: unknown }; clientActionId?: string; tick?: number; engineTick?: number;
+      playerId: string; action: { type: string; [k: string]: unknown }; clientActionId: string; tick?: number; engineTick?: number;
     };
     const result = submitOnlineAction(code, { playerId: body.playerId, action: body.action, clientActionId: body.clientActionId, tick: body.tick, engineTick: body.engineTick });
     if ('error' in result) {
       throw new AxiosError(result.error, 'ERR_BAD_REQUEST', config, null, respond(config, result.status, { message: result.error }));
     }
-    return respond(config, 200, { code: result.code, match: result.match });
+    return respond(config, 200, { code: result.code, match: result.match, duplicate: result.duplicate });
   }
 
   const onlineForfeit = url.pathname.match(/^\/api\/matches\/online\/([^/]+)\/forfeit$/);

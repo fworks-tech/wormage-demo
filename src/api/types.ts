@@ -81,6 +81,7 @@ export interface OnlineMatchSettings {
 
 export interface OnlineMatch {
   code: string;
+  actionLogVersion: 2;
   status: 'waiting' | 'ready' | 'finished';
   createdAt: string;
   maxPlayers: number;
@@ -100,19 +101,20 @@ export interface OnlineMatch {
   /** Last canonical engine state persisted by the server. */
   snapshot?: GameSnapshot | null;
   snapshotTick?: number | null;
-  lastSyncId?: string | null;
   revision?: number;
 }
 
 export interface OnlineActionLogEntry {
-  seq?: number;
-  tick?: number;
-  engineTick?: number;
-  turn?: number;
+  seq: number;
+  tick: number;
+  engineTick: number;
+  turn: number;
   action: { type: string; [k: string]: unknown };
   playerId: string;
-  clientActionId?: string | null;
-  at?: string;
+  clientActionId: string;
+  at: string;
+  /** Stored for idempotency but excluded from gameplay replay. */
+  syncOnly?: boolean;
 }
 
 export interface CreateOnlineMatchInput {

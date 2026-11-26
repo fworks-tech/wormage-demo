@@ -5,9 +5,11 @@ const { DynamoDBClient, TransactWriteItemsCommand } = require('@aws-sdk/client-d
 const { DynamoDBDocumentClient, GetCommand, PutCommand, QueryCommand, UpdateCommand } = require('@aws-sdk/lib-dynamodb');
 const { S3Client, PutObjectCommand, DeleteObjectCommand } = require('@aws-sdk/client-s3');
 const { GameEngine, WEAPONS } = require('./engine.cjs');
-const { replayActionLog, ENGINE_VERSION } = require('./replay.js');
+const { replayActionLog, sortActions, ENGINE_VERSION } = require('./replay.js');
 
 const TABLE = process.env.TABLE_NAME;
+const ACTION_LOG_VERSION = 2;
+const LEGACY_MATCH = Object.freeze({ legacy: true });
 const ddb = DynamoDBDocumentClient.from(new DynamoDBClient({}));
 const s3 = new S3Client({});
 
@@ -149,6 +151,19 @@ const ALLOWED_END = new Set(['time', 'wipeout', 'surrender']);
 
 function isStr(v, max) { return typeof v === 'string' && v.length > 0 && v.length <= (max || 64); }
 function isNum(v, min, max) { return typeof v === 'number' && Number.isFinite(v) && v >= min && v <= max; }
+function legacyGone() { return json(410, { message: 'legacy online match is no longer supported' }); }
+function sameAction(a, b) {
+  const aKeys = Object.keys(a).sort();
+  const bKeys = Object.keys(b).sort();
+  return aKeys.length === bKeys.length && aKeys.every((key, index) => key === bKeys[index] && a[key] === b[key]);
+}
+function duplicateResponse(code, match, entry, playerId, action) {
+  if (!entry) return null;
+  if (entry.playerId !== playerId || !sameAction(entry.action, action)) {
+    return json(409, { message: 'clientActionId already used' });
+  }
+  return json(200, { code, match: toOnlineMatch(match), duplicate: true });
+}
 
 function validateBody(body) {
   if (!body || typeof body !== 'object' || Array.isArray(body)) return 'invalid body';
@@ -458,6 +473,7 @@ function toOnlineMatch(m) {
     : [];
   return {
     code: m.code,
+    actionLogVersion: m.actionLogVersion,
     status: m.status,
     createdAt: m.createdAt,
     maxPlayers: m.maxPlayers,
@@ -500,6 +516,7 @@ async function postOnlineMatch(event, ddbClient = ddb) {
       sk: 'META',
       type: 'online-match',
       code,
+      actionLogVersion: ACTION_LOG_VERSION,
       status: 'waiting',
       createdAt: now,
       maxPlayers: 2,
@@ -544,6 +561,7 @@ async function joinOnlineMatch(event, rawCode, ddbClient = ddb) {
   }));
   if (!got.Item) return json(404, { message: 'match not found' });
   const match = got.Item;
+  if (match.actionLogVersion !== ACTION_LOG_VERSION) return legacyGone();
   const teamName = isStr(body.teamName) ? body.teamName : `Team ${(Array.isArray(match.players) ? match.players.length : 0) + 1}`;
 
   if (Array.isArray(match.players) && match.players.some((p) => p && p.playerId === body.playerId)) {
@@ -592,26 +610,10 @@ async function getOnlineMatch(event, rawCode, ddbClient = ddb) {
   }));
   if (!got.Item) return json(404, { message: 'match not found' });
   let match = got.Item;
+  if (match.actionLogVersion !== ACTION_LOG_VERSION) return legacyGone();
 
-  // Fetch action log (for replay).
-  let actions = [];
-  try {
-    const logGot = await ddbClient.send(new GetCommand({
-      TableName: TABLE,
-      Key: { pk: `ACTION#${code}`, sk: 'LOG' },
-    }));
-    if (logGot.Item && Array.isArray(logGot.Item.actions)) {
-    actions = [...logGot.Item.actions].sort((a, b) => {
-      const sa = (a && typeof a.seq === 'number') ? a.seq : 0;
-      const sb = (b && typeof b.seq === 'number') ? b.seq : 0;
-      if (sa !== sb) return sa - sb;
-      const ea = (a && typeof a.engineTick === 'number') ? a.engineTick : ((a && typeof a.tick === 'number') ? a.tick : 0);
-      const eb = (b && typeof b.engineTick === 'number') ? b.engineTick : ((b && typeof b.tick === 'number') ? b.tick : 0);
-      if (ea !== eb) return ea - eb;
-      return String((a && a.at) || '').localeCompare(String((b && b.at) || ''));
-    });
-  }
-  } catch (e) { /* ignore */ }
+  const log = await getActionLog(code, ddbClient);
+  const actions = log.actions;
 
   // A draw has no winnerTeam, so phase is the authoritative terminal marker.
   if (match.status === 'ready' && (match.phase === 'gameover' || (match.snapshot && match.snapshot.phase === 'gameover'))) {
@@ -675,9 +677,24 @@ async function getOnlineMatch(event, rawCode, ddbClient = ddb) {
 
 const ACTION_CAP = 500;
 
-async function getActionLog(code, ddbClient) {
-  const got = await ddbClient.send(new GetCommand({ TableName: TABLE, Key: { pk: 'ACTION#' + code, sk: 'LOG' } }));
-  return got.Item || { pk: 'ACTION#' + code, sk: 'LOG', actions: [] };
+async function getActionLog(code, ddbClient = ddb, includeSync = false) {
+  const actions = [];
+  let exclusiveStartKey;
+  do {
+    const query = {
+      TableName: TABLE,
+      KeyConditionExpression: 'pk = :pk AND begins_with(sk, :prefix)',
+      ExpressionAttributeValues: { ':pk': 'MATCH#' + code, ':prefix': 'ACTION#' },
+      ConsistentRead: true,
+      ScanIndexForward: true,
+    };
+    if (exclusiveStartKey) query.ExclusiveStartKey = exclusiveStartKey;
+    const result = await ddbClient.send(new QueryCommand(query));
+    actions.push(...(result.Items || []));
+    exclusiveStartKey = result.LastEvaluatedKey;
+  } while (exclusiveStartKey);
+  const sorted = sortActions(actions);
+  return { actions: includeSync ? sorted : sorted.filter((entry) => !entry.syncOnly) };
 }
 
 async function replayOnlineMatch(code, ddbClient) {
@@ -685,8 +702,9 @@ async function replayOnlineMatch(code, ddbClient) {
   const normalized = String(code).toUpperCase().trim();
   const got = await client.send(new GetCommand({ TableName: TABLE, Key: { pk: 'ONLINE#' + normalized, sk: 'META' } }));
   if (!got.Item) return null;
+  if (got.Item.actionLogVersion !== ACTION_LOG_VERSION) return LEGACY_MATCH;
   const log = await getActionLog(normalized, client);
-  return replayActionLog({ GameEngine, match: got.Item, actions: log.actions || [] });
+  return replayActionLog({ GameEngine, match: got.Item, actions: log.actions });
 }
 
 async function submitAction(event, rawCode, ddbClient) {
@@ -694,6 +712,7 @@ async function submitAction(event, rawCode, ddbClient) {
   const code = String(rawCode || '').toUpperCase().trim();
   const body = parseBody(event);
   if (!isStr(body.playerId)) return json(400, { message: 'playerId is required' });
+  if (!isStr(body.clientActionId)) return json(400, { message: 'clientActionId is required' });
   if (!body.action || typeof body.action !== 'object' || Array.isArray(body.action)) return json(400, { message: 'action is required' });
   const action = body.action;
   if (!isStr(action.type)) return json(400, { message: 'action.type is required' });
@@ -703,28 +722,24 @@ async function submitAction(event, rawCode, ddbClient) {
   const got = await ddbClient.send(new GetCommand({ TableName: TABLE, Key: { pk: 'ONLINE#' + code, sk: 'META' } }));
   if (!got.Item) return json(404, { message: 'match not found' });
   const match = got.Item;
+  if (match.actionLogVersion !== ACTION_LOG_VERSION) return legacyGone();
+
+  const players = Array.isArray(match.players) ? match.players : [];
+  const syncId = action.type === 'endTurn' && body.clientActionId.endsWith('-endTurn-sync')
+    ? body.clientActionId
+    : null;
+  // Idempotency: check before readiness, turn and phase validation.
+  const log = await getActionLog(code, ddbClient, true);
+  const allActions = log.actions;
+  const actions = allActions.filter((entry) => !entry.syncOnly);
+  const duplicate = allActions.find((entry) => entry.clientActionId === body.clientActionId);
+  const duplicateResult = duplicateResponse(code, match, duplicate, body.playerId, action);
+  if (duplicateResult) return duplicateResult;
 
   if (match.status !== 'ready') return json(409, { message: 'match not ready' });
   if (match.winnerTeam != null) return json(409, { message: 'match finished' });
-
-  const players = Array.isArray(match.players) ? match.players : [];
   if (!players.some((p) => p && p.playerId === body.playerId)) return json(403, { message: 'not a participant' });
-
-  const syncId = typeof body.clientActionId === 'string' && body.clientActionId.endsWith('-endTurn-sync')
-    ? body.clientActionId
-    : null;
-  if (syncId) {
-    if (match.lastSyncId === syncId) return json(200, { code, match: toOnlineMatch(match), duplicate: true });
-    if ((match.phase || 'aim') === 'aim') return json(409, { message: 'shot not found' });
-  }
-
-  // Idempotency: check before turn/phase validation.
-  const log = await getActionLog(code, ddbClient);
-  const actions = Array.isArray(log.actions) ? log.actions : [];
-  if (body.clientActionId && actions.some((a) => a && a.clientActionId === body.clientActionId)) {
-    return json(200, { code, match: toOnlineMatch(match), duplicate: true });
-  }
-
+  if (syncId && (match.phase || 'aim') === 'aim') return json(409, { message: 'shot not found' });
 
   if (players[match.activeTeam] && players[match.activeTeam].playerId !== body.playerId) return json(409, { message: 'not your turn' });
 
@@ -747,10 +762,10 @@ async function submitAction(event, rawCode, ddbClient) {
     return json(400, { message: 'unknown action type' });
   }
 
-  if (!syncOnly && actions.length >= ACTION_CAP) return json(409, { message: 'action log full' });
+  if (allActions.length >= ACTION_CAP) return json(409, { message: 'action log full' });
 
   const now = new Date().toISOString();
-  const seq = actions.reduce((m, a) => Math.max(m, (a && typeof a.seq === 'number') ? a.seq : 0), 0) + 1;
+  const seq = allActions.reduce((m, a) => Math.max(m, (a && typeof a.seq === 'number') ? a.seq : 0), 0) + 1;
   const currentTick = typeof match.snapshotTick === 'number' ? match.snapshotTick : 0;
   // The client stamps its own engine tick, which keeps running between turns.
   // Never let one action fast-forward more than a turn of simulation: a stale
@@ -762,7 +777,7 @@ async function submitAction(event, rawCode, ddbClient) {
   const matchTurn = match.turn || 1;
   const revision = typeof match.revision === 'number' ? match.revision : 0;
   const actorIndex = players.findIndex((p) => p && p.playerId === body.playerId);
-  const makeEntry = (tick) => ({ seq, tick, turn: matchTurn, engineTick: tick, action, playerId: body.playerId, clientActionId: body.clientActionId || null, at: now });
+  const makeEntry = (tick) => ({ seq, tick, turn: matchTurn, engineTick: tick, action, playerId: body.playerId, clientActionId: body.clientActionId, at: now, ...(syncOnly ? { syncOnly: true } : {}) });
   let entry = makeEntry(actionTick);
   if (!syncOnly) {
     try {
@@ -826,7 +841,6 @@ async function submitAction(event, rawCode, ddbClient) {
     snapshotTick: replay.tick,
     revision: revision + 1,
   };
-  if (syncOnly) updates.lastSyncId = body.clientActionId;
   // getOnlineMatch advances an expired turn on its own. A replay that stopped
   // at an earlier tick must not drag the match back to the previous team.
   if (snap.turn >= matchTurn) {
@@ -836,19 +850,16 @@ async function submitAction(event, rawCode, ddbClient) {
   }
   if (snap.phase === 'gameover') updates.status = 'finished';
 
-  // Real inputs are the source of truth. A post-shot sync only advances time;
-  // logging it would let a forged endTurn cancel the projectile on full replay.
+  // Sync entries are stored for idempotency but filtered out of gameplay replay.
   const transactItems = [];
-  if (!syncOnly) {
-    transactItems.push({
-      Update: {
-        TableName: TABLE,
-        Key: { pk: 'ACTION#' + code, sk: 'LOG' },
-        UpdateExpression: 'SET actions = list_append(if_not_exists(actions, :empty), :e)',
-        ExpressionAttributeValues: { ':empty': [], ':e': [entry] },
-      },
-    });
-  }
+  const sk = `ACTION#${String(matchTurn).padStart(4, '0')}#${String(seq).padStart(4, '0')}`;
+  transactItems.push({
+    Put: {
+      TableName: TABLE,
+      Item: { pk: 'MATCH#' + code, sk, ...entry },
+      ConditionExpression: 'attribute_not_exists(pk)',
+    },
+  });
 
   const exprParts = [];
   const names = {};
@@ -873,7 +884,14 @@ async function submitAction(event, rawCode, ddbClient) {
     await ddbClient.send(new TransactWriteItemsCommand({ TransactItems: transactItems }));
   } catch (err) {
     if (err && err.name === 'TransactionCanceledException') {
-      return json(409, { message: 'concurrent action, retry' });
+      const [after, latestLog] = await Promise.all([
+        ddbClient.send(new GetCommand({ TableName: TABLE, Key: { pk: 'ONLINE#' + code, sk: 'META' } })),
+        getActionLog(code, ddbClient, true),
+      ]);
+      const stored = after.Item || match;
+      const duplicate = latestLog.actions.find((entry) => entry.clientActionId === body.clientActionId);
+      const duplicateResult = duplicateResponse(code, stored, duplicate, body.playerId, action);
+      return duplicateResult || json(409, { message: 'concurrent action, retry' });
     }
     throw err;
   }
@@ -892,6 +910,7 @@ async function forfeitOnlineMatch(event, rawCode, ddbClient) {
   const got = await ddbClient.send(new GetCommand({ TableName: TABLE, Key: { pk: 'ONLINE#' + code, sk: 'META' } }));
   if (!got.Item) return json(404, { message: 'match not found' });
   const match = got.Item;
+  if (match.actionLogVersion !== ACTION_LOG_VERSION) return legacyGone();
   const players = Array.isArray(match.players) ? match.players : [];
   if (!players.some((p) => p && p.playerId === body.playerId)) return json(403, { message: 'not a participant' });
 
@@ -938,6 +957,7 @@ exports.handler = async (event) => {
     const onlineReplay = path.match(/^\/api\/matches\/online\/([^/]+)\/replay$/);
     if (method === 'GET' && onlineReplay) {
       const replay = await replayOnlineMatch(decodeURIComponent(onlineReplay[1]));
+      if (replay === LEGACY_MATCH) return legacyGone();
       return replay ? json(200, replay) : json(404, { message: 'match not found' });
     }
     if (method === 'POST' && path === '/api/debug-logs') return await postDebugLog(event);
