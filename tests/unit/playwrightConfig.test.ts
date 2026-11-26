@@ -1,5 +1,11 @@
+import { readFileSync } from 'node:fs';
 import { expect, test } from 'vitest';
 import { resolveWorkers } from '../../playwright.config';
+
+test('CI runs the PR smoke selection with one worker', () => {
+  const workflow = readFileSync(new URL('../../.github/workflows/ci.yml', import.meta.url), 'utf8');
+  expect(workflow).toContain('PW_WORKERS=1 npm run test:smoke');
+});
 
 test('Playwright defaults to a bounded parallel worker count', () => {
   expect(resolveWorkers(undefined, 2)).toBe(1);
