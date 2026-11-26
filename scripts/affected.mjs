@@ -11,6 +11,7 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 
 const GAME_UNIT = [
   'tests/unit/ai.test.ts',
+  'tests/unit/authoritativeInputs.test.ts',
   'tests/unit/engine.test.ts',
   'tests/unit/mines.test.ts',
   'tests/unit/ragdoll.test.ts',
@@ -106,7 +107,7 @@ const RULES = [
   },
   {
     dirs: ['src/api/', 'src/mocks/', 'src/state/'],
-    unit: ['tests/unit/auth.test.ts', 'tests/unit/mockServer.test.ts', 'tests/unit/onlineMatch.test.ts', 'tests/unit/lambdaReplay.test.ts', 'tests/unit/bugReport.test.ts'],
+    unit: ['tests/unit/auth.test.ts', 'tests/unit/authoritativeInputs.test.ts', 'tests/unit/mockServer.test.ts', 'tests/unit/onlineMatch.test.ts', 'tests/unit/lambdaReplay.test.ts', 'tests/unit/bugReport.test.ts'],
     e2e: ['tests/data.spec.ts', 'tests/menu.spec.ts', 'tests/online.spec.ts', 'tests/online-two-browsers.spec.ts', 'tests/pwa-offline.spec.ts'],
   },
   {

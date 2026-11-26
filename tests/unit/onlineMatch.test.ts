@@ -111,6 +111,13 @@ test('submitAction rejects unknown action type with 400', () => {
 
 for (const [name, action] of [
   ['a non-numeric aim delta', { type: 'aim', delta: 'x' }],
+  ['an aim angle above the pointer arc', { type: 'aimAt', angle: 0 }],
+  ['an aim angle below the pointer arc', { type: 'aimAt', angle: -3.1 }],
+  ['a non-numeric aim angle', { type: 'aimAt', angle: 'x' }],
+  ['an aim angle with extra keys', { type: 'aimAt', angle: -1.2, delta: 0 }],
+  ['a power above full charge', { type: 'setPower', power: 1.5 }],
+  ['a negative power', { type: 'setPower', power: -0.5 }],
+  ['a non-numeric power', { type: 'setPower', power: 'x' }],
   ['a missing movement direction', { type: 'move' }],
   ['an invalid reel direction', { type: 'reel', dir: 2 }],
   ['an invalid jump direction', { type: 'jump', dir: 0.5 }],
@@ -134,11 +141,13 @@ test('submitAction accepts valid directional fields and an omitted jump directio
     ['move-1', { type: 'move', dir: 0 }],
     ['jump-1', { type: 'jump' }],
     ['aim-1', { type: 'aim', delta: 0 }],
+    ['aimAt-1', { type: 'aimAt', angle: -1.2 }],
+    ['setPower-1', { type: 'setPower', power: 0.8 }],
   ] as const) {
     const res = submitOnlineAction(created.code, { playerId: 'p1', action, clientActionId });
     expect('error' in res).toBe(false);
   }
-  expect(getActionLog(created.code)).toHaveLength(3);
+  expect(getActionLog(created.code)).toHaveLength(5);
 });
 
 test('submitAction rejects an oversized action without writing', () => {

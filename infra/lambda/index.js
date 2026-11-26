@@ -272,6 +272,16 @@ function validateAction(action) {
   if (type === 'aim') {
     return hasOnlyKeys(action, ['type', 'delta']) && isNum(action.delta, -Infinity, Infinity) ? null : 'invalid action';
   }
+  // Absolute aim/power must stay inside the arc and charge range pointer
+  // input can produce (src/game/config.ts AIM, engine.setAim/setPower clamp).
+  // Spoofed values outside these bounds are rejected instead of clamped so a
+  // hostile client cannot hide behind the clamp (issue #280).
+  if (type === 'aimAt') {
+    return hasOnlyKeys(action, ['type', 'angle']) && isNum(action.angle, -3.04, -0.1) ? null : 'invalid action';
+  }
+  if (type === 'setPower') {
+    return hasOnlyKeys(action, ['type', 'power']) && isNum(action.power, 0, 1) ? null : 'invalid action';
+  }
   if (type === 'jump') {
     return hasOnlyKeys(action, ['type', 'dir']) && (action.dir === undefined || isDirection(action.dir)) ? null : 'invalid action';
   }
@@ -926,7 +936,7 @@ async function submitAction(event, rawCode, ddbClient, authenticatedPlayerId) {
   const type = action.type;
   if (phase === 'gameover') return json(409, { message: 'match finished' });
   const syncOnly = type === 'endTurn' && phase !== 'aim';
-  const aimOnly = ['move', 'aim', 'jump', 'rope', 'reel', 'weapon', 'startCharge', 'releaseCharge'];
+  const aimOnly = ['move', 'aim', 'aimAt', 'setPower', 'jump', 'rope', 'reel', 'weapon', 'startCharge', 'releaseCharge'];
   if (type === 'fire' || type === 'startCharge') {
     if (phase !== 'aim' || match.hasFired) return json(409, { message: 'illegal action for current phase' });
   } else if (type === 'endTurn') {
