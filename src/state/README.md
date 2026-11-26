@@ -1,11 +1,12 @@
 # src/state — persistence
 
-`storage.ts` owns the app's persisted state. `src/api/mockServer.ts` also keeps its fixture database and demo scenario in `localStorage`. Every read is validated, every write is wrapped so private browsing or opaque-origin iframes degrade to in-memory behaviour instead of crashing.
+`storage.ts` and `profile.ts` own the app's persisted state. `src/api/mockServer.ts` also keeps its fixture database and demo scenario in `localStorage`. Reads are validated and writes are best-effort so private browsing or opaque-origin iframes do not crash; when storage is unavailable, persisted changes may not survive a refresh.
 
 | Key | Contents | Consumer |
 | --- | --- | --- |
 | `wormage.settings.v1` | turn timer, wind, difficulty, sound | `App` via `loadSettings`/`saveSettings` |
 | `wormage.player.v1` | stable player id + display name | `App`, match registration |
+| `wormage.profile.v1` | versioned profile: id, name, XP, level, unlocks, mission progress | `LocalStorageProfileRepository`; campaign/cloud sync not wired yet |
 | `wormage.lastResult.v1` | last completed `SessionResult` | menu “last drop”, restored after refresh |
 | `wormage.mockdb.v1` | mock matches (fixtures + player records) | `src/api/mockServer.ts` |
 | `wormage.netScenario.v1` | demo network scenario | `src/api/mockServer.ts` |

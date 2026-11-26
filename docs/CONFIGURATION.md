@@ -8,7 +8,8 @@ Every gameplay number lives in `src/game/config.ts`. Balance changes should neve
 | --- | --- |
 | `src/game/config.ts` | weapons, physics constants, aim limits, teams, difficulty, defaults, sanitisation |
 | `src/game/types.ts` | contracts (`GameSettings`, `MatchConfig`, `GameSnapshot`, `WeaponDef`…) |
-| `src/state/storage.ts` | what is persisted and how it is validated |
+| `src/state/storage.ts` | settings, identity, results and sessions: persistence and validation |
+| `src/state/profile.ts` | typed profile repository, schema versioning and safe defaults |
 | `src/api/mockServer.ts` | fixtures, pagination, idempotency, latency/error scenarios |
 
 ## World and physics
