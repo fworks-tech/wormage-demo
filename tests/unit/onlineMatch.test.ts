@@ -1,5 +1,8 @@
-import { beforeEach, expect, test } from 'vitest';
+import { beforeEach, expect, test, vi } from 'vitest';
+import { setupServer } from 'msw/node';
 import { GameEngine } from '../../src/game/engine';
+import { api, apiMode } from '../../src/api/client';
+import { onlineMatchRefetchInterval } from '../../src/api/queries';
 import {
   createOnlineMatch,
   joinOnlineMatch,
@@ -22,6 +25,15 @@ test('create returns a 6-char code and stores the creator as first player', () =
   expect(res.match.status).toBe('waiting');
   expect(res.match.actionLogVersion).toBe(2);
   expect(getOnlineMatch(res.code)?.code).toBe(res.code);
+});
+
+test('online polling stops for every terminal match, including draws', () => {
+  const { match } = createOnlineMatch({ playerId: 'p1', playerName: 'Alice' });
+  expect(onlineMatchRefetchInterval(undefined)).toBe(false);
+  expect(onlineMatchRefetchInterval({ ...match, status: 'waiting' })).toBe(2000);
+  expect(onlineMatchRefetchInterval({ ...match, status: 'ready' })).toBe(1000);
+  expect(onlineMatchRefetchInterval({ ...match, status: 'ready', winnerTeam: 1 })).toBe(false);
+  expect(onlineMatchRefetchInterval({ ...match, status: 'finished', winnerTeam: null })).toBe(false);
 });
 
 test('join adds a second player and flips status to ready', () => {
@@ -95,6 +107,51 @@ test('submitAction rejects unknown action type with 400', () => {
   joinOnlineMatch(created.code, { playerId: 'p2', playerName: 'Bob' });
   const res = submitOnlineAction(created.code, { playerId: 'p1', action: { type: 'teleport' }, clientActionId: 'teleport-1' });
   expect(res).toMatchObject({ error: 'unknown action type', status: 400 });
+});
+
+for (const [name, action] of [
+  ['a non-numeric aim delta', { type: 'aim', delta: 'x' }],
+  ['a missing movement direction', { type: 'move' }],
+  ['an invalid reel direction', { type: 'reel', dir: 2 }],
+  ['an invalid jump direction', { type: 'jump', dir: 0.5 }],
+  ['unknown action fields', { type: 'endTurn', extra: true }],
+] as const) {
+  test(`submitAction rejects ${name} without writing`, () => {
+    const created = createOnlineMatch({ playerId: 'p1', playerName: 'Alice' });
+    joinOnlineMatch(created.code, { playerId: 'p2', playerName: 'Bob' });
+    const res = submitOnlineAction(created.code, { playerId: 'p1', action, clientActionId: 'invalid-action' });
+    expect(res).toMatchObject({ status: 400 });
+    expect(getActionLog(created.code)).toHaveLength(0);
+    expect(getOnlineMatch(created.code)?.revision).toBe(0);
+    expect(getOnlineMatch(created.code)?.snapshot).toBeUndefined();
+  });
+}
+
+test('submitAction accepts valid directional fields and an omitted jump direction', () => {
+  const created = createOnlineMatch({ playerId: 'p1', playerName: 'Alice' });
+  joinOnlineMatch(created.code, { playerId: 'p2', playerName: 'Bob' });
+  for (const [clientActionId, action] of [
+    ['move-1', { type: 'move', dir: 0 }],
+    ['jump-1', { type: 'jump' }],
+    ['aim-1', { type: 'aim', delta: 0 }],
+  ] as const) {
+    const res = submitOnlineAction(created.code, { playerId: 'p1', action, clientActionId });
+    expect('error' in res).toBe(false);
+  }
+  expect(getActionLog(created.code)).toHaveLength(3);
+});
+
+test('submitAction rejects an oversized action without writing', () => {
+  const created = createOnlineMatch({ playerId: 'p1', playerName: 'Alice' });
+  joinOnlineMatch(created.code, { playerId: 'p2', playerName: 'Bob' });
+  const res = submitOnlineAction(created.code, {
+    playerId: 'p1',
+    action: { type: 'aim', delta: 0, padding: 'x'.repeat(1024) },
+    clientActionId: 'oversized-action',
+  });
+  expect(res).toMatchObject({ status: 413 });
+  expect(getActionLog(created.code)).toHaveLength(0);
+  expect(getOnlineMatch(created.code)?.revision).toBe(0);
 });
 
 test('submitAction rejects illegal phase (fire during projectile)', () => {
@@ -347,4 +404,52 @@ test('replayOnlineMatch returns a snapshot', () => {
   expect(r!.snapshot).toBeTruthy();
   expect(r!.snapshot.teams.map((team) => team.isAi)).toEqual([false, false]);
   expect(typeof r!.tick).toBe('number');
+});
+
+test('local adapter returns legacy 410 on every online route', async () => {
+  const created = createOnlineMatch({ playerId: 'p1', playerName: 'Alice' });
+  (created.match as { actionLogVersion?: number }).actionLogVersion = undefined;
+  const base = `/api/matches/online/${created.code}`;
+  const legacy = { response: { status: 410, data: { message: 'legacy online match is no longer supported' } } };
+  vi.stubGlobal('window', { location: { origin: 'http://localhost' } });
+  try {
+    expect(apiMode()).toBe('local');
+    await expect(api.get(base)).rejects.toMatchObject(legacy);
+    await expect(api.get(`${base}/replay`)).rejects.toMatchObject(legacy);
+    await expect(api.post(`${base}/join`, { playerId: 'p2', playerName: 'Bob' })).rejects.toMatchObject(legacy);
+    await expect(api.post(`${base}/action`, { playerId: 'p1', action: { type: 'endTurn' }, clientActionId: 'legacy-action' })).rejects.toMatchObject(legacy);
+    await expect(api.post(`${base}/forfeit`, { playerId: 'p1' })).rejects.toMatchObject(legacy);
+  } finally {
+    vi.unstubAllGlobals();
+  }
+});
+
+test('MSW handlers return legacy 410 on every online route', async () => {
+  const created = createOnlineMatch({ playerId: 'p1', playerName: 'Alice' });
+  (created.match as { actionLogVersion?: number }).actionLogVersion = undefined;
+  const base = `http://localhost/api/matches/online/${created.code}`;
+  vi.stubGlobal('location', new URL('http://localhost'));
+  const { handlers } = await import('../../src/mocks/handlers');
+  const server = setupServer(...handlers);
+  server.listen({ onUnhandledRequest: 'error' });
+  try {
+    for (const [method, suffix, body] of [
+      ['GET', '', undefined],
+      ['GET', '/replay', undefined],
+      ['POST', '/join', { playerId: 'p2', playerName: 'Bob' }],
+      ['POST', '/action', { playerId: 'p1', action: { type: 'endTurn' }, clientActionId: 'legacy-action' }],
+      ['POST', '/forfeit', { playerId: 'p1' }],
+    ] as const) {
+      const response = await fetch(`${base}${suffix}`, {
+        method,
+        headers: body ? { 'content-type': 'application/json' } : undefined,
+        body: body ? JSON.stringify(body) : undefined,
+      });
+      expect(response.status).toBe(410);
+      expect(await response.json()).toEqual({ message: 'legacy online match is no longer supported' });
+    }
+  } finally {
+    server.close();
+    vi.unstubAllGlobals();
+  }
 });

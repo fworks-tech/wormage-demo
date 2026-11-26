@@ -151,6 +151,30 @@ const ALLOWED_END = new Set(['time', 'wipeout', 'surrender']);
 
 function isStr(v, max) { return typeof v === 'string' && v.length > 0 && v.length <= (max || 64); }
 function isNum(v, min, max) { return typeof v === 'number' && Number.isFinite(v) && v >= min && v <= max; }
+function isDirection(v) { return v === -1 || v === 0 || v === 1; }
+function hasOnlyKeys(value, allowed) {
+  return Object.keys(value).every((key) => allowed.includes(key));
+}
+function validateAction(action) {
+  const type = action.type;
+  if (type === 'move' || type === 'reel') {
+    return hasOnlyKeys(action, ['type', 'dir']) && isDirection(action.dir) ? null : 'invalid action';
+  }
+  if (type === 'aim') {
+    return hasOnlyKeys(action, ['type', 'delta']) && isNum(action.delta, -Infinity, Infinity) ? null : 'invalid action';
+  }
+  if (type === 'jump') {
+    return hasOnlyKeys(action, ['type', 'dir']) && (action.dir === undefined || isDirection(action.dir)) ? null : 'invalid action';
+  }
+  if (type === 'weapon') {
+    if (!hasOnlyKeys(action, ['type', 'id'])) return 'invalid action';
+    return typeof action.id === 'string' && Object.prototype.hasOwnProperty.call(WEAPONS, action.id) ? null : 'unknown weapon';
+  }
+  if (['rope', 'startCharge', 'releaseCharge', 'fire', 'endTurn'].includes(type)) {
+    return hasOnlyKeys(action, ['type']) ? null : 'invalid action';
+  }
+  return 'unknown action type';
+}
 function legacyGone() { return json(410, { message: 'legacy online match is no longer supported' }); }
 function sameAction(a, b) {
   const aKeys = Object.keys(a).sort();
@@ -676,6 +700,22 @@ async function getOnlineMatch(event, rawCode, ddbClient = ddb) {
 
 
 const ACTION_CAP = 500;
+// shortcut: online actions are fixed-shape and tiny; revisit only if a future action needs a larger payload.
+const MAX_ACTION_BYTES = 512;
+
+function toActionLogEntry(item) {
+  return {
+    seq: item.seq,
+    tick: item.tick,
+    engineTick: item.engineTick,
+    turn: item.turn,
+    action: item.action,
+    playerId: item.playerId,
+    clientActionId: item.clientActionId,
+    at: item.at,
+    ...(item.syncOnly ? { syncOnly: true } : {}),
+  };
+}
 
 async function getActionLog(code, ddbClient = ddb, includeSync = false) {
   const actions = [];
@@ -690,7 +730,7 @@ async function getActionLog(code, ddbClient = ddb, includeSync = false) {
     };
     if (exclusiveStartKey) query.ExclusiveStartKey = exclusiveStartKey;
     const result = await ddbClient.send(new QueryCommand(query));
-    actions.push(...(result.Items || []));
+    actions.push(...(result.Items || []).map(toActionLogEntry));
     exclusiveStartKey = result.LastEvaluatedKey;
   } while (exclusiveStartKey);
   const sorted = sortActions(actions);
@@ -736,6 +776,10 @@ async function submitAction(event, rawCode, ddbClient) {
   const duplicateResult = duplicateResponse(code, match, duplicate, body.playerId, action);
   if (duplicateResult) return duplicateResult;
 
+  if (Buffer.byteLength(JSON.stringify(action), 'utf8') > MAX_ACTION_BYTES) return json(413, { message: 'action too large' });
+  const actionError = validateAction(action);
+  if (actionError) return json(400, { message: actionError });
+
   if (match.status !== 'ready') return json(409, { message: 'match not ready' });
   if (match.winnerTeam != null) return json(409, { message: 'match finished' });
   if (!players.some((p) => p && p.playerId === body.playerId)) return json(403, { message: 'not a participant' });
@@ -747,9 +791,6 @@ async function submitAction(event, rawCode, ddbClient) {
   const type = action.type;
   if (phase === 'gameover') return json(409, { message: 'match finished' });
   const syncOnly = type === 'endTurn' && phase !== 'aim';
-  if (type === 'weapon' && !(typeof action.id === 'string' && Object.prototype.hasOwnProperty.call(WEAPONS, action.id))) {
-    return json(400, { message: 'unknown weapon' });
-  }
   const aimOnly = ['move', 'aim', 'jump', 'rope', 'reel', 'weapon', 'startCharge', 'releaseCharge'];
   if (type === 'fire' || type === 'startCharge') {
     if (phase !== 'aim' || match.hasFired) return json(409, { message: 'illegal action for current phase' });
@@ -870,6 +911,8 @@ async function submitAction(event, rawCode, ddbClient) {
     values[':' + k] = v;
   }
   values[':expectedRevision'] = revision;
+  values[':ready'] = 'ready';
+  names['#status'] = 'status';
   transactItems.push({
     Update: {
       TableName: TABLE,
@@ -877,7 +920,7 @@ async function submitAction(event, rawCode, ddbClient) {
       UpdateExpression: 'SET ' + exprParts.join(', '),
       ExpressionAttributeNames: names,
       ExpressionAttributeValues: values,
-      ConditionExpression: 'attribute_not_exists(revision) OR revision = :expectedRevision',
+      ConditionExpression: '(attribute_not_exists(revision) OR revision = :expectedRevision) AND #status = :ready',
     },
   });
   try {

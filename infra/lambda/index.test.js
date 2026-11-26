@@ -107,11 +107,20 @@ function makeMockDdb() {
             if (!item.Update) continue;
             const stored = store.get(`${item.Update.Key.pk}#${item.Update.Key.sk}`);
             const vals = item.Update.ExpressionAttributeValues || {};
-            if (item.Update.ConditionExpression === 'attribute_not_exists(revision) OR revision = :expectedRevision'
+            const condition = String(item.Update.ConditionExpression || '');
+            if (condition.includes('revision = :expectedRevision')
               && stored && stored.revision !== undefined && stored.revision !== vals[':expectedRevision']) {
               const err = new Error('TransactionCanceled');
               err.name = 'TransactionCanceledException';
               throw err;
+            }
+            if (condition.includes('#status = :ready')) {
+              const statusKey = (item.Update.ExpressionAttributeNames || {})['#status'] || 'status';
+              if (!stored || stored[statusKey] !== vals[':ready']) {
+                const err = new Error('TransactionCanceled');
+                err.name = 'TransactionCanceledException';
+                throw err;
+              }
             }
           }
           for (const item of input.TransactItems || []) {
@@ -275,6 +284,58 @@ test('submitAction rejects unknown action type with 400', async () => {
   assert.equal(r.statusCode, 400);
 });
 
+for (const [name, action] of [
+  ['a non-numeric aim delta', { type: 'aim', delta: 'x' }],
+  ['a missing movement direction', { type: 'move' }],
+  ['an invalid reel direction', { type: 'reel', dir: 2 }],
+  ['an invalid jump direction', { type: 'jump', dir: 0.5 }],
+  ['unknown action fields', { type: 'endTurn', extra: true }],
+]) {
+  test(`submitAction rejects ${name} without writing`, async () => {
+    const ddb = makeMockDdb();
+    const c = await L.postOnlineMatch(ev('POST', '/api/matches/online', {}, { playerId: 'p1', playerName: 'Alice' }), ddb);
+    const code = JSON.parse(c.body).code;
+    await L.joinOnlineMatch(ev('POST', `/api/matches/online/${code}/join`, {}, { playerId: 'p2', playerName: 'Bob' }), code, ddb);
+
+    const r = await L.submitAction(ev('POST', `/api/matches/online/${code}/action`, {}, { playerId: 'p1', action, clientActionId: 'invalid-action' }), code, ddb);
+    assert.equal(r.statusCode, 400, r.body);
+    assert.equal((await storedActions(ddb, code)).length, 0);
+    const meta = ddb.store.get(`ONLINE#${code}#META`);
+    assert.equal(meta.revision, 0);
+    assert.equal(meta.snapshot, undefined);
+  });
+}
+
+test('submitAction accepts valid directional fields and an omitted jump direction', async () => {
+  const ddb = makeMockDdb();
+  const c = await L.postOnlineMatch(ev('POST', '/api/matches/online', {}, { playerId: 'p1', playerName: 'Alice' }), ddb);
+  const code = JSON.parse(c.body).code;
+  await L.joinOnlineMatch(ev('POST', `/api/matches/online/${code}/join`, {}, { playerId: 'p2', playerName: 'Bob' }), code, ddb);
+  for (const [clientActionId, action] of [
+    ['move-1', { type: 'move', dir: 0 }],
+    ['jump-1', { type: 'jump' }],
+    ['aim-1', { type: 'aim', delta: 0 }],
+  ]) {
+    const r = await L.submitAction(ev('POST', `/api/matches/online/${code}/action`, {}, { playerId: 'p1', action, clientActionId }), code, ddb);
+    assert.equal(r.statusCode, 200, r.body);
+  }
+  assert.equal((await storedActions(ddb, code)).length, 3);
+});
+
+test('submitAction rejects an oversized action without writing', async () => {
+  const ddb = makeMockDdb();
+  const c = await L.postOnlineMatch(ev('POST', '/api/matches/online', {}, { playerId: 'p1', playerName: 'Alice' }), ddb);
+  const code = JSON.parse(c.body).code;
+  await L.joinOnlineMatch(ev('POST', `/api/matches/online/${code}/join`, {}, { playerId: 'p2', playerName: 'Bob' }), code, ddb);
+
+  const r = await L.submitAction(ev('POST', `/api/matches/online/${code}/action`, {}, {
+    playerId: 'p1', action: { type: 'aim', delta: 0, padding: 'x'.repeat(1024) }, clientActionId: 'oversized-action',
+  }), code, ddb);
+  assert.equal(r.statusCode, 413, r.body);
+  assert.equal((await storedActions(ddb, code)).length, 0);
+  assert.equal(ddb.store.get(`ONLINE#${code}#META`).revision, 0);
+});
+
 test('submitAction is idempotent on clientActionId', async () => {
   const ddb = makeMockDdb();
   const c = await L.postOnlineMatch(ev('POST', '/api/matches/online', {}, { playerId: 'p1', playerName: 'Alice' }), ddb);
@@ -334,7 +395,10 @@ test('submitAction stores one ordered item per action', async () => {
   assert.equal(ddb.store.has(`ACTION#${code}#LOG`), false);
 
   const got = await L.getOnlineMatch(ev('GET', `/api/matches/online/${code}`, {}), code, ddb);
-  assert.deepEqual(JSON.parse(got.body).match.actions.map((item) => item.seq), [1, 2]);
+  const responseActions = JSON.parse(got.body).match.actions;
+  assert.deepEqual(responseActions.map((item) => item.seq), [1, 2]);
+  assert.ok(responseActions.every((item) => !Object.prototype.hasOwnProperty.call(item, 'pk') && !Object.prototype.hasOwnProperty.call(item, 'sk')));
+  assert.deepEqual(Object.keys(responseActions[0]).sort(), ['action', 'at', 'clientActionId', 'engineTick', 'playerId', 'seq', 'tick', 'turn']);
 });
 
 test('submitAction rejects clientActionId reuse with a different payload', async () => {
@@ -508,6 +572,34 @@ test('submitAction rejects a concurrent revision without acknowledging the actio
   assert.equal(r.statusCode, 409);
   assert.equal(JSON.parse(r.body).message, 'concurrent action, retry');
   assert.equal((await storedActions(ddb, code)).length, 0);
+});
+
+test('submitAction cannot overwrite a concurrent forfeit', async () => {
+  const ddb = makeMockDdb();
+  const c = await L.postOnlineMatch(ev('POST', '/api/matches/online', {}, { playerId: 'p1', playerName: 'Alice' }), ddb);
+  const code = JSON.parse(c.body).code;
+  await L.joinOnlineMatch(ev('POST', `/api/matches/online/${code}/join`, {}, { playerId: 'p2', playerName: 'Bob' }), code, ddb);
+  const send = ddb.send.bind(ddb);
+  let injected = false;
+  ddb.send = async (cmd) => {
+    if (cmd.constructor.name === 'TransactWriteItemsCommand' && !injected) {
+      injected = true;
+      const forfeit = await L.forfeitOnlineMatch(ev('POST', `/api/matches/online/${code}/forfeit`, {}, { playerId: 'p1' }), code, ddb);
+      assert.equal(forfeit.statusCode, 200, forfeit.body);
+    }
+    return send(cmd);
+  };
+
+  const r = await L.submitAction(ev('POST', `/api/matches/online/${code}/action`, {}, {
+    playerId: 'p1', action: { type: 'endTurn' }, clientActionId: 'racing-forfeit', tick: 0,
+  }), code, ddb);
+  assert.equal(r.statusCode, 409, r.body);
+  assert.equal(JSON.parse(r.body).message, 'concurrent action, retry');
+  assert.equal((await storedActions(ddb, code)).length, 0);
+  const meta = ddb.store.get(`ONLINE#${code}#META`);
+  assert.equal(meta.status, 'finished');
+  assert.equal(meta.winnerTeam, 1);
+  assert.equal(meta.endReason, 'surrender');
 });
 
 test('submitAction persists the engine snapshot and returns it', async () => {

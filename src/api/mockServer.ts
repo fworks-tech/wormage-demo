@@ -352,6 +352,35 @@ function sameAction(a: { type: string; [k: string]: unknown }, b: { type: string
   return aKeys.length === bKeys.length && aKeys.every((key, index) => key === bKeys[index] && a[key] === b[key]);
 }
 
+// shortcut: online actions are fixed-shape and tiny; revisit only if a future action needs a larger payload.
+const MAX_ACTION_BYTES = 512;
+
+function isDirection(value: unknown): value is -1 | 0 | 1 {
+  return value === -1 || value === 0 || value === 1;
+}
+
+function validateAction(action: { type: string; [k: string]: unknown }): string | null {
+  const only = (keys: string[]) => Object.keys(action).every((key) => keys.includes(key));
+  const type = action.type;
+  if (type === 'move' || type === 'reel') {
+    return only(['type', 'dir']) && isDirection(action.dir) ? null : 'invalid action';
+  }
+  if (type === 'aim') {
+    return only(['type', 'delta']) && typeof action.delta === 'number' && Number.isFinite(action.delta) ? null : 'invalid action';
+  }
+  if (type === 'jump') {
+    return only(['type', 'dir']) && (action.dir === undefined || isDirection(action.dir)) ? null : 'invalid action';
+  }
+  if (type === 'weapon') {
+    if (!only(['type', 'id'])) return 'invalid action';
+    return typeof action.id === 'string' && Object.prototype.hasOwnProperty.call(WEAPONS, action.id) ? null : 'unknown weapon';
+  }
+  if (['rope', 'startCharge', 'releaseCharge', 'fire', 'endTurn'].includes(type)) {
+    return only(['type']) ? null : 'invalid action';
+  }
+  return 'unknown action type';
+}
+
 export function submitOnlineAction(code: string, input: { playerId: string; action: { type: string; [k: string]: unknown }; clientActionId: string; tick?: number; engineTick?: number }): { code: string; match: OnlineMatch; duplicate?: true } | { error: string; status: number } {
   if (typeof input.clientActionId !== 'string' || !input.clientActionId || input.clientActionId.length > 64) return { error: 'clientActionId is required', status: 400 };
   if (!input.action || typeof input.action !== 'object' || Array.isArray(input.action)) return { error: 'action is required', status: 400 };
@@ -377,6 +406,12 @@ export function submitOnlineAction(code: string, input: { playerId: string; acti
     return { code: match.code, match, duplicate: true };
   }
 
+  if (new TextEncoder().encode(JSON.stringify(input.action)).byteLength > MAX_ACTION_BYTES) {
+    return { error: 'action too large', status: 413 };
+  }
+  const actionError = validateAction(input.action);
+  if (actionError) return { error: actionError, status: 400 };
+
   if (match.status !== 'ready') return { error: 'match not ready', status: 409 };
   if (match.winnerTeam != null) return { error: 'match finished', status: 409 };
   if (!match.players.some((p) => p.playerId === input.playerId)) return { error: 'not a participant', status: 403 };
@@ -387,9 +422,6 @@ export function submitOnlineAction(code: string, input: { playerId: string; acti
   const phase = match.phase || 'aim';
   const type = input.action.type;
   if (phase === 'gameover') return { error: 'match finished', status: 409 };
-  if (type === 'weapon' && !(typeof input.action.id === 'string' && Object.prototype.hasOwnProperty.call(WEAPONS, input.action.id))) {
-    return { error: 'unknown weapon', status: 400 };
-  }
   const aimOnly = ['move', 'aim', 'jump', 'rope', 'reel', 'weapon', 'startCharge', 'releaseCharge'];
   if (type === 'fire' || type === 'startCharge') {
     if (phase !== 'aim' || match.hasFired) return { error: 'illegal action for current phase', status: 409 };
