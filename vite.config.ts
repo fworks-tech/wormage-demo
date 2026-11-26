@@ -5,6 +5,7 @@ import react from '@vitejs/plugin-react';
 import { viteSingleFile } from 'vite-plugin-singlefile';
 
 /** Inject the hashed bundles so a production shell is offline-ready on first load. */
+// shortcut: outDir is always dist; read it from the resolved Vite config if a custom --outDir is ever used.
 function precacheAppShell(outDir: string): void {
   const swPath = join(outDir, 'sw.js');
   const assets = readdirSync(join(outDir, 'assets')).map((file) => `/assets/${file}`);
