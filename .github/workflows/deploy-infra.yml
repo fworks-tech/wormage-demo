@@ -41,6 +41,7 @@ jobs:
           WORMAGE_HOSTED_ZONE_NAME: ${{ vars.WORMAGE_HOSTED_ZONE_NAME }}
           WORMAGE_CERTIFICATE_ARN: ${{ secrets.WORMAGE_CERTIFICATE_ARN }}
           WORMAGE_API_DOMAIN: ${{ vars.WORMAGE_API_DOMAIN }}
+          WORMAGE_ALARM_EMAIL: ${{ vars.WORMAGE_ALARM_EMAIL }}
       - name: Deploy
         working-directory: infra
         run: npx cdk deploy --require-approval never
@@ -49,3 +50,4 @@ jobs:
           WORMAGE_HOSTED_ZONE_NAME: ${{ vars.WORMAGE_HOSTED_ZONE_NAME }}
           WORMAGE_CERTIFICATE_ARN: ${{ secrets.WORMAGE_CERTIFICATE_ARN }}
           WORMAGE_API_DOMAIN: ${{ vars.WORMAGE_API_DOMAIN }}
+          WORMAGE_ALARM_EMAIL: ${{ vars.WORMAGE_ALARM_EMAIL }}

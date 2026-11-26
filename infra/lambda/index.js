@@ -21,6 +21,17 @@ function json(statusCode, body) {
   };
 }
 
+function logError(err, event) {
+  console.error(JSON.stringify({
+    level: 'error',
+    type: 'application-error',
+    name: err && err.name ? err.name : 'Error',
+    message: err && err.message ? err.message : 'Unknown error',
+    requestId: event && event.requestContext && event.requestContext.requestId,
+    path: event && (event.rawPath || event.path),
+  }));
+}
+
 function parseBody(event) {
   if (!event.body) return {};
   try {
@@ -1007,7 +1018,7 @@ exports.handler = async (event) => {
     if (method === 'POST' && path === '/api/bug-reports') return await postBugReport(event);
     return json(404, { message: 'Not found' });
   } catch (err) {
-    console.error(err);
+    logError(err, event);
     return json(500, { message: 'Internal error' });
   }
 };
@@ -1034,3 +1045,4 @@ exports.postBugReport = postBugReport;
 exports.validateBugReportBody = validateBugReportBody;
 exports.keyOf = keyOf;
 exports.validateBody = validateBody;
+exports.logError = logError;

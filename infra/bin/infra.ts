@@ -17,4 +17,5 @@ new WormageStack(app, 'WormageStack', {
   corsOrigins: process.env.WORMAGE_CORS_ORIGINS
     ? process.env.WORMAGE_CORS_ORIGINS.split(',').map((s) => s.trim()).filter(Boolean)
     : undefined,
+  alarmEmail: process.env.WORMAGE_ALARM_EMAIL,
 });

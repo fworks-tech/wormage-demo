@@ -156,6 +156,7 @@ Reset with **Reset demo data** in Options, or `localStorage.removeItem('wormage.
 - S3: `bug-reports/<env>/<yyyy>/<mm>/<dd>/<reportId>.json` + `.png`, same bucket and 7-day lifecycle as the debug logs. There is no listing UI; read with the AWS CLI or console.
 - Fallback: iOS Safari, denied permissions, and browsers that cannot confirm the tab send the data without a screenshot. The UI never uploads an approximate or unintended image.
 - Trust boundary: `note`, `url`, `userAgent`, `timezone` and the screenshot are stored verbatim. Escape them before rendering in any future admin view.
+- Alerts and operations: bug-report volume, handled application errors, API 5xx, Lambda and DynamoDB signals route to SNS; see [RUNBOOK.md](RUNBOOK.md).
 
 ## Common tweaks
 

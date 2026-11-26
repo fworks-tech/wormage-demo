@@ -23,6 +23,8 @@ export interface WormageStackProps extends cdk.StackProps {
   apiDomainName?: string;
   /** CORS allowlist for the HTTP API. Defaults to production site + localhost dev. */
   corsOrigins?: string[];
+  /** Email recipient for SNS alarm notifications. The subscription requires confirmation. */
+  alarmEmail?: string;
 }
 
 export class WormageStack extends cdk.Stack {
@@ -174,6 +176,58 @@ export class WormageStack extends cdk.Stack {
     const alarmTopic = new sns.Topic(this, 'WormageAlarmTopic', {
       displayName: 'Wormage backend alarms',
     });
+    if (props?.alarmEmail) {
+      new sns.Subscription(this, 'WormageAlarmEmailSubscription', {
+        topic: alarmTopic,
+        protocol: sns.SubscriptionProtocol.EMAIL,
+        endpoint: props.alarmEmail,
+      });
+    }
+
+    const applicationErrorMetric = new cloudwatch.Metric({
+      namespace: 'Wormage/Application',
+      metricName: 'ApplicationErrors',
+      period: cdk.Duration.minutes(5),
+      statistic: 'Sum',
+    });
+    new logs.MetricFilter(this, 'ApplicationErrorMetricFilter', {
+      logGroup: this.handler.logGroup,
+      metricNamespace: 'Wormage/Application',
+      metricName: 'ApplicationErrors',
+      filterPattern: logs.FilterPattern.literal('{ $.level = "error" }'),
+      defaultValue: 0,
+    });
+    new cloudwatch.Alarm(this, 'ApplicationErrorsAlarm', {
+      metric: applicationErrorMetric,
+      threshold: 1,
+      evaluationPeriods: 1,
+      datapointsToAlarm: 1,
+      treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
+      alarmDescription: 'Handled application errors',
+    }).addAlarmAction(new cwActions.SnsAction(alarmTopic));
+
+    const bugReportMetric = new cloudwatch.Metric({
+      namespace: 'Wormage/Application',
+      metricName: 'BugReportCount',
+      period: cdk.Duration.hours(1),
+      statistic: 'Sum',
+    });
+    new logs.MetricFilter(this, 'BugReportMetricFilter', {
+      logGroup: this.handler.logGroup,
+      metricNamespace: 'Wormage/Application',
+      metricName: 'BugReportCount',
+      filterPattern: logs.FilterPattern.literal('{ $.type = "bug-report" }'),
+      defaultValue: 0,
+    });
+    new cloudwatch.Alarm(this, 'BugReportVolumeAlarm', {
+      metric: bugReportMetric,
+      threshold: 20,
+      evaluationPeriods: 2,
+      datapointsToAlarm: 2,
+      comparisonOperator: cloudwatch.ComparisonOperator.GREATER_THAN_THRESHOLD,
+      treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
+      alarmDescription: 'Bug-report volume above 20 per hour for two hours',
+    }).addAlarmAction(new cwActions.SnsAction(alarmTopic));
 
     const lambdaErrors = this.handler.metricErrors({ period: cdk.Duration.minutes(5) });
     new cloudwatch.Alarm(this, 'LambdaErrorsAlarm', {
@@ -205,20 +259,29 @@ export class WormageStack extends cdk.Stack {
       alarmDescription: 'Lambda p99 duration above 8s',
     }).addAlarmAction(new cwActions.SnsAction(alarmTopic));
 
-    const tableThrottles = this.table.metricUserErrors({ period: cdk.Duration.minutes(5) });
+    const tableThrottles = this.table.metricThrottledRequestsForOperations({
+      period: cdk.Duration.minutes(5),
+      operations: [
+        dynamodb.Operation.GET_ITEM,
+        dynamodb.Operation.PUT_ITEM,
+        dynamodb.Operation.QUERY,
+        dynamodb.Operation.UPDATE_ITEM,
+        dynamodb.Operation.TRANSACT_WRITE_ITEMS,
+      ],
+    });
     new cloudwatch.Alarm(this, 'DynamoThrottlesAlarm', {
       metric: tableThrottles,
       threshold: 1,
       evaluationPeriods: 1,
       datapointsToAlarm: 1,
       treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
-      alarmDescription: 'DynamoDB user errors (includes throttles)',
+      alarmDescription: 'DynamoDB throttled requests',
     }).addAlarmAction(new cwActions.SnsAction(alarmTopic));
 
     const api5xx = this.httpApi.metricServerError({ period: cdk.Duration.minutes(5) });
     new cloudwatch.Alarm(this, 'Api5xxAlarm', {
       metric: api5xx,
-      threshold: 5,
+      threshold: 2,
       evaluationPeriods: 1,
       datapointsToAlarm: 1,
       treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,

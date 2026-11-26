@@ -254,6 +254,29 @@ test('handler routes health', async () => {
   assert.equal(r.statusCode, 200);
 });
 
+test('logError emits structured application error metadata', () => {
+  const original = console.error;
+  const lines = [];
+  console.error = (line) => lines.push(line);
+  const event = ev('POST', '/api/matches');
+  event.requestContext.requestId = 'req-1';
+  try {
+    L.logError(new TypeError('sdk failed'), event);
+  } finally {
+    console.error = original;
+  }
+
+  assert.equal(lines.length, 1);
+  assert.deepEqual(JSON.parse(lines[0]), {
+    level: 'error',
+    type: 'application-error',
+    name: 'TypeError',
+    message: 'sdk failed',
+    requestId: 'req-1',
+    path: '/api/matches',
+  });
+});
+
 test('submitAction advances turn on endTurn', async () => {
   const ddb = makeMockDdb();
   const c = await L.postOnlineMatch(ev('POST', '/api/matches/online', {}, { playerId: 'p1', playerName: 'Alice' }), ddb);
