@@ -425,6 +425,29 @@ export class GameEngine {
     this.reelDir = dir;
   }
 
+  /** Record a move only when the direction changes, so a held key does not flood the log. */
+  recordMove(dir: -1 | 0 | 1): void {
+    if (dir === this.moveDir) return;
+    this.record({ type: 'move', dir });
+  }
+
+  /** Record a reel only when the direction changes, for the same reason. */
+  recordReel(dir: -1 | 0 | 1): void {
+    if (dir === this.reelDir) return;
+    this.record({ type: 'reel', dir });
+  }
+
+  /**
+   * Snapshot the current aim/power into the log. Call before every fire or
+   * release so a replay reproduces the shot without local state (issue #280).
+   */
+  recordShotState(): void {
+    const worm = this.activeWorm;
+    if (!worm || !worm.alive) return;
+    this.record({ type: 'aimAt', angle: worm.aimAngle });
+    this.record({ type: 'setPower', power: this.power });
+  }
+
   /** Player rope input. The AI attaches through the same private path. */
   useRope(): void {
     if (this.teams[this.activeTeam].isAi) return;
@@ -497,6 +520,21 @@ export class GameEngine {
     worm.facing = Math.cos(worm.aimAngle) >= 0 ? 1 : -1;
   }
 
+  /** Absolute aim in radians, clamped to the same arc as pointer input. */
+  setAim(angle: number): void {
+    const worm = this.activeWorm;
+    if (!worm || !worm.alive || this.phase !== 'aim') return;
+    worm.aimAngle = clampAngle(angle);
+    worm.facing = Math.cos(worm.aimAngle) >= 0 ? 1 : -1;
+  }
+
+  /** Charge level, clamped to the range pointer input can produce. */
+  setPower(power: number): void {
+    const worm = this.activeWorm;
+    if (!worm || !worm.alive || this.phase !== 'aim') return;
+    this.power = Math.min(1, Math.max(0, power));
+  }
+
   /** Apply an input and keep it in the log for replay. */
   record(action: GameAction): void {
     this.log.push({ tick: this.tick, action });
@@ -511,6 +549,12 @@ export class GameEngine {
         break;
       case 'aim':
         this.aimBy(action.delta);
+        break;
+      case 'aimAt':
+        this.setAim(action.angle);
+        break;
+      case 'setPower':
+        this.setPower(action.power);
         break;
       case 'jump':
         this.jump(action.dir);

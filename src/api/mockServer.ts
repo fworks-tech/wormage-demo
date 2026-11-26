@@ -368,6 +368,14 @@ function validateAction(action: { type: string; [k: string]: unknown }): string 
   if (type === 'aim') {
     return only(['type', 'delta']) && typeof action.delta === 'number' && Number.isFinite(action.delta) ? null : 'invalid action';
   }
+  // Same bounds as the Lambda: the pointer arc (AIM.min/max) and the 0..1
+  // charge range. Rejected, not clamped, so spoofing is visible (issue #280).
+  if (type === 'aimAt') {
+    return only(['type', 'angle']) && typeof action.angle === 'number' && Number.isFinite(action.angle) && action.angle >= -3.04 && action.angle <= -0.1 ? null : 'invalid action';
+  }
+  if (type === 'setPower') {
+    return only(['type', 'power']) && typeof action.power === 'number' && Number.isFinite(action.power) && action.power >= 0 && action.power <= 1 ? null : 'invalid action';
+  }
   if (type === 'jump') {
     return only(['type', 'dir']) && (action.dir === undefined || isDirection(action.dir)) ? null : 'invalid action';
   }
@@ -422,7 +430,7 @@ export function submitOnlineAction(code: string, input: { playerId: string; acti
   const phase = match.phase || 'aim';
   const type = input.action.type;
   if (phase === 'gameover') return { error: 'match finished', status: 409 };
-  const aimOnly = ['move', 'aim', 'jump', 'rope', 'reel', 'weapon', 'startCharge', 'releaseCharge'];
+  const aimOnly = ['move', 'aim', 'aimAt', 'setPower', 'jump', 'rope', 'reel', 'weapon', 'startCharge', 'releaseCharge'];
   if (type === 'fire' || type === 'startCharge') {
     if (phase !== 'aim' || match.hasFired) return { error: 'illegal action for current phase', status: 409 };
   } else if (type === 'endTurn') {
@@ -607,7 +615,7 @@ function onlineMatchConfig(match: OnlineMatch): MatchConfig {
   };
 }
 
-function replayActions(match: OnlineMatch, actions: OnlineActionLogEntry[], stopTick: number | null): GameEngine {
+export function replayActions(match: OnlineMatch, actions: OnlineActionLogEntry[], stopTick: number | null): GameEngine {
   const engine = new GameEngine(onlineMatchConfig(match));
   const sorted = [...actions].sort(compareActionEntries);
   const limit = stopTick ?? 60 * 60 * 30;

@@ -8,12 +8,14 @@ export type EndReason = 'time' | 'wipeout' | 'surrender';
 
 /**
  * A serializable player input. AI decisions come from the engine's seeded RNG.
- * shortcut: pointer aim (`setAimFromPoint`) has no action yet; add an `aimAt`
- * action before recording real matches.
+ * Pointer aim commits through `aimAt`/`setPower` so the log reproduces every
+ * shot without local state (issue #280).
  */
 export type GameAction =
   | { type: 'move'; dir: -1 | 0 | 1 }
   | { type: 'aim'; delta: number }
+  | { type: 'aimAt'; angle: number }
+  | { type: 'setPower'; power: number }
   | { type: 'jump'; dir?: -1 | 0 | 1 }
   | { type: 'rope' }
   | { type: 'reel'; dir: -1 | 0 | 1 }
