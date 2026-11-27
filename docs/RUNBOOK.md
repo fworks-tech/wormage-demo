@@ -61,8 +61,42 @@ The SSM parameters are read at deploy time:
 
 - `/wormage/debug-logs/enabled`
 - `/wormage/bug-reports/enabled`
+- `/wormage/github-issues/enabled`
 
-Change the value in `infra/lib/wormage-stack.ts` and deploy through the approved infrastructure workflow. Emergency: `aws lambda update-function-configuration` can flip the env immediately, then reconcile in CDK. Bug reports stay on because anonymous auth gives per-actor attribution on top of per-route throttling and the >20/hour alarm; re-disable via the SSM default if abuse ever outruns those controls. Debug logs should remain disabled until there is an explicit operational need.
+Debug-log and bug-report defaults live in `infra/lib/wormage-stack.ts`; change them and deploy through the approved infrastructure workflow. The GitHub issue flag is controlled by the `WORMAGE_GITHUB_ISSUES_ENABLED` repository variable, as described below. Emergency: `aws lambda update-function-configuration` can flip an environment value immediately, then reconcile it in CDK. Bug reports stay on because anonymous auth gives per-actor attribution on top of per-route throttling and the >20/hour alarm; re-disable via the SSM default if abuse ever outruns those controls. Debug logs should remain disabled until there is an explicit operational need. The GitHub token parameter is read at runtime and cached per warm Lambda environment; it is not baked into the function environment.
+
+## GitHub issues from bug reports
+
+The integration is disabled by default and only runs after the report JSON is stored in S3. It creates a public issue with a redacted summary and S3 keys; the full report and screenshot stay private. Online match codes are removed from the public page URL. S3 storage, the `bug-report` metric and the API response remain successful when GitHub is unavailable. One three-second deadline covers the DynamoDB rate-limit claim, the SSM token read and the GitHub requests.
+
+Issue creation is limited to five attempts per fixed UTC hour bucket per source IP. The Lambda stores only a SHA-256 hash of the IP in `BUG_REPORT_ISSUE#<hash>` items with TTL cleanup. The conditional counter is shared across Lambda environments; exhausted quota or a DynamoDB failure skips the GitHub call but never discards the report. Because the window is fixed rather than rolling, up to ten attempts can occur within a short interval spanning two adjacent buckets.
+
+Prerequisites:
+
+1. Create a fine-grained GitHub PAT for `fworks-tech/wormage-demo` with Issues read/write only.
+2. Add it as the `WORMAGE_GITHUB_TOKEN` GitHub Actions secret. Never paste it into the CDK template, source or logs.
+3. Set `WORMAGE_AUTH_MODE=enforce`. HTTP API route throttling alone is not per IP, so the stack and workflow refuse activation without enforced anonymous auth.
+4. Set the repository variable `WORMAGE_GITHUB_ISSUES_ENABLED=true` and deploy through the approved workflow. The workflow publishes the token to `/wormage/github/bug-report-token`; a missing token fails the deploy when the flag is on. While disabled, the workflow does not publish the token and the Lambda role cannot read it.
+
+Verify the parameter exists without printing its value:
+
+```bash
+aws ssm get-parameter --name /wormage/github/bug-report-token --query Parameter.Name
+```
+
+Disable by setting `WORMAGE_GITHUB_ISSUES_ENABLED=false` and redeploying. Existing S3 reports are unaffected. For an emergency, edit only the Lambda's `GITHUB_ISSUES_ENABLED` environment variable to `false`, then reconcile the value in CDK. Rotate the PAT through the GitHub secret and redeploy, then revoke the old PAT. A GitHub `401` clears the warm environment's cached token so the next report reloads the new value from SSM.
+
+Inspect failures without exposing tokens or report bodies:
+
+```bash
+aws logs filter-log-events \
+  --log-group-name /aws/lambda/<handler-log-group> \
+  --filter-pattern '{ $.type = "github-issue-failed" }'
+```
+
+Each admitted issue attempt performs one GitHub Search request before a possible create. Authenticated GitHub Search allows 30 requests/minute, while the bug-report route permits 60/minute; sustained traffic can therefore skip issue creation with warnings even though uploads remain successful. Monitor `github-issue-failed` and lower report volume if this becomes frequent.
+
+After activation, submit one controlled report and verify the S3 objects, the marked GitHub issue and the optional `githubIssue` response. The dialog reuses one `reportId` across Send retries. Replaying the same payload also exercises server deduplication. Search-then-create is not atomic: indexing delay, a crash after creation, or two concurrent submissions with the same ID can still produce duplicates; close the duplicate manually if it occurs.
 
 ## Read stored reports
 

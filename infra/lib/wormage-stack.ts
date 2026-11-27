@@ -29,6 +29,8 @@ export interface WormageStackProps extends cdk.StackProps {
   alarmEmail?: string;
   /** Anonymous auth rollout mode. Defaults to observe for legacy compatibility. */
   authMode?: 'observe' | 'enforce';
+  /** Create public GitHub issues from stored bug reports. Defaults to false. */
+  githubIssuesEnabled?: boolean;
   /**
    * HS256 session key stored as an SSM SecureString (Standard tier, free).
    * Required: generate once with `openssl rand -hex 32` and pass via
@@ -57,6 +59,10 @@ export class WormageStack extends cdk.Stack {
     cdk.Tags.of(this).add('Environment', 'prod');
     cdk.Tags.of(this).add('ManagedBy', 'CDK');
     cdk.Tags.of(this).add('CostCenter', 'wormage');
+
+    if (props?.githubIssuesEnabled && props.authMode !== 'enforce') {
+      throw new Error('githubIssuesEnabled requires authMode=enforce');
+    }
 
     this.table = new dynamodb.Table(this, 'WormageTable', {
       tableName: 'wormage',
@@ -118,6 +124,10 @@ export class WormageStack extends cdk.Stack {
       parameterName: '/wormage/bug-reports/enabled',
       stringValue: 'true',
     });
+    const githubIssuesEnabled = new ssm.StringParameter(this, 'GithubIssuesEnabled', {
+      parameterName: '/wormage/github-issues/enabled',
+      stringValue: props?.githubIssuesEnabled ? 'true' : 'false',
+    });
     const debugLogsRetentionDays = new ssm.StringParameter(this, 'DebugLogsRetentionDays', {
       parameterName: '/wormage/debug-logs/retention-days',
       stringValue: '7',
@@ -140,6 +150,7 @@ export class WormageStack extends cdk.Stack {
       throw new Error('authSecretValue is required: set WORMAGE_AUTH_SECRET (openssl rand -hex 32)');
     }
     const authSecretParamName = '/wormage/auth/secret';
+    const githubTokenParamName = '/wormage/github/bug-report-token';
 
     this.handler = new lambda.Function(this, 'WormageHandler', {
       runtime: lambda.Runtime.NODEJS_22_X,
@@ -156,6 +167,9 @@ export class WormageStack extends cdk.Stack {
         BUG_REPORTS_ENABLED: bugReportsEnabled.stringValue,
         BUG_REPORT_MAX_BYTES: '4000000',
         BUG_REPORT_PREFIX: 'bug-reports',
+        GITHUB_ISSUES_ENABLED: githubIssuesEnabled.stringValue,
+        GITHUB_ISSUE_REPO: 'fworks-tech/wormage-demo',
+        GITHUB_TOKEN_PARAM: githubTokenParamName,
         AUTH_SECRET_PARAM: authSecretParamName,
         AUTH_MODE: props?.authMode ?? 'observe',
       },
@@ -175,7 +189,16 @@ export class WormageStack extends cdk.Stack {
       actions: ['s3:PutObject'], resources: [debugLogBucket.arnForObjects('debug-logs/*'), debugLogBucket.arnForObjects('bug-reports/*')],
     }));
     this.handler.addToRolePolicy(new iam.PolicyStatement({ actions: ['s3:DeleteObject'], resources: [debugLogBucket.arnForObjects('bug-reports/*')] }));
-    this.handler.addToRolePolicy(new iam.PolicyStatement({ actions: ['ssm:GetParameter'], resources: [this.formatArn({ service: 'ssm', resource: 'parameter', resourceName: 'wormage/auth/secret' })] }));
+    this.handler.addToRolePolicy(new iam.PolicyStatement({
+      actions: ['ssm:GetParameter'],
+      resources: [this.formatArn({ service: 'ssm', resource: 'parameter', resourceName: 'wormage/auth/secret' })],
+    }));
+    if (props?.githubIssuesEnabled) {
+      this.handler.addToRolePolicy(new iam.PolicyStatement({
+        actions: ['ssm:GetParameter'],
+        resources: [this.formatArn({ service: 'ssm', resource: 'parameter', resourceName: 'wormage/github/bug-report-token' })],
+      }));
+    }
 
     const corsOrigins = props?.corsOrigins && props.corsOrigins.length > 0
       ? props.corsOrigins

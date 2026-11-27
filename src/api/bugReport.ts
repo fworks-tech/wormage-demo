@@ -46,6 +46,7 @@ interface BugReportOptions {
   screenshot: GameScreenshot | null;
   online?: { code: string; playerId: string } | null;
   appVersion?: string;
+  reportId?: string;
 }
 
 const MAX_NOTE = 2000;
@@ -55,7 +56,7 @@ const MAX_ACTION_LOG = 5000;
 // The Lambda accepts 4 MB; keep a margin for the transport overhead.
 const MAX_BODY_BYTES = 3_900_000;
 
-function reportId(): string {
+export function createBugReportId(): string {
   const crypto = globalThis.crypto;
   if (crypto && typeof crypto.randomUUID === 'function') return crypto.randomUUID();
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
@@ -68,6 +69,7 @@ export function buildBugReport({
   screenshot,
   online,
   appVersion,
+  reportId: attemptId,
 }: BugReportOptions): BugReportPayload {
   const win = typeof window !== 'undefined' ? window : null;
   const nav = typeof navigator !== 'undefined' ? navigator : null;
@@ -77,7 +79,7 @@ export function buildBugReport({
 
   return {
     schemaVersion: 1,
-    reportId: reportId(),
+    reportId: attemptId ?? createBugReportId(),
     createdAt: new Date().toISOString(),
     note: note.trim().slice(0, MAX_NOTE),
     sessionId: engine.sessionId,

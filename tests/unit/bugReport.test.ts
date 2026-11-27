@@ -117,6 +117,19 @@ describe('bug report payload', () => {
     expect((post.mock.calls[0][1] as { screenshot: { data: string } }).screenshot.data).toBe('AAAA');
   });
 
+  test('reuses an explicit report id when the player retries', async () => {
+    post.mockRejectedValueOnce(new Error('response lost'));
+    post.mockResolvedValueOnce({ status: 201, data: { reportId: 'stable-report' } });
+    const engine = new GameEngine(config());
+    const options = { engine, note: '', screenshot: null, reportId: 'stable-report' };
+
+    await expect(sendBugReport(options)).rejects.toThrow('could not be sent');
+    await expect(sendBugReport(options)).resolves.toBe('stable-report');
+
+    expect((post.mock.calls[0][1] as { reportId: string }).reportId).toBe('stable-report');
+    expect((post.mock.calls[1][1] as { reportId: string }).reportId).toBe('stable-report');
+  });
+
   test('throws when the server rejects the report', async () => {
     post.mockRejectedValue(Object.assign(new Error('Request failed'), { response: { status: 503 } }));
     const engine = new GameEngine(config());

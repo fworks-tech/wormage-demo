@@ -18,6 +18,13 @@ const openReport = async (page: Page) => {
   await expect(page.getByTestId('bug-report-dialog')).toBeVisible();
 };
 
+test('bug report dialog discloses the public GitHub issue summary', async ({ page }) => {
+  await startMatch(page);
+  await openReport(page);
+  await expect(page.getByTestId('bug-report-dialog')).toContainText('public GitHub issue');
+  await expect(page.getByTestId('bug-report-dialog')).toContainText('personal information');
+});
+
 const storedReports = (page: Page) =>
   page.evaluate(() => JSON.parse(localStorage.getItem('wormage.bugreports.v1') ?? '[]') as Array<{
     reportId: string;
@@ -208,4 +215,20 @@ test('a failed send keeps the preview so the report can be retried', async ({ pa
   await page.evaluate(() => localStorage.setItem('wormage.netScenario.v1', JSON.stringify('normal')));
   await page.getByTestId('btn-send-report').click();
   await expect(page.getByTestId('report-sent')).toBeVisible();
+});
+
+test('a lost response retry posts the same report id', async ({ page }) => {
+  await startMatch(page);
+  await openReport(page);
+  await page.getByTestId('report-note').fill('response lost after commit');
+  await page.evaluate(() => sessionStorage.setItem('wormage.bugReportLoseResponse.v1', '1'));
+
+  await page.getByTestId('btn-send-report').click();
+  await expect(page.getByTestId('report-error')).toContainText('could not be sent');
+  await page.getByTestId('btn-send-report').click();
+  await expect(page.getByTestId('report-sent')).toBeVisible();
+
+  const reports = await storedReports(page);
+  expect(reports).toHaveLength(2);
+  expect(reports[0].reportId).toBe(reports[1].reportId);
 });

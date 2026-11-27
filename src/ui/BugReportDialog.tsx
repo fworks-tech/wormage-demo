@@ -1,11 +1,11 @@
 import { useState } from 'react';
-import { BugReportUnavailableError, ReportTooLargeError } from '../api/bugReport';
+import { BugReportUnavailableError, ReportTooLargeError, createBugReportId } from '../api/bugReport';
 import type { GameScreenshot } from '../api/types';
 import { CaptureError } from './screenCapture';
 
 interface BugReportDialogProps {
   onCapture: () => Promise<GameScreenshot>;
-  onSend: (input: { note: string; screenshot: GameScreenshot | null }) => Promise<string>;
+  onSend: (input: { note: string; screenshot: GameScreenshot | null; reportId: string }) => Promise<string>;
   onClose: () => void;
 }
 
@@ -34,6 +34,7 @@ export function BugReportDialog({ onCapture, onSend, onClose }: BugReportDialogP
   const [busy, setBusy] = useState<Busy>(null);
   const [error, setError] = useState<string | null>(null);
   const [sentId, setSentId] = useState<string | null>(null);
+  const [reportId] = useState(createBugReportId);
 
   const capture = async () => {
     setBusy('capture');
@@ -51,7 +52,7 @@ export function BugReportDialog({ onCapture, onSend, onClose }: BugReportDialogP
     setBusy('send');
     setError(null);
     try {
-      setSentId(await onSend({ note, screenshot }));
+      setSentId(await onSend({ note, screenshot, reportId }));
     } catch (err) {
       if (err instanceof ReportTooLargeError) {
         setError('This report is too large to send. Try again without the screenshot.');
@@ -88,7 +89,7 @@ export function BugReportDialog({ onCapture, onSend, onClose }: BugReportDialogP
       <h2>Report a bug</h2>
       <p className="muted">
         Sends this match&apos;s seed, settings, state and logs, plus the page URL, browser info and a screenshot of the
-        game without this menu.
+        game without this menu. A short summary may be posted to a public GitHub issue. Do not include personal information.
       </p>
 
       {screenshot ? (
