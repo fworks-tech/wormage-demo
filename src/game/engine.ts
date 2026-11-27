@@ -21,7 +21,7 @@ import {
   worldClamp,
 } from './config';
 import { Terrain, mulberry32 } from './terrain';
-import { clampAngle, mirrorAngle, planAiShot, planAiTurn, planRopeClimb } from './ai';
+import { clampAngle, isUsefulAiShot, mirrorAngle, planAiShot, planAiTurn, planRopeClimb } from './ai';
 import type { AiTurnPlan } from './ai';
 import { configKey } from './types';
 import type {
@@ -1546,15 +1546,18 @@ export class GameEngine {
     );
   }
 
-  /** Run the planner from the worm's current spot. */
-  private buildAiPlan(worm: Worm): AiTurnPlan | null {
-    const worms = this.teams.flatMap((team) =>
+  private aliveAiWorms() {
+    return this.teams.flatMap((team) =>
       team.worms.filter((w) => w.alive).map((w) => ({ id: w.id, teamId: w.teamId, x: w.x, y: w.y, hp: w.hp })),
     );
+  }
+
+  /** Run the planner from the worm's current spot. */
+  private buildAiPlan(worm: Worm): AiTurnPlan | null {
     return planAiTurn({
       terrain: this.terrain,
       worm: { id: worm.id, teamId: worm.teamId, x: worm.x, y: worm.y, hp: worm.hp },
-      worms: worms,
+      worms: this.aliveAiWorms(),
       ammo: { ...this.teams[this.activeTeam].ammo },
       wind: this.wind,
       timeLeft: this.timeLeft,
@@ -1563,6 +1566,19 @@ export class GameEngine {
       revengeFocus: this.revengeFocusByTeam[this.activeTeam] ?? null,
       mines: this.loot.filter(l=>l.kind==='mine' && l.x>=0).map(l=>({x:l.x,y:l.y})),
     });
+  }
+
+  private aiShotIsUseful(worm: Worm, weapon: WeaponId): boolean {
+    return isUsefulAiShot(
+      this.terrain,
+      { id: worm.id, teamId: worm.teamId, x: worm.x, y: worm.y, hp: worm.hp },
+      this.aliveAiWorms(),
+      weapon,
+      worm.aimAngle,
+      Math.max(0.12, this.power),
+      this.wind,
+      this.revengeFocusByTeam[this.activeTeam] ?? null,
+    );
   }
 
   /** Log the fresh plan with its target, so retries and first tries look the same. */
@@ -1817,20 +1833,21 @@ export class GameEngine {
       const target = this.nearestEnemy(worm);
       if (target) {
         this.logDebug('ai.fallback', 'AI falling back to shot from current position', { wormId: worm.id, targetId: target.id, targetTeam: target.teamId, fromX: worm.x }, 'cpu', worm.id, 'warn');
-        const bodies = this.teams.flatMap((team) =>
-          team.worms.filter((w) => w.alive && w.id !== worm.id).map((w) => ({ x: w.x, y: w.y })),
-        );
         const shot = planAiShot(
           this.terrain,
-          worm.x,
-          worm.y,
-          target.x,
-          target.y - 10,
+          { id: worm.id, teamId: worm.teamId, x: worm.x, y: worm.y, hp: worm.hp },
+          this.aliveAiWorms(),
           this.wind,
           DIFFICULTY[this.config.difficulty],
           this.rng,
-          bodies,
         );
+        if (!shot) {
+          this.logDebug('ai.noFallbackShot', 'AI found no damaging fallback shot', { wormId: worm.id, targetId: target.id, x: worm.x, y: worm.y }, 'cpu', worm.id, 'warn');
+          this.aiPlan = null;
+          this.aiThinking = false;
+          this.finishTurn();
+          return;
+        }
         this.logDebug('ai.fallbackShot', 'AI computed fallback shot', { wormId: worm.id, targetId: target.id, angle: shot.angle, power: shot.power }, 'cpu', worm.id);
         // Retarget once, then give the visible reticle time to reach this fallback shot.
         this.aiPlan = {
@@ -1846,16 +1863,23 @@ export class GameEngine {
         return;
       }
       this.aiThinking = false;
-      this.fire();
+      this.finishTurn();
       return;
     }
 
     this.moveDir = 0;
     // update() slews the reticle each frame; never fire along a different angle.
     if (Math.abs(clampAngle(plan.angle) - worm.aimAngle) > 1e-6) return;
+    if (!this.aiShotIsUseful(worm, plan.weapon)) {
+      this.logDebug('ai.planInvalid', 'AI plan no longer damages an enemy from the firing pose', { wormId: worm.id, weapon: plan.weapon, angle: worm.aimAngle, power: Math.max(0.12, this.power), x: worm.x, y: worm.y }, 'cpu', worm.id, 'warn');
+      this.aiPlan = null;
+      this.aiThinking = false;
+      this.finishTurn();
+      return;
+    }
     this.weapon = plan.weapon;
     this.aiThinking = false;
-    this.logDebug('ai.fire', 'AI fired', { wormId: worm.id, weapon: plan.weapon, angle: plan.angle, power: plan.power, x: worm.x, y: worm.y }, 'cpu', worm.id);
+    this.logDebug('ai.fire', 'AI fired', { wormId: worm.id, weapon: plan.weapon, angle: worm.aimAngle, power: Math.max(0.12, this.power), x: worm.x, y: worm.y }, 'cpu', worm.id);
     this.fire();
   }
 

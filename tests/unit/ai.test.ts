@@ -4,12 +4,13 @@ import {
   chooseRetreat,
   clampAngle,
   firingPositions,
+  planAiShot,
   planAiTurn,
   planRopeClimb,
   previewFlight,
   simulateShot,
 } from '../../src/game/ai';
-import { AIM, JUMP_REACH, RETREAT_SECONDS, ROPE, WEAPONS, WORM } from '../../src/game/config';
+import { AIM, DIFFICULTY, JUMP_REACH, RETREAT_SECONDS, ROPE, WEAPONS, WORM } from '../../src/game/config';
 import { Terrain } from '../../src/game/terrain';
 import { terrain } from './terrainFixture';
 
@@ -162,6 +163,60 @@ const walled = (...walls: Array<[number, number]>) => ({
 });
 
 const enemy = { id: 'b', teamId: 1, x: 440, y: 500 };
+
+test('the legacy fallback rejects a shot that only hits terrain', () => {
+  const shooter = { id: 'a', teamId: 0, x: 400, y: 500 };
+  const target = { id: 'b', teamId: 1, x: 200, y: 500 };
+  const shot = planAiShot(walled([300, 360]), shooter, [shooter, target], 0, { angleError: 0, powerError: 0 }, () => 0.5);
+
+  expect(shot).toBeNull();
+});
+
+test('the legacy fallback still finds a damaging shot in the open', () => {
+  const shooter = { id: 'a', teamId: 0, x: 400, y: 500 };
+  const target = { id: 'b', teamId: 1, x: 900, y: 500 };
+  const shot = planAiShot(terrain(), shooter, [shooter, target], 0, { angleError: 0, powerError: 0 }, () => 0.5);
+
+  expect(shot).not.toBeNull();
+  const impact = simulateShot(
+    terrain(),
+    shooter.x + Math.cos(shot!.angle) * 18,
+    shooter.y - 14 + Math.sin(shot!.angle) * 18,
+    shot!.angle,
+    shot!.power,
+    'bazooka',
+    0,
+    null,
+    false,
+    [target],
+  );
+  expect(Math.hypot(impact.x - target.x, impact.y - (target.y - 13))).toBeLessThanOrEqual(
+    WEAPONS.bazooka.radius + WORM.radius,
+  );
+});
+
+test('the legacy fallback rejects rookie jitter that removes all damage', () => {
+  const shooter = { id: 'a', teamId: 0, x: 100, y: 500 };
+  const target = { id: 'b', teamId: 1, x: 500, y: 500 };
+  expect(planAiShot(terrain(), shooter, [shooter, target], 0, { angleError: 0, powerError: 0 }, () => 0.5)).not.toBeNull();
+  expect(planAiShot(terrain(), shooter, [shooter, target], 0, DIFFICULTY.rookie, () => 1)).toBeNull();
+});
+
+test('the AI rejects a plan when rookie jitter removes all damage', () => {
+  const worm = { id: 'a', teamId: 0, x: 100, y: 500 };
+  const target = { id: 'b', teamId: 1, x: 700, y: 500 };
+  const input = {
+    terrain: terrain(),
+    worm,
+    worms: [worm, target],
+    ammo: { bazooka: Infinity, grenade: 0, shotgun: 0, dynamite: 0, medkit: 0, shield: 0 },
+    wind: 0,
+    timeLeft: 45,
+  };
+  expect(planAiTurn({ ...input, difficulty: { angleError: 0, powerError: 0 }, rng: () => 0.5 })).not.toBeNull();
+
+  expect(planAiTurn({ ...input, difficulty: DIFFICULTY.rookie, rng: () => 1 })).toBeNull();
+});
 
 test('the aim preview traces an arc for a fuse-less weapon', () => {
   const points = previewFlight(terrain(), 400, 486, -0.6, 0.8, 'bazooka', 0);
