@@ -1568,7 +1568,7 @@ export class GameEngine {
     });
   }
 
-  private aiShotIsUseful(worm: Worm, weapon: WeaponId): boolean {
+  private aiShotIsUseful(worm: Worm, weapon: WeaponId, retreatX: number | null = null): boolean {
     return isUsefulAiShot(
       this.terrain,
       { id: worm.id, teamId: worm.teamId, x: worm.x, y: worm.y, hp: worm.hp },
@@ -1578,6 +1578,7 @@ export class GameEngine {
       Math.max(0.12, this.power),
       this.wind,
       this.revengeFocusByTeam[this.activeTeam] ?? null,
+      retreatX,
     );
   }
 
@@ -1870,7 +1871,7 @@ export class GameEngine {
     this.moveDir = 0;
     // update() slews the reticle each frame; never fire along a different angle.
     if (Math.abs(clampAngle(plan.angle) - worm.aimAngle) > 1e-6) return;
-    if (!this.aiShotIsUseful(worm, plan.weapon)) {
+    if (!this.aiShotIsUseful(worm, plan.weapon, plan.retreatX)) {
       this.logDebug('ai.planInvalid', 'AI plan no longer damages an enemy from the firing pose', { wormId: worm.id, weapon: plan.weapon, angle: worm.aimAngle, power: Math.max(0.12, this.power), x: worm.x, y: worm.y }, 'cpu', worm.id, 'warn');
       this.aiPlan = null;
       this.aiThinking = false;

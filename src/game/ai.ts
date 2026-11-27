@@ -182,9 +182,17 @@ export function isUsefulAiShot(
   power: number,
   wind: number,
   revengeFocus: { x: number; y: number } | null = null,
+  retreatX: number | null = null,
 ): boolean {
   const def = WEAPONS[weapon];
   if (def.kind === 'utility') return true;
+  let scoringWorms = worms;
+  if (def.kind === 'drop') {
+    if (retreatX === null) return false;
+    const escapeWorms = dropEscapeWorms(terrain, shooter, worms, retreatX);
+    if (!escapeWorms) return false;
+    scoringWorms = escapeWorms;
+  }
   const bodies = worms.filter((w) => w.id !== shooter.id);
   const impact = def.kind === 'drop'
     ? { x: shooter.x, y: shooter.y - 8, valid: true }
@@ -201,9 +209,9 @@ export function isUsefulAiShot(
         bodies,
       );
   if (!impact.valid) return false;
-  const coll = collateral(impact.x, impact.y, weapon, shooter, worms);
+  const coll = collateral(impact.x, impact.y, weapon, shooter, scoringWorms);
   if (AI.friendlyFireVeto && coll.ally > AI.friendlyFireTolerance) return false;
-  return damageScore(impact.x, impact.y, weapon, shooter, worms, revengeFocus) > 0;
+  return damageScore(impact.x, impact.y, weapon, shooter, scoringWorms, revengeFocus) > 0;
 }
 
 /**
@@ -328,7 +336,7 @@ export function planAiTurn(input: AiTurnInput): AiTurnPlan | null {
   };
   if (WEAPONS[plan.weapon].kind === 'utility') return plan;
   const firingWorm = { ...worm, x: plan.fireX, y: plan.fireY };
-  return isUsefulAiShot(terrain, firingWorm, worms, plan.weapon, plan.angle, plan.power, wind, revengeFocus)
+  return isUsefulAiShot(terrain, firingWorm, worms, plan.weapon, plan.angle, plan.power, wind, revengeFocus, plan.retreatX)
     ? plan
     : null;
 }
@@ -493,13 +501,16 @@ function planDrop(
   const retreatX = chooseRetreat(terrain, pos, enemies, blast, safety, def.fuse ?? RETREAT_SECONDS);
   // Never plant a drop without a way out of its own blast.
   if (retreatX === null) return null;
-  const coll = collateral(blast.x, blast.y, weapon, worm, worms);
+  const firingWorm = { ...worm, x: pos.x, y: pos.y };
+  const scoringWorms = dropEscapeWorms(terrain, firingWorm, worms, retreatX);
+  if (!scoringWorms) return null;
+  const coll = collateral(blast.x, blast.y, weapon, firingWorm, scoringWorms);
   if (AI.friendlyFireVeto && coll.ally > AI.friendlyFireTolerance) return null;
   const target = enemies.reduce((nearest, enemy) => {
     const d = Math.hypot(enemy.x - pos.x, enemy.y - pos.y);
     return d < nearest.d ? { enemy, d } : nearest;
   }, { enemy: enemies[0], d: Infinity }).enemy;
-  const score = damageScore(blast.x, blast.y, weapon, worm, worms, revengeFocus);
+  const score = damageScore(blast.x, blast.y, weapon, firingWorm, scoringWorms, revengeFocus);
   if (score <= 0) return null;
   return {
     score,
@@ -508,6 +519,18 @@ function planDrop(
     power: 0.5,
     retreatX,
   };
+}
+
+/** Score drop self-damage where the validated escape leaves the shooter. */
+function dropEscapeWorms(
+  terrain: AiTerrain,
+  shooter: AiWorm,
+  worms: AiWorm[],
+  retreatX: number,
+): AiWorm[] | null {
+  const retreatY = terrain.groundY(retreatX, shooter.y - 80, 200);
+  if (retreatY === null || retreatY > WATER_Y - 30 || Math.abs(retreatY - shooter.y) > 120) return null;
+  return worms.map((w) => w.id === shooter.id ? { ...w, x: retreatX, y: retreatY } : w);
 }
 
 /** Ally/self damage a shot would deal (for friendly-fire veto). */
