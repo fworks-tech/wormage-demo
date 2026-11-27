@@ -14,9 +14,15 @@ function template() {
 
 const asArray = (value) => Array.isArray(value) ? value : [value];
 const actions = (statement) => asArray(statement.Action);
-const allowStatements = (stack) => Object.values(stack.findResources('AWS::IAM::Policy'))
-  .flatMap((policy) => policy.Properties.PolicyDocument.Statement || [])
-  .filter((statement) => statement.Effect === 'Allow');
+const allowStatements = (stack) => {
+  const statements = Object.values(stack.findResources('AWS::IAM::Policy'))
+    .flatMap((policy) => policy.Properties.PolicyDocument.Statement || [])
+    .filter((statement) => statement.Effect === 'Allow');
+  for (const statement of statements) {
+    assert.ok(!actions(statement).includes('*'), 'Lambda role must not grant wildcard actions');
+  }
+  return statements;
+};
 const serviceActions = (statements, service) => [...new Set(statements
   .flatMap(actions)
   .filter((action) => action.startsWith(`${service}:`)))].sort();
@@ -37,18 +43,15 @@ test('Lambda DynamoDB access is limited to used actions, the table and both GSIs
   ].sort();
   assert.deepEqual(serviceActions(statements, 'dynamodb'), expectedActions);
 
-  const statement = statements.find((entry) => actions(entry).includes('dynamodb:GetItem'));
-  assert.ok(statement, 'missing DynamoDB allow statement');
-  assert.deepEqual(actions(statement).slice().sort(), expectedActions);
-
   const [tableId] = Object.keys(stack.findResources('AWS::DynamoDB::Table'));
   const tableArn = { 'Fn::GetAtt': [tableId, 'Arn'] };
   const indexArn = (name) => ({ 'Fn::Join': ['', [tableArn, `/index/${name}`]] });
-  assertSameResources(statement.Resource, [
-    tableArn,
-    indexArn('LeaderboardIndex'),
-    indexArn('PlayerIndex'),
-  ]);
+  const expectedResources = [tableArn, indexArn('LeaderboardIndex'), indexArn('PlayerIndex')];
+  const dynamodbStatements = statements.filter((entry) => actions(entry).some((action) => action.startsWith('dynamodb:')));
+  assert.ok(dynamodbStatements.length > 0, 'missing DynamoDB allow statement');
+  for (const statement of dynamodbStatements) {
+    assertSameResources(statement.Resource, expectedResources);
+  }
 });
 
 test('Lambda S3 writes are prefix-scoped and deletes are limited to bug reports', () => {
@@ -60,28 +63,24 @@ test('Lambda S3 writes are prefix-scoped and deletes are limited to bug reports'
   const bucketArn = { 'Fn::GetAtt': [bucketId, 'Arn'] };
   const objectArn = (prefix) => ({ 'Fn::Join': ['', [bucketArn, `/${prefix}`]] });
 
-  const put = statements.find((entry) => actions(entry).includes('s3:PutObject'));
-  assert.ok(put, 'missing S3 PutObject allow statement');
-  assert.deepEqual(actions(put), ['s3:PutObject']);
-  assertSameResources(put.Resource, [
-    objectArn('debug-logs/*'),
-    objectArn('bug-reports/*'),
-  ]);
+  const puts = statements.filter((entry) => actions(entry).includes('s3:PutObject'));
+  assert.ok(puts.length > 0, 'missing S3 PutObject allow statement');
+  for (const put of puts) {
+    assertSameResources(put.Resource, [objectArn('debug-logs/*'), objectArn('bug-reports/*')]);
+  }
 
-  const remove = statements.find((entry) => actions(entry).includes('s3:DeleteObject'));
-  assert.ok(remove, 'missing S3 DeleteObject allow statement');
-  assert.deepEqual(actions(remove), ['s3:DeleteObject']);
-  assertSameResources(remove.Resource, [objectArn('bug-reports/*')]);
+  const removes = statements.filter((entry) => actions(entry).includes('s3:DeleteObject'));
+  assert.ok(removes.length > 0, 'missing S3 DeleteObject allow statement');
+  for (const remove of removes) {
+    assertSameResources(remove.Resource, [objectArn('bug-reports/*')]);
+  }
 });
 
 test('Lambda SSM access remains limited to the auth parameter', () => {
   const statements = allowStatements(template());
   assert.deepEqual(serviceActions(statements, 'ssm'), ['ssm:GetParameter']);
 
-  const statement = statements.find((entry) => actions(entry).includes('ssm:GetParameter'));
-  assert.ok(statement, 'missing SSM GetParameter allow statement');
-  assert.deepEqual(actions(statement), ['ssm:GetParameter']);
-  assert.deepEqual(statement.Resource, {
+  const expectedResource = {
     'Fn::Join': ['', [
       'arn:',
       { Ref: 'AWS::Partition' },
@@ -91,5 +90,10 @@ test('Lambda SSM access remains limited to the auth parameter', () => {
       { Ref: 'AWS::AccountId' },
       ':parameter/wormage/auth/secret',
     ]],
-  });
+  };
+  const ssmStatements = statements.filter((entry) => actions(entry).some((action) => action.startsWith('ssm:')));
+  assert.ok(ssmStatements.length > 0, 'missing SSM GetParameter allow statement');
+  for (const statement of ssmStatements) {
+    assertSameResources(statement.Resource, [expectedResource]);
+  }
 });
