@@ -9,11 +9,13 @@
 const { DynamoDBClient } = require('@aws-sdk/client-dynamodb');
 const { DynamoDBDocumentClient, GetCommand, ScanCommand, UpdateCommand } = require('@aws-sdk/lib-dynamodb');
 
-const TABLE = process.env.TABLE_NAME;
-if (!TABLE) { console.error('TABLE_NAME is required'); process.exit(1); }
 const APPLY = process.argv.includes('--apply');
 const ONLINE_TTL_SECONDS = 30 * 24 * 60 * 60;
 const ACTION_LOG_VERSION = 2;
+
+function tableName() {
+  return process.env.TABLE_NAME;
+}
 
 function baseMs(item) {
   for (const k of ['createdAt', 'at', 'turnStartedAt', 'finishedAt']) {
@@ -23,16 +25,25 @@ function baseMs(item) {
   return Date.now();
 }
 
+function isLegacyMeta(item) {
+  return item.actionLogVersion !== ACTION_LOG_VERSION;
+}
+
+// Orphaned actions (parent already gone) are not legacy — backfill them
+// so they expire instead of leaking forever.
+function isLegacyParent(parentItem) {
+  return !!parentItem && parentItem.actionLogVersion !== ACTION_LOG_VERSION;
+}
+
 async function main() {
+  const TABLE = tableName();
+  if (!TABLE) { console.error('TABLE_NAME is required'); process.exit(1); }
   const ddb = DynamoDBDocumentClient.from(new DynamoDBClient({}));
   const parentCache = new Map();
   const parentIsLegacy = async (code) => {
     if (!parentCache.has(code)) {
       const res = await ddb.send(new GetCommand({ TableName: TABLE, Key: { pk: `ONLINE#${code}`, sk: 'META' } }));
-      const m = res.Item;
-      // Orphaned actions (parent already gone) are not legacy — backfill them
-      // so they expire instead of leaking forever.
-      parentCache.set(code, !!m && m.actionLogVersion !== ACTION_LOG_VERSION);
+      parentCache.set(code, isLegacyParent(res.Item));
     }
     return parentCache.get(code);
   };
@@ -42,6 +53,8 @@ async function main() {
   let legacy = 0;
   let updated = 0;
   let startKey;
+  // shortcut: full-table Scan + N+1 Gets per MATCH#, fine for a one-off backfill
+  // under ~10k online items, upgrade to parallel Scan when the table grows.
   do {
     const res = await ddb.send(new ScanCommand({
       TableName: TABLE,
@@ -54,7 +67,7 @@ async function main() {
     for (const item of items) {
       const isMeta = item.pk.startsWith('ONLINE#');
       const isLegacy = isMeta
-        ? item.actionLogVersion !== ACTION_LOG_VERSION
+        ? isLegacyMeta(item)
         : await parentIsLegacy(item.pk.slice('MATCH#'.length));
       if (isLegacy) {
         legacy += 1;
@@ -85,4 +98,8 @@ async function main() {
   console.log(`${APPLY ? 'Updated' : 'Would update'} ${APPLY ? updated : missing} of ${scanned} scanned items; skipped ${legacy} legacy (dry-run=${!APPLY})`);
 }
 
-main().catch((e) => { console.error(e); process.exit(1); });
+if (require.main === module) {
+  main().catch((e) => { console.error(e); process.exit(1); });
+}
+
+module.exports = { baseMs, isLegacyMeta, isLegacyParent, ONLINE_TTL_SECONDS, ACTION_LOG_VERSION };

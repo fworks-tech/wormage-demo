@@ -12,6 +12,8 @@ new WormageStack(app, 'WormageStack', {
   description: 'Wormage AWS foundation (M3): API Gateway, Lambda, DynamoDB.',
   // Prod data guard: stack deletes fail closed alongside RETAIN resources
   // and DynamoDB deletion protection. See RUNBOOK.
+  // shortcut: blocks `cdk destroy` even for ephemeral dev stacks, revisit with
+  // a separate dev stack or env opt-out when dev loops need destroy.
   terminationProtection: true,
   hostedZoneId: process.env.WORMAGE_HOSTED_ZONE_ID,
   hostedZoneName: process.env.WORMAGE_HOSTED_ZONE_NAME,
