@@ -218,11 +218,15 @@ export function listMatches(playerId: string, page: number, pageSize: number): P
 }
 
 function encodeCursor(createdAt: string, id: string): string {
-  return Buffer.from(JSON.stringify({ createdAt, id }), 'utf8').toString('base64');
+  const bytes = new TextEncoder().encode(JSON.stringify({ createdAt, id }));
+  let binary = '';
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary);
 }
 
 function decodeCursor(cursor: string): { createdAt: string; id: string } {
-  const parsed = JSON.parse(Buffer.from(cursor, 'base64').toString('utf8')) as unknown;
+  const bytes = Uint8Array.from(atob(cursor), (char) => char.charCodeAt(0));
+  const parsed = JSON.parse(new TextDecoder().decode(bytes)) as unknown;
   if (!parsed || typeof parsed !== 'object' || typeof (parsed as { createdAt?: unknown }).createdAt !== 'string' || typeof (parsed as { id?: unknown }).id !== 'string') {
     throw new Error('invalid cursor');
   }

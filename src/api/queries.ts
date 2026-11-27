@@ -65,6 +65,7 @@ export function useRegisterMatch() {
     onSuccess: () => {
       void client.invalidateQueries({ queryKey: ['leaderboard'] });
       void client.invalidateQueries({ queryKey: ['matches'] });
+      void client.invalidateQueries({ queryKey: ['matches-cursor'] });
     },
   });
 }
@@ -134,5 +135,6 @@ export async function refreshBoards(client: ReturnType<typeof useQueryClient>): 
   await Promise.all([
     client.invalidateQueries({ queryKey: ['leaderboard'] }),
     client.invalidateQueries({ queryKey: ['matches'] }),
+    client.invalidateQueries({ queryKey: ['matches-cursor'] }),
   ]);
 }
