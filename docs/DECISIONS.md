@@ -142,7 +142,7 @@ The anchored rope is a per-worm tool with its own pendulum state, no ammo slot a
 The CPU walks to its firing spot with the reticle hidden, then stops and slews the reticle to the planned angle at `AI.aimRadiansPerSecond`; `fire()` is gated on the reticle matching the plan within `1e-6` radians.
 
 **Why:** a shot that leaves from an angle the player never saw reads as a cheat, and the pause makes the turn legible instead of instantaneous. The gate also catches a planner angle outside the `AIM` bounds.
-**Cost:** up to ~0.37 s of extra turn time for a half-turn of slew, and the CPU's intent is visible before it fires. A useful fallback bazooka shot is retargeted once so the visible animation has a stable angle to chase; the final shot is revalidated from the actual firing pose.
+**Cost:** up to ~0.37 s of extra turn time for a half-turn of slew, and the CPU's intent is visible before it fires. A useful fallback bazooka shot is retargeted once so the visible animation has a stable angle to chase; planning and the final revalidation both score damage from the actual firing pose.
 
 ## 21. Zod upgraded to v4 with the debug-logging change
 

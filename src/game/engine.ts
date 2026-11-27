@@ -1569,17 +1569,17 @@ export class GameEngine {
   }
 
   private aiShotIsUseful(worm: Worm, weapon: WeaponId, retreatX: number | null = null): boolean {
-    return isUsefulAiShot(
-      this.terrain,
-      { id: worm.id, teamId: worm.teamId, x: worm.x, y: worm.y, hp: worm.hp },
-      this.aliveAiWorms(),
+    return isUsefulAiShot({
+      terrain: this.terrain,
+      shooter: { id: worm.id, teamId: worm.teamId, x: worm.x, y: worm.y, hp: worm.hp },
+      worms: this.aliveAiWorms(),
       weapon,
-      worm.aimAngle,
-      Math.max(0.12, this.power),
-      this.wind,
-      this.revengeFocusByTeam[this.activeTeam] ?? null,
+      angle: worm.aimAngle,
+      power: Math.max(0.12, this.power),
+      wind: this.wind,
+      revengeFocus: this.revengeFocusByTeam[this.activeTeam] ?? null,
       retreatX,
-    );
+    });
   }
 
   /** Log the fresh plan with its target, so retries and first tries look the same. */

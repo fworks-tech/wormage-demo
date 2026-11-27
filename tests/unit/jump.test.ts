@@ -224,8 +224,24 @@ describe('jump physics', () => {
     expect(Math.hypot(stale.x - target.x, stale.y - (target.y - 13))).toBeGreaterThan(
       WEAPONS.bazooka.radius + WORM.radius,
     );
-    expect(isUsefulAiShot(terrain(), shooter, [shooter, target], 'bazooka', angle, 0.12, 0)).toBe(true);
-    expect(isUsefulAiShot(terrain(), shooter, [shooter, target], 'bazooka', angle, 0, 0)).toBe(false);
+    expect(isUsefulAiShot({
+      terrain: terrain(),
+      shooter,
+      worms: [shooter, target],
+      weapon: 'bazooka',
+      angle,
+      power: 0.12,
+      wind: 0,
+    })).toBe(true);
+    expect(isUsefulAiShot({
+      terrain: terrain(),
+      shooter,
+      worms: [shooter, target],
+      weapon: 'bazooka',
+      angle,
+      power: 0,
+      wind: 0,
+    })).toBe(false);
 
     const engine = new GameEngine(config({ wormsPerTeam: 1 }));
     Object.assign(engine.terrain, terrain());
