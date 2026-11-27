@@ -130,7 +130,8 @@ export class WormageStack extends cdk.Stack {
     // (free, AWS-managed key) published out-of-band via `aws ssm put-parameter`
     // in deploy-infra.yml — never in the CFN template (CDK StringParameter no
     // longer supports SecureString and a secret value must not land in the
-    // template history). Fail closed when the value is missing.
+    // template history). Fail closed when the value is missing. The value is
+    // intentionally unused at synth (existence check only).
     if (!props?.authSecretValue) {
       throw new Error('authSecretValue is required: set WORMAGE_AUTH_SECRET (openssl rand -hex 32)');
     }
