@@ -1337,7 +1337,7 @@ html:fullscreen {
   font-size: 13px;
   color: inherit;
   scrollbar-width: thin;
-  scrollbar-color: var(--line) transparent;
+  scrollbar-color: var(--muted) transparent;
 }
 
 .report-note:focus-visible {
@@ -1350,7 +1350,7 @@ html:fullscreen {
   max-height: calc(100dvh - 40px);
   overflow-y: auto;
   scrollbar-width: thin;
-  scrollbar-color: var(--line) transparent;
+  scrollbar-color: var(--muted) transparent;
   background: var(--panel-solid);
   border: 1px solid var(--line);
   border-radius: 8px;
@@ -1367,7 +1367,7 @@ html:fullscreen {
   text-transform: uppercase;
 }
 
-/* Themed scrollbars: line thumb on transparent track, amber on hover. */
+/* Themed scrollbars: muted thumb (3:1+ contrast), amber on hover. */
 .overlay-card::-webkit-scrollbar,
 .report-note::-webkit-scrollbar {
   width: 10px;
@@ -1379,12 +1379,17 @@ html:fullscreen {
 }
 .overlay-card::-webkit-scrollbar-thumb,
 .report-note::-webkit-scrollbar-thumb {
-  background: var(--line);
+  background: var(--muted);
   border-radius: 8px;
   border: 2px solid var(--panel-solid);
 }
 .report-note::-webkit-scrollbar-thumb {
   border-color: #0c1616;
+}
+/* Standard scrollbars (Chrome 121+): hover via scrollbar-color. */
+.overlay-card:hover,
+.report-note:hover {
+  scrollbar-color: var(--amber) transparent;
 }
 .overlay-card::-webkit-scrollbar-thumb:hover,
 .report-note::-webkit-scrollbar-thumb:hover {
