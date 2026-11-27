@@ -1598,7 +1598,7 @@ test('replay keeps bazooka ammo infinite (no desync, no infinite->finite)', asyn
   await L.joinOnlineMatch(ev('POST', `/api/matches/online/${code}/join`, {}, { playerId: 'p2', playerName: 'Bob' }), code, ddb);
   await L.submitAction(ev('POST', `/api/matches/online/${code}/action`, {}, { playerId: 'p1', action: { type: 'endTurn' }, clientActionId: 'endTurn-1', tick: 0 }), code, ddb);
 
-  const replay = replayActionLog({ GameEngine, match: { code, settings: { seed: 4242, wormsPerTeam: 2 } }, actions: [], stopTick: 0 });
+  const replay = replayActionLog({ GameEngine, match: { code, settings: { seed: 4242, wormsPerTeam: 2 } }, actions: [{ action: { type: 'endTurn' }, tick: 0 }], stopTick: 0 });
   assert.ok(replay.snapshot);
   for (const team of replay.snapshot.teams) {
     assert.equal(team.ammo.bazooka, Infinity, 'bazooka deve permanecer infinito apos o replay');
