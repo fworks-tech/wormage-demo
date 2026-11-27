@@ -292,6 +292,13 @@ test('getMatches rejects cursor missing index keys', async () => {
   assert.equal(r.statusCode, 400);
 });
 
+test('getMatches rejects cursor with extra fields', async () => {
+  const ddb = makeMockDdb();
+  const extra = Buffer.from(JSON.stringify({ pk: 'CLIENT#c-1', sk: 'META', playerId: 'p-cur', createdAt: '2026-01-01T00:00:00.000Z', junk: 'x' }), 'utf8').toString('base64');
+  const r = await L.getMatches(ev('GET', '/api/matches', { playerId: 'p-cur', limit: '2', cursor: extra }), ddb);
+  assert.equal(r.statusCode, 400);
+});
+
 test('postMatch idempotent by clientMatchId', async () => {
   const ddb = makeMockDdb();
   const body = { clientMatchId: 'c-1', playerId: 'p', playerName: 'P', teamName: 'T', score: 50, durationSeconds: 60, endReason: 'wipeout', turnSeconds: 45, wind: 'light', difficulty: 'veteran' };
