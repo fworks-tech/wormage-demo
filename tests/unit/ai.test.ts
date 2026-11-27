@@ -4,6 +4,7 @@ import {
   chooseRetreat,
   clampAngle,
   firingPositions,
+  isUsefulAiShot,
   planAiShot,
   planAiTurn,
   planRopeClimb,
@@ -480,6 +481,25 @@ test('the reported seeded no-plan stall jumps the crater ahead', () => {
   expect(engine.debugLog.some((entry) => entry.category === 'ai.fallbackWalk')).toBe(true);
   expect(engine.debugLog.some((entry) => entry.category === 'ai.jump')).toBe(true);
   expect(cpu.x).toBeLessThan(startX - 10);
+});
+
+test('a blast outside real mob geometry is not a useful shot', () => {
+  const shooter = { id: 'a', teamId: 0, x: 400, y: 500 };
+  // Dynamite detonates at the shooter's feet: impact (400, 492). The mob
+  // center is 80 px away: outside the 78 px blast (a real miss), but inside
+  // the worm-inflated 78 + 11 px reach with the -13 px chest offset.
+  const mob = { id: 'mob-1', teamId: -1, x: 480, y: 492, hp: 60 };
+  const useful = isUsefulAiShot({
+    terrain: terrain(),
+    shooter,
+    worms: [shooter, mob],
+    weapon: 'dynamite',
+    angle: 0,
+    power: 0,
+    wind: 0,
+    retreatX: 200,
+  });
+  expect(useful).toBe(false);
 });
 
 test('simulated shots pass through mobs but stop at worms', () => {
