@@ -8,6 +8,7 @@ import {
   planAiTurn,
   planRopeClimb,
   previewFlight,
+  simBodies,
   simulateShot,
 } from '../../src/game/ai';
 import { AIM, DIFFICULTY, JUMP_REACH, RETREAT_SECONDS, ROPE, WEAPONS, WORM } from '../../src/game/config';
@@ -481,8 +482,16 @@ test('the reported seeded no-plan stall jumps the crater ahead', () => {
   expect(cpu.x).toBeLessThan(startX - 10);
 });
 
-test('the CPU shoots an adjacent mob instead of idling (report 1654c9da)', () => {
-  const config: MatchConfig = {
+test('simulated shots pass through mobs but stop at worms', () => {
+  const shooter = { id: 'a', teamId: 0, x: 0, y: 500 };
+  const mob = { id: 'mob-1', teamId: -1, x: 700, y: 500 };
+  const foe = { id: 'b', teamId: 1, x: 900, y: 500 };
+  // The shooter never blocks its own muzzle; mobs take blast damage but never
+  // stop a projectile (stepProjectiles only collides with real worms).
+  expect(simBodies([shooter, mob, foe], shooter)).toEqual([foe]);
+});
+
+test('the CPU shoots an adjacent mob instead of idling (report 1654c9da)', () => {  const config: MatchConfig = {
     turnSeconds: 20,
     wind: 'strong',
     difficulty: 'rookie',
