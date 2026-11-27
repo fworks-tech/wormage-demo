@@ -35,7 +35,8 @@ export default function App() {
   const [onlinePlayerIndex, setOnlinePlayerIndex] = useState(0);
   const [matchKey, setMatchKey] = useState(0);
   const [result, setResult] = useState<SessionResult | null>(() => loadLastResult<SessionResult>());
-  const [profile, setProfile] = useState<Profile>(() => new LocalStorageProfileRepository().load());
+  const [initialProfile] = useState<Profile>(() => new LocalStorageProfileRepository().load());
+  const profileRef = useRef(initialProfile);
   const clientMatchId = useRef<string>('');
   const register = useRegisterMatch();
 
@@ -85,8 +86,8 @@ export default function App() {
         : finished;
       if (currentStage && finished.winnerTeam === 0) {
         completeStage(currentStage);
-        const nextProfile = withMissionComplete(profile, currentStage);
-        setProfile(nextProfile);
+        const nextProfile = withMissionComplete(profileRef.current, currentStage);
+        profileRef.current = nextProfile;
         new LocalStorageProfileRepository().save(nextProfile);
       }
       localStorage.removeItem('wormage.currentStage');
@@ -95,7 +96,7 @@ export default function App() {
       setScreen('result');
       submitResult(withStage);
     },
-    [profile, submitResult],
+    [submitResult],
   );
 
   const handleNextStage = useCallback(
