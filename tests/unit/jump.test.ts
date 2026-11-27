@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { isUsefulAiShot, planAiTurn, simulateShot } from '../../src/game/ai';
+import { chooseRetreat, isUsefulAiShot, planAiTurn, simulateShot } from '../../src/game/ai';
 import { WEAPONS, WORM } from '../../src/game/config';
 import { GameEngine } from '../../src/game/engine';
 import type { MatchConfig } from '../../src/game/types';
@@ -251,6 +251,53 @@ describe('jump physics', () => {
 
     expect(engine.hasFired).toBe(true);
     expect(engine.debugLog.find((entry) => entry.category === 'ai.fire')?.data?.power).toBe(0.12);
+  });
+
+  test('the AI fires a dynamite plan using the escape it validated', () => {
+    const shooter = { id: 'cpu', teamId: 1, x: 400, y: 500, hp: 100 };
+    const target = { id: 'player', teamId: 0, x: 480, y: 500, hp: 100 };
+    const retreatX = chooseRetreat(
+      terrain(),
+      shooter,
+      [target],
+      { x: shooter.x, y: shooter.y - 8 },
+      WEAPONS.dynamite.radius + WORM.radius + 6,
+      WEAPONS.dynamite.fuse!,
+    );
+    expect(retreatX).not.toBeNull();
+    const turn = {
+      weapon: 'dynamite' as const,
+      fireX: shooter.x,
+      fireY: shooter.y,
+      angle: -0.5,
+      power: 0.5,
+      retreatX: retreatX!,
+    };
+
+    const engine = new GameEngine(config({ wormsPerTeam: 1 }));
+    Object.assign(engine.terrain, terrain());
+    engine.wind = 0;
+    engine.endTurn();
+    const worm = engine.activeWorm!;
+    worm.x = turn.fireX;
+    worm.y = turn.fireY;
+    worm.vy = 0;
+    worm.onGround = true;
+    worm.fallDistance = 0;
+    worm.aimAngle = turn.angle;
+    const enemy = engine.teams[0].worms[0];
+    enemy.x = target.x;
+    enemy.y = target.y;
+    engine.power = turn.power;
+    engine.weapon = 'dynamite';
+
+    const internals = engine as unknown as { aiPlan: typeof turn; aiThinking: boolean };
+    internals.aiPlan = turn;
+    internals.aiThinking = false;
+
+    engine.update(DT);
+
+    expect(engine.hasFired).toBe(true);
   });
 
   test('the AI revalidates its plan from the pose where it will fire', () => {

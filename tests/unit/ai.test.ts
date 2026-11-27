@@ -300,6 +300,30 @@ test('AI drops dynamite at point-blank only when it can escape the blast', () =>
   );
 });
 
+test('AI scores dynamite self damage at its escape instead of the planting point', () => {
+  const worm = { id: 'a', teamId: 0, x: 400, y: 500 };
+  const target = { id: 'b', teamId: 1, x: 480, y: 500 };
+  const bazookaAmmo = WEAPONS.bazooka.ammo;
+  WEAPONS.bazooka.ammo = 0;
+  try {
+    const turn = planAiTurn({
+      terrain: terrain(),
+      worm,
+      worms: [worm, target],
+      ammo: { bazooka: 0, grenade: 0, shotgun: 0, dynamite: 1, medkit: 0, shield: 0 },
+      wind: 0,
+      timeLeft: 30,
+      difficulty: { angleError: 0, powerError: 0 },
+      rng: () => 0.5,
+    });
+
+    expect(turn).not.toBeNull();
+    expect(turn!.weapon).toBe('dynamite');
+  } finally {
+    WEAPONS.bazooka.ammo = bazookaAmmo;
+  }
+});
+
 test('the AI skips its turn rather than shooting terrain with no reachable target', () => {
   // Turn 20 from report 8a5cb2ce-7aa1-4152-8130-c68fce744431.
   const worm = { id: 't1-w1', teamId: 1, x: 3734.8, y: 612, hp: 100 };
