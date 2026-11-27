@@ -116,7 +116,10 @@ export class WormageStack extends cdk.Stack {
     if (!props?.authSecretValue) {
       throw new Error('authSecretValue is required: set WORMAGE_AUTH_SECRET (openssl rand -hex 32)');
     }
-    const authSecret = new ssm.StringParameter(this, 'AnonymousAuthSecret', {
+    // New logical ID on purpose: CloudFormation cannot change a resource's
+    // Type in place (SecretsManager::Secret -> SSM::Parameter). A fresh ID
+    // makes it create the parameter and delete the old secret instead.
+    const authSecret = new ssm.StringParameter(this, 'AnonymousAuthSecretParam', {
       parameterName: '/wormage/auth/secret',
       stringValue: props.authSecretValue,
       type: ssm.ParameterType.SECURE_STRING,
