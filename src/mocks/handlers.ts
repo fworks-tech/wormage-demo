@@ -16,6 +16,7 @@ import {
   forfeitOnlineMatch,
   replayOnlineMatch,
   shouldFail,
+  validateMatchesCursor,
 } from '../api/mockServer';
 import type { NewMatchInput } from '../api/types';
 import { createMockSessionFromHeaders, mockAuth } from '../api/auth';
@@ -52,6 +53,11 @@ export const handlers = [
     const url = new URL(request.url);
     if (isEmpty()) {
       if (url.searchParams.get('cursor') != null || url.searchParams.get('limit') != null) {
+        try {
+          validateMatchesCursor(url.searchParams.get('cursor') ?? undefined);
+        } catch {
+          return HttpResponse.json({ message: 'invalid cursor' }, { status: 400 });
+        }
         const limit = Math.max(1, Math.min(50, Math.floor(Number(url.searchParams.get('limit') ?? url.searchParams.get('pageSize') ?? 8) || 8)));
         return HttpResponse.json({ items: [], nextCursor: null, limit });
       }

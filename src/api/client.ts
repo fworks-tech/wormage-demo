@@ -17,6 +17,7 @@ import {
   replayOnlineMatch,
   shouldFail,
   isEmpty,
+  validateMatchesCursor,
 } from './mockServer';
 import type { NewMatchInput } from './types';
 import {
@@ -85,6 +86,11 @@ const localAdapter: AxiosAdapter = async (config) => {
     if (auth.status) return rejectStatus(config, auth.status, auth.status === 401 ? 'authentication required' : 'forbidden');
     if (isEmpty()) {
       if (params.get('cursor') != null || params.get('limit') != null) {
+        try {
+          validateMatchesCursor(params.get('cursor') ?? undefined);
+        } catch {
+          return rejectStatus(config, 400, 'invalid cursor');
+        }
         const limit = Math.max(1, Math.min(50, Math.floor(Number(params.get('limit') ?? params.get('pageSize') ?? 8) || 8)));
         return respond(config, 200, { items: [], nextCursor: null, limit });
       }
