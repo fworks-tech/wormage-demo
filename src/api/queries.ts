@@ -1,6 +1,6 @@
-import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { keepPreviousData, useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from './client';
-import type { LeaderboardRow, MatchRecord, NewMatchInput, OnlineMatch, Paginated, CreateOnlineMatchInput, JoinOnlineMatchInput } from './types';
+import type { CursorPaginated, LeaderboardRow, MatchRecord, NewMatchInput, OnlineMatch, Paginated, CreateOnlineMatchInput, JoinOnlineMatchInput } from './types';
 
 export const queryKeys = {
   leaderboard: (configKey: string, page: number, pageSize: number) =>
@@ -38,6 +38,22 @@ export function useMatchHistory(playerId: string, page: number, pageSize = 8) {
   });
 }
 
+export function useMatchHistoryCursor(playerId: string, limit = 8) {
+  return useInfiniteQuery({
+    queryKey: ['matches-cursor', playerId, limit],
+    queryFn: async ({ pageParam }) => {
+      const { data } = await api.get<CursorPaginated<MatchRecord>>('/api/matches', {
+        params: { playerId, limit, ...(pageParam ? { cursor: pageParam } : {}) },
+      });
+      return data;
+    },
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (lastPage) => lastPage.nextCursor ?? undefined,
+    staleTime: 10_000,
+    retry: 1,
+  });
+}
+
 export function useRegisterMatch() {
   const client = useQueryClient();
   return useMutation({
@@ -49,6 +65,7 @@ export function useRegisterMatch() {
     onSuccess: () => {
       void client.invalidateQueries({ queryKey: ['leaderboard'] });
       void client.invalidateQueries({ queryKey: ['matches'] });
+      void client.invalidateQueries({ queryKey: ['matches-cursor'] });
     },
   });
 }
@@ -118,5 +135,6 @@ export async function refreshBoards(client: ReturnType<typeof useQueryClient>): 
   await Promise.all([
     client.invalidateQueries({ queryKey: ['leaderboard'] }),
     client.invalidateQueries({ queryKey: ['matches'] }),
+    client.invalidateQueries({ queryKey: ['matches-cursor'] }),
   ]);
 }

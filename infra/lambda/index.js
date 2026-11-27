@@ -197,9 +197,37 @@ async function getLeaderboard(event, ddbClient = ddb) {
 async function getMatches(event, ddbClient = ddb, authenticatedPlayerId) {
   const q = qs(event);
   const playerId = authenticatedPlayerId || q.playerId || '';
+  if (!playerId) return json(400, { message: 'playerId is required' });
+
+  if (q.cursor != null || q.limit != null) {
+    const limit = Math.max(1, Math.min(50, Math.floor(Number(q.limit) || 8)));
+    let exclusiveStartKey;
+    if (q.cursor) {
+      try {
+        exclusiveStartKey = JSON.parse(Buffer.from(String(q.cursor), 'base64').toString('utf8'));
+      } catch {
+        return json(400, { message: 'invalid cursor' });
+      }
+      if (!exclusiveStartKey || typeof exclusiveStartKey !== 'object' || Array.isArray(exclusiveStartKey) || Object.keys(exclusiveStartKey).length !== 4 || typeof exclusiveStartKey.pk !== 'string' || typeof exclusiveStartKey.sk !== 'string' || typeof exclusiveStartKey.playerId !== 'string' || typeof exclusiveStartKey.createdAt !== 'string') {
+        return json(400, { message: 'invalid cursor' });
+      }
+    }
+    const result = await ddbClient.send(new QueryCommand({
+      TableName: TABLE,
+      IndexName: 'PlayerIndex',
+      KeyConditionExpression: 'playerId = :p',
+      ExpressionAttributeValues: { ':p': playerId },
+      ScanIndexForward: false,
+      Limit: limit,
+      ...(exclusiveStartKey ? { ExclusiveStartKey: exclusiveStartKey } : {}),
+    }));
+    const items = (result.Items || []).map(toRecord);
+    const nextCursor = result.LastEvaluatedKey ? Buffer.from(JSON.stringify(result.LastEvaluatedKey), 'utf8').toString('base64') : null;
+    return json(200, { items, nextCursor, limit });
+  }
+
   const page = Math.max(1, Number(q.page) || 1);
   const pageSize = Math.max(1, Math.min(50, Number(q.pageSize) || 8));
-  if (!playerId) return json(400, { message: 'playerId is required' });
 
   const result = await ddbClient.send(new QueryCommand({
     TableName: TABLE,

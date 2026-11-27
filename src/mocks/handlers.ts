@@ -4,6 +4,7 @@ import {
   latencyMs,
   listLeaderboard,
   listMatches,
+  listMatchesCursor,
   registerDebugLog,
   registerBugReport,
   registerMatch,
@@ -15,6 +16,7 @@ import {
   forfeitOnlineMatch,
   replayOnlineMatch,
   shouldFail,
+  validateMatchesCursor,
 } from '../api/mockServer';
 import type { NewMatchInput } from '../api/types';
 import { createMockSessionFromHeaders, mockAuth } from '../api/auth';
@@ -48,9 +50,28 @@ export const handlers = [
     if (shouldFail()) return HttpResponse.json({ message: 'Upstream unavailable' }, { status: 503 });
     const auth = await mockAuth(request.headers);
     if (auth.status) return authFailure(auth.status);
-    if (isEmpty()) return HttpResponse.json({ items: [], page: 1, pageSize: 8, total: 0, totalPages: 1 });
     const url = new URL(request.url);
+    if (isEmpty()) {
+      if (url.searchParams.get('cursor') != null || url.searchParams.get('limit') != null) {
+        try {
+          validateMatchesCursor(url.searchParams.get('cursor') ?? undefined);
+        } catch {
+          return HttpResponse.json({ message: 'invalid cursor' }, { status: 400 });
+        }
+        const limit = Math.max(1, Math.min(50, Math.floor(Number(url.searchParams.get('limit') ?? url.searchParams.get('pageSize') ?? 8) || 8)));
+        return HttpResponse.json({ items: [], nextCursor: null, limit });
+      }
+      return HttpResponse.json({ items: [], page: 1, pageSize: 8, total: 0, totalPages: 1 });
+    }
     const playerId = auth.playerId ?? url.searchParams.get('playerId') ?? '';
+    const cursor = url.searchParams.get('cursor') ?? undefined;
+    if (cursor != null || url.searchParams.get('limit') != null) {
+      try {
+        return HttpResponse.json(listMatchesCursor(playerId, Number(url.searchParams.get('limit') ?? url.searchParams.get('pageSize') ?? 8), cursor));
+      } catch {
+        return HttpResponse.json({ message: 'invalid cursor' }, { status: 400 });
+      }
+    }
     const page = Number(url.searchParams.get('page') ?? 1);
     const pageSize = Number(url.searchParams.get('pageSize') ?? 8);
     return HttpResponse.json(listMatches(playerId, page, pageSize));
