@@ -1,5 +1,7 @@
 import { expect, test, vi } from 'vitest';
 import { GameEngine } from '../../src/game/engine';
+import type { AiTerrain } from '../../src/game/ai';
+import { terrain } from './terrainFixture';
 
 // Force the no-plan path every time: no seed can "heal" and break CI.
 vi.mock('../../src/game/ai', async (importOriginal) => {
@@ -66,9 +68,108 @@ test(
   30000,
 );
 
-test('CPU without a plan passes after a blocked fallback instead of waiting for the clock', () => {
+test('CPU without a plan jumps a crater instead of standing still', () => {
   const engine = new GameEngine({
-    turnSeconds: 4,
+    turnSeconds: 6,
+    wind: 'off',
+    difficulty: 'rookie',
+    seed: 403416938,
+    wormsPerTeam: 1,
+  });
+  const crater: AiTerrain = {
+    isSolid: (x, y) => y >= 500 && !(x > 430 && x < 500),
+    groundY: (x, fromY, maxDown = 260) => {
+      if (x > 430 && x < 500) return null;
+      return fromY <= 500 && fromY + maxDown >= 500 ? 500 : null;
+    },
+  };
+  Object.assign(engine.terrain, crater);
+  engine.endTurn();
+
+  const cpu = engine.activeWorm!;
+  const enemy = engine.teams[0].worms[0];
+  cpu.x = 400;
+  cpu.y = 500;
+  cpu.onGround = true;
+  enemy.x = 900;
+  enemy.y = 500;
+  const startX = cpu.x;
+
+  for (let i = 0; i < 4 * 60; i += 1) engine.update(DT);
+
+  expect(engine.events.some((event) => event.type === 'jump')).toBe(true);
+  expect(engine.debugLog.some((entry) => entry.category === 'ai.jump')).toBe(true);
+  expect(cpu.x).toBeGreaterThan(startX + 20);
+});
+
+test('CPU without a plan tries a validated shot after bounded blocked recovery', () => {
+  const engine = new GameEngine({
+    turnSeconds: 8,
+    wind: 'off',
+    difficulty: 'rookie',
+    seed: 403416938,
+    wormsPerTeam: 1,
+  });
+  const wall: AiTerrain = {
+    isSolid: (x, y) => y >= 500 || (x >= 480 && x <= 500 && y >= 420),
+    groundY: (x, fromY, maxDown = 260) => {
+      if (x >= 480 && x <= 500) return fromY <= 420 && fromY + maxDown >= 420 ? 420 : null;
+      return fromY <= 500 && fromY + maxDown >= 500 ? 500 : null;
+    },
+  };
+  Object.assign(engine.terrain, wall);
+  engine.endTurn();
+
+  const cpu = engine.activeWorm!;
+  const enemy = engine.teams[0].worms[0];
+  cpu.x = 400;
+  cpu.y = 500;
+  cpu.onGround = true;
+  enemy.x = 900;
+  enemy.y = 500;
+
+  for (let i = 0; i < 8 * 60; i += 1) engine.update(DT);
+
+  expect(engine.events.filter((event) => event.type === 'jump').length).toBeLessThanOrEqual(2);
+  expect(engine.debugLog.some((entry) => entry.category === 'ai.fallback')).toBe(true);
+  expect(engine.debugLog.some((entry) => entry.category === 'ai.fire')).toBe(true);
+});
+
+test('CPU without a plan passes after bounded recovery when no shot can help', () => {
+  const engine = new GameEngine({
+    turnSeconds: 10,
+    wind: 'off',
+    difficulty: 'rookie',
+    seed: 403416938,
+    wormsPerTeam: 1,
+  });
+  Object.assign(engine.terrain, terrain(480));
+  engine.endTurn();
+
+  const cpu = engine.activeWorm!;
+  const enemy = engine.teams[0].worms[0];
+  cpu.x = 400;
+  cpu.y = 500;
+  cpu.onGround = true;
+  enemy.x = 900;
+  enemy.y = 500;
+  const turnAtStart = engine.turn;
+  let ticks = 0;
+  while (engine.turn === turnAtStart && ticks < 10 * 60) {
+    engine.update(DT);
+    ticks += 1;
+  }
+
+  expect(engine.events.filter((event) => event.type === 'jump').length).toBeLessThanOrEqual(2);
+  expect(engine.debugLog.some((entry) => entry.category === 'ai.noFallbackShot')).toBe(true);
+  expect(engine.debugLog.some((entry) => entry.category === 'ai.fire')).toBe(false);
+  expect(engine.turn).toBeGreaterThan(turnAtStart);
+  expect(ticks).toBeLessThan(10 * 60);
+});
+
+test('CPU without a plan attempts a shot when its fallback is blocked at the world edge', () => {
+  const engine = new GameEngine({
+    turnSeconds: 6,
     wind: 'off',
     difficulty: 'rookie',
     seed: 822537370,
@@ -87,13 +188,15 @@ test('CPU without a plan passes after a blocked fallback instead of waiting for 
 
   const turnAtStart = engine.turn;
   let ticks = 0;
-  while (engine.turn === turnAtStart && ticks < 4 * 60) {
+  while (engine.turn === turnAtStart && ticks < 6 * 60) {
     engine.update(DT);
     ticks += 1;
   }
 
   expect(engine.debugLog.some((entry) => entry.category === 'ai.noPlan')).toBe(true);
   expect(engine.debugLog.some((entry) => entry.category === 'ai.fallbackWalk')).toBe(true);
+  expect(engine.debugLog.some((entry) => entry.category === 'ai.fallbackShot')).toBe(true);
+  expect(engine.debugLog.some((entry) => entry.category === 'ai.fire')).toBe(true);
   expect(engine.turn).toBeGreaterThan(turnAtStart);
-  expect(ticks).toBeLessThan(3 * 60);
+  expect(ticks).toBeLessThan(6 * 60);
 });
