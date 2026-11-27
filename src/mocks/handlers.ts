@@ -66,8 +66,11 @@ export const handlers = [
       return HttpResponse.json({ message: 'clientMatchId is required' }, { status: 422 });
     }
     body.playerId = auth.playerId ?? body.playerId;
-    const { record, created } = registerMatch(body);
-    return HttpResponse.json(record, { status: created ? 201 : 200 });
+    const result = registerMatch(body);
+    if ('error' in result) {
+      return HttpResponse.json({ message: result.error }, { status: result.status });
+    }
+    return HttpResponse.json(result.record, { status: result.created ? 201 : 200 });
   }),
 
   http.post('/api/debug-logs', async ({ request }) => {

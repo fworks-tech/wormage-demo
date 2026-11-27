@@ -1606,7 +1606,7 @@ test('replay keeps bazooka ammo infinite (no desync, no infinite->finite)', asyn
 });
 
 test('online validation is a single shared source (no Lambda/mock drift)', () => {
-  const V = require('./validation.js');
+  const V = require('./validation.cjs');
   assert.equal(L.validateBody, V.validateBody, 'validateBody must be the shared module');
   assert.equal(L.validateAction, V.validateAction, 'validateAction must be the shared module');
   assert.equal(L.checkActionPhase, V.checkActionPhase, 'checkActionPhase must be the shared module');

@@ -96,8 +96,9 @@ const localAdapter: AxiosAdapter = async (config) => {
     const auth = await mockAuth(config.headers, body.playerId);
     if (auth.status) return rejectStatus(config, auth.status, auth.status === 401 ? 'authentication required' : 'playerId does not match authenticated session');
     body.playerId = auth.playerId ?? body.playerId;
-    const { record, created } = registerMatch(body);
-    return respond(config, created ? 201 : 200, record);
+    const result = registerMatch(body);
+    if ('error' in result) return respond(config, result.status, { message: result.error });
+    return respond(config, result.created ? 201 : 200, result.record);
   }
 
   if (method === 'POST' && url.pathname === '/api/debug-logs') {

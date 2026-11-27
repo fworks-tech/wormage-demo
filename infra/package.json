@@ -4,7 +4,8 @@
   "private": true,
   "scripts": {
     "build:engine": "esbuild ../src/game/engine.ts --bundle --platform=node --format=cjs --target=node22 --outfile=lambda/engine.cjs",
-    "build": "npm run build:engine && tsc",
+    "build:validation": "esbuild ../src/api/validation.ts --bundle --platform=node --format=cjs --target=node22 --outfile=lambda/validation.cjs",
+    "build": "npm run build:engine && npm run build:validation && tsc",
     "synth": "npm run build && cdk synth",
     "deploy": "npm run build && cdk deploy",
     "diff": "npm run build && cdk diff",

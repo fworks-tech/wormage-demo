@@ -1,4 +1,3 @@
-import { createRequire } from 'node:module';
 import { beforeEach, describe, expect, test } from 'vitest';
 import { WEAPONS } from '../../src/game/engine';
 import {
@@ -9,21 +8,7 @@ import {
   resetOnlineMatches,
   submitOnlineAction,
 } from '../../src/api/mockServer';
-
-const requireCjs = createRequire(import.meta.url);
-const shared = requireCjs('../../infra/lambda/validation.js') as {
-  AIM_ONLY: string[];
-  MAX_ACTION_BYTES: number;
-  ACTION_CAP: number;
-  validateAction: (action: unknown, weapons: unknown) => string | null;
-  validateBody: (body: unknown) => string | null;
-  checkActionPhase: (input: { phase: string; type: string; hasFired: boolean }) => { status: number; message: string } | null;
-  isTurnExpired: (match: { turnStartedAt?: string | null; turnSeconds?: number | null }, nowMs: number) => boolean;
-  expiredTurnUpdate: (
-    match: { activeTeam: number; turn: number; players: Array<{ playerId?: string } | null> },
-    nowIso: string,
-  ) => { activeTeam: number; turn: number; turnStartedAt: string; phase: string; hasFired: boolean; weapon: string; snapshot: null; snapshotTick: null };
-};
+import * as shared from '../../src/api/validation';
 
 function onlinePair() {
   resetOnlineMatches();
@@ -59,7 +44,7 @@ describe('shared online validation (Lambda + mock single source)', () => {
   });
 
   test('validateAction rejects malformed actions with Lambda messages', () => {
-    const cases: Array<[unknown, string]> = [
+    const cases: Array<[shared.OnlineActionLike, string]> = [
       [{ type: 'move', dir: 5 }, 'invalid action'],
       [{ type: 'move' }, 'invalid action'],
       [{ type: 'move', dir: 1, extra: 1 }, 'invalid action'],
@@ -69,7 +54,7 @@ describe('shared online validation (Lambda + mock single source)', () => {
       [{ type: 'setPower', power: 2 }, 'invalid action'],
       [{ type: 'jump', dir: 2 }, 'invalid action'],
       [{ type: 'weapon', id: 'nuke' }, 'unknown weapon'],
-      [{ type: 'weapon' }, 'invalid action'],
+      [{ type: 'weapon' }, 'unknown weapon'],
       [{ type: 'fire', x: 1 }, 'invalid action'],
       [{ type: 'dance' }, 'unknown action type'],
     ];
@@ -110,7 +95,7 @@ describe('shared online validation (Lambda + mock single source)', () => {
     const valid = { clientMatchId: 'c', playerId: 'p', playerName: 'P', teamName: 'T' };
     expect(shared.validateBody(valid)).toBe(null);
     expect(shared.validateBody(null)).toBe('invalid body');
-    expect(shared.validateBody([])).toBe('invalid body');
+    expect(shared.validateBody([] as unknown as shared.MatchBodyLike)).toBe('invalid body');
     const cases: Array<[Record<string, unknown>, string]> = [
       [{ ...valid, clientMatchId: '' }, 'clientMatchId is required'],
       [{ ...valid, playerId: '' }, 'playerId is required'],

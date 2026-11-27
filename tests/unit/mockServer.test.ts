@@ -50,6 +50,7 @@ test('registering the same client match twice is idempotent', () => {
   const input = match('client-1', 640);
   const first = registerMatch(input);
   const second = registerMatch(input);
+  if (!('record' in first) || !('record' in second)) throw new Error('expected records');
   expect(first.created).toBe(true);
   expect(second.created).toBe(false);
   expect(second.record.id).toBe(first.record.id);

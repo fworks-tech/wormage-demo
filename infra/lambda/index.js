@@ -256,50 +256,19 @@ function toRecord(m) {
   };
 }
 
-const ALLOWED_WIND = new Set(['off', 'light', 'strong']);
-const ALLOWED_DIFFICULTY = new Set(['rookie', 'veteran', 'elite']);
-const ALLOWED_MAP = new Set(['island', 'mesa', 'canyon', 'desert', 'arctic']);
-const ALLOWED_MODE = new Set(['deathmatch', 'assassinate', 'sudden-death', 'fort']);
-const ALLOWED_LOADOUT = new Set(['default', 'heavy', 'scout']);
-const ALLOWED_END = new Set(['time', 'wipeout', 'surrender']);
+const {
+  MAX_ACTION_BYTES,
+  ACTION_CAP,
+  isStr,
+  isNum,
+  validateAction,
+  validateBody,
+  checkActionPhase,
+  isTurnExpired,
+  expiredTurnUpdate,
+} = require('./validation.cjs');
 
-function isStr(v, max) { return typeof v === 'string' && v.length > 0 && v.length <= (max || 64); }
 function isPlayerId(v) { return typeof v === 'string' && /^player-[A-Za-z0-9_-]{1,100}$/.test(v); }
-function isNum(v, min, max) { return typeof v === 'number' && Number.isFinite(v) && v >= min && v <= max; }
-function isDirection(v) { return v === -1 || v === 0 || v === 1; }
-function hasOnlyKeys(value, allowed) {
-  return Object.keys(value).every((key) => allowed.includes(key));
-}
-function validateAction(action) {
-  const type = action.type;
-  if (type === 'move' || type === 'reel') {
-    return hasOnlyKeys(action, ['type', 'dir']) && isDirection(action.dir) ? null : 'invalid action';
-  }
-  if (type === 'aim') {
-    return hasOnlyKeys(action, ['type', 'delta']) && isNum(action.delta, -Infinity, Infinity) ? null : 'invalid action';
-  }
-  // Absolute aim/power must stay inside the arc and charge range pointer
-  // input can produce (src/game/config.ts AIM, engine.setAim/setPower clamp).
-  // Spoofed values outside these bounds are rejected instead of clamped so a
-  // hostile client cannot hide behind the clamp (issue #280).
-  if (type === 'aimAt') {
-    return hasOnlyKeys(action, ['type', 'angle']) && isNum(action.angle, -3.04, -0.1) ? null : 'invalid action';
-  }
-  if (type === 'setPower') {
-    return hasOnlyKeys(action, ['type', 'power']) && isNum(action.power, 0, 1) ? null : 'invalid action';
-  }
-  if (type === 'jump') {
-    return hasOnlyKeys(action, ['type', 'dir']) && (action.dir === undefined || isDirection(action.dir)) ? null : 'invalid action';
-  }
-  if (type === 'weapon') {
-    if (!hasOnlyKeys(action, ['type', 'id'])) return 'invalid action';
-    return typeof action.id === 'string' && Object.prototype.hasOwnProperty.call(WEAPONS, action.id) ? null : 'unknown weapon';
-  }
-  if (['rope', 'startCharge', 'releaseCharge', 'fire', 'endTurn'].includes(type)) {
-    return hasOnlyKeys(action, ['type']) ? null : 'invalid action';
-  }
-  return 'unknown action type';
-}
 function legacyGone() { return json(410, { message: 'legacy online match is no longer supported' }); }
 function sameAction(a, b) {
   const aKeys = Object.keys(a).sort();
@@ -312,25 +281,6 @@ function duplicateResponse(code, match, entry, playerId, action) {
     return json(409, { message: 'clientActionId already used' });
   }
   return json(200, { code, match: toOnlineMatch(match), duplicate: true });
-}
-
-function validateBody(body) {
-  if (!body || typeof body !== 'object' || Array.isArray(body)) return 'invalid body';
-  if (!isStr(body.clientMatchId)) return 'clientMatchId is required';
-  if (!isStr(body.playerId)) return 'playerId is required';
-  if (!isStr(body.playerName)) return 'playerName is required';
-  if (!isStr(body.teamName)) return 'teamName is required';
-  if (body.score !== undefined && !isNum(body.score, 0, 1e9)) return 'score out of range';
-  if (body.durationSeconds !== undefined && !isNum(body.durationSeconds, 0, 1e6)) return 'durationSeconds out of range';
-  if (body.kills !== undefined && !isNum(body.kills, 0, 10000)) return 'kills out of range';
-  if (body.turnSeconds !== undefined && !isNum(body.turnSeconds, 1, 600)) return 'turnSeconds out of range';
-  if (body.wind !== undefined && !ALLOWED_WIND.has(body.wind)) return 'invalid wind';
-  if (body.difficulty !== undefined && !ALLOWED_DIFFICULTY.has(body.difficulty)) return 'invalid difficulty';
-  if (body.map !== undefined && !ALLOWED_MAP.has(body.map)) return 'invalid map';
-  if (body.mode !== undefined && !ALLOWED_MODE.has(body.mode)) return 'invalid mode';
-  if (body.loadout !== undefined && !ALLOWED_LOADOUT.has(body.loadout)) return 'invalid loadout';
-  if (body.endReason !== undefined && !ALLOWED_END.has(body.endReason)) return 'invalid endReason';
-  return null;
 }
 
 async function postMatch(event, ddbClient = ddb, authenticatedPlayerId) {
@@ -797,43 +747,32 @@ async function getOnlineMatch(event, rawCode, ddbClient = ddb, authenticatedPlay
   }
 
   // Server-side turn expiry advance.
-  if (match.status === 'ready' && match.winnerTeam == null && match.phase !== 'gameover' && match.turnStartedAt) {
-    const elapsed = Date.now() - new Date(match.turnStartedAt).getTime();
-    const ts = match.turnSeconds != null ? match.turnSeconds : 45;
-    const limit = ts * 1000;
-    if (elapsed >= limit) {
+  if (match.status === 'ready' && match.winnerTeam == null && match.phase !== 'gameover' && isTurnExpired(match, Date.now())) {
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      if (match.status !== 'ready' || match.winnerTeam != null || match.phase === 'gameover') break;
+      if (!isTurnExpired(match, Date.now())) break;
+      const expectedRevision = match.revision || 0;
       const now = new Date().toISOString();
-      for (let attempt = 0; attempt < 3; attempt += 1) {
-        if (match.status !== 'ready' || match.winnerTeam != null || match.phase === 'gameover') break;
-        if (Date.now() - new Date(match.turnStartedAt).getTime() < limit) break;
-        const expectedRevision = match.revision || 0;
-        const newTurn = (match.turn || 1) + 1;
-        const n = Array.isArray(match.players) ? match.players.length : 0;
-        let nextTeam = match.activeTeam;
-        for (let i = 1; i <= n; i += 1) {
-          const idx = (match.activeTeam + i) % n;
-          if (match.players[idx] && match.players[idx].playerId) { nextTeam = idx; break; }
-        }
-        try {
-          await ddbClient.send(new UpdateCommand({
-            TableName: TABLE,
-            Key: { pk: `ONLINE#${code}`, sk: 'META' },
-            UpdateExpression: 'SET activeTeam = :at, turn = :t, turnStartedAt = :ts, #phase = :aim, hasFired = :false, weapon = :weapon, snapshot = :null, snapshotTick = :null, revision = :revision, expiresAt = :exp',
-            ExpressionAttributeNames: { '#phase': 'phase' },
-            ExpressionAttributeValues: { ':at': nextTeam, ':t': newTurn, ':ts': now, ':old': match.turnStartedAt, ':expectedRevision': expectedRevision, ':aim': 'aim', ':false': false, ':weapon': 'bazooka', ':null': null, ':revision': expectedRevision + 1, ':exp': onlineExpiresAt() },
-            ConditionExpression: 'turnStartedAt = :old AND (attribute_not_exists(revision) OR revision = :expectedRevision)',
-          }));
-          match = { ...match, activeTeam: nextTeam, turn: newTurn, turnStartedAt: now, phase: 'aim', hasFired: false, weapon: 'bazooka', snapshot: null, snapshotTick: null, revision: expectedRevision + 1 };
-          break;
-        } catch (err) {
-          if (!err || err.name !== 'ConditionalCheckFailedException') throw err;
-          const after = await ddbClient.send(new GetCommand({
-            TableName: TABLE,
-            Key: { pk: `ONLINE#${code}`, sk: 'META' },
-          }));
-          if (!after.Item) break;
-          match = after.Item;
-        }
+      const advance = expiredTurnUpdate(match, now);
+      try {
+        await ddbClient.send(new UpdateCommand({
+          TableName: TABLE,
+          Key: { pk: `ONLINE#${code}`, sk: 'META' },
+          UpdateExpression: 'SET activeTeam = :at, turn = :t, turnStartedAt = :ts, #phase = :aim, hasFired = :false, weapon = :weapon, snapshot = :null, snapshotTick = :null, revision = :revision, expiresAt = :exp',
+          ExpressionAttributeNames: { '#phase': 'phase' },
+          ExpressionAttributeValues: { ':at': advance.activeTeam, ':t': advance.turn, ':ts': now, ':old': match.turnStartedAt, ':expectedRevision': expectedRevision, ':aim': 'aim', ':false': false, ':weapon': 'bazooka', ':null': null, ':revision': expectedRevision + 1, ':exp': onlineExpiresAt() },
+          ConditionExpression: 'turnStartedAt = :old AND (attribute_not_exists(revision) OR revision = :expectedRevision)',
+        }));
+        match = { ...match, ...advance, revision: expectedRevision + 1 };
+        break;
+      } catch (err) {
+        if (!err || err.name !== 'ConditionalCheckFailedException') throw err;
+        const after = await ddbClient.send(new GetCommand({
+          TableName: TABLE,
+          Key: { pk: `ONLINE#${code}`, sk: 'META' },
+        }));
+        if (!after.Item) break;
+        match = after.Item;
       }
     }
   }
@@ -843,10 +782,6 @@ async function getOnlineMatch(event, rawCode, ddbClient = ddb, authenticatedPlay
   return json(200, { code: match.code, match: out });
 }
 
-
-const ACTION_CAP = 500;
-// shortcut: online actions are fixed-shape and tiny; revisit only if a future action needs a larger payload.
-const MAX_ACTION_BYTES = 512;
 
 function toActionLogEntry(item) {
   return {
@@ -948,7 +883,7 @@ async function submitAction(event, rawCode, ddbClient, authenticatedPlayerId) {
   if (duplicateResult) return duplicateResult;
 
   if (Buffer.byteLength(JSON.stringify(action), 'utf8') > MAX_ACTION_BYTES) return json(413, { message: 'action too large' });
-  const actionError = validateAction(action);
+  const actionError = validateAction(action, WEAPONS);
   if (actionError) return json(400, { message: actionError });
 
   if (match.status !== 'ready') return json(409, { message: 'match not ready' });
@@ -960,19 +895,9 @@ async function submitAction(event, rawCode, ddbClient, authenticatedPlayerId) {
 
   const phase = match.phase || 'aim';
   const type = action.type;
-  if (phase === 'gameover') return json(409, { message: 'match finished' });
   const syncOnly = type === 'endTurn' && phase !== 'aim';
-  const aimOnly = ['move', 'aim', 'aimAt', 'setPower', 'jump', 'rope', 'reel', 'weapon', 'startCharge', 'releaseCharge'];
-  if (type === 'fire' || type === 'startCharge') {
-    if (phase !== 'aim' || match.hasFired) return json(409, { message: 'illegal action for current phase' });
-  } else if (type === 'endTurn') {
-    const endingShot = match.hasFired && (phase === 'projectile' || phase === 'settle');
-    if (phase !== 'aim' && !endingShot) return json(409, { message: 'illegal action for current phase' });
-  } else if (aimOnly.includes(type)) {
-    if (phase !== 'aim') return json(409, { message: 'illegal action for current phase' });
-  } else {
-    return json(400, { message: 'unknown action type' });
-  }
+  const gated = checkActionPhase({ phase, type, hasFired: match.hasFired });
+  if (gated) return json(gated.status, { message: gated.message });
 
   if (allActions.length >= ACTION_CAP) return json(409, { message: 'action log full' });
 
@@ -1226,6 +1151,8 @@ exports.postBugReport = postBugReport;
 exports.validateBugReportBody = validateBugReportBody;
 exports.keyOf = keyOf;
 exports.validateBody = validateBody;
+exports.validateAction = validateAction;
+exports.checkActionPhase = checkActionPhase;
 exports.logError = logError;
 exports.createSession = createSession;
 exports.verifyToken = verifyToken;
