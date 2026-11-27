@@ -1,5 +1,11 @@
-import { expect, test } from 'vitest';
+import { expect, test, vi } from 'vitest';
 import { GameEngine } from '../../src/game/engine';
+
+// Force the no-plan path every time: no seed can "heal" and break CI.
+vi.mock('../../src/game/ai', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../src/game/ai')>();
+  return { ...actual, planAiTurn: () => null };
+});
 
 const DT = 1 / 60;
 
@@ -19,39 +25,43 @@ test(
     // Takes a plain string so narrowing of engine.phase never rejects the check.
     const isOver = (phase: string): boolean => phase === 'gameover';
 
+    // Drive to the first CPU turn (team 1 is CPU by default).
     let guard = 0;
-    while (!isOver(engine.phase) && guard < 8000) {
-      const turnAtStart = engine.turn;
-      const isCpuTurn =
-        engine.phase === 'aim' && engine.teams[engine.activeTeam]?.isAi === true;
-      const worm = engine.phase === 'aim' ? engine.activeWorm : null;
-      const wormId = worm?.id;
-      const startX = worm?.x ?? 0;
-      const startTick = engine.tick;
-
-      while (engine.turn === turnAtStart && !isOver(engine.phase) && guard < 8000) {
-        engine.update(DT);
-        guard += 1;
-      }
-      if (isOver(engine.phase)) break;
-      if (!isCpuTurn || !wormId) continue;
-
-      const logged = (category: string): boolean =>
-        engine.debugLog.some((e) => e.category === category && e.turn === turnAtStart);
-      if (!logged('ai.noPlan')) continue;
-
-      const durationTicks = engine.tick - startTick;
-      const ended = engine.teams.flatMap((t) => t.worms).find((w) => w.id === wormId);
-      const moved = Math.abs((ended?.x ?? startX) - startX);
-      // The core regression: the turn must outlive the ~0.9s think window.
-      expect(durationTicks).toBeGreaterThan(90);
-      // ...and the worm must have done something: advanced, fired after a
-      // retry, or at least logged the fallback walk before passing stuck.
-      expect(moved > 5 || logged('ai.fire') || logged('ai.fallbackWalk')).toBe(true);
-      return;
+    while (
+      !isOver(engine.phase) &&
+      !(engine.phase === 'aim' && engine.teams[engine.activeTeam]?.isAi === true) &&
+      guard < 8000
+    ) {
+      engine.update(DT);
+      guard += 1;
     }
+    expect(isOver(engine.phase)).toBe(false);
+    expect(engine.teams[engine.activeTeam]?.isAi).toBe(true);
 
-    throw new Error('no no-plan CPU turn observed; seed no longer reproduces #298');
+    const wormId = engine.activeWorm?.id;
+    const startX = engine.activeWorm?.x ?? 0;
+    const startTick = engine.tick;
+    const turnAtStart = engine.turn;
+    expect(wormId).toBeDefined();
+
+    while (engine.turn === turnAtStart && !isOver(engine.phase) && guard < 8000) {
+      engine.update(DT);
+      guard += 1;
+    }
+    if (isOver(engine.phase)) return;
+
+    const logged = (category: string): boolean =>
+      engine.debugLog.some((e) => e.category === category && e.turn === turnAtStart);
+    // The fallback must have engaged: no-plan seen, walk announced.
+    expect(logged('ai.noPlan')).toBe(true);
+    expect(logged('ai.fallbackWalk')).toBe(true);
+    // The core regression: the turn must outlive the ~0.9s think window...
+    expect(engine.tick - startTick).toBeGreaterThan(90);
+    // ...and the worm must have done something real: advanced or fired.
+    // A bare log is not proof of movement.
+    const ended = engine.teams.flatMap((t) => t.worms).find((w) => w.id === wormId);
+    const moved = Math.abs((ended?.x ?? startX) - startX);
+    expect(moved > 5 || logged('ai.fire')).toBe(true);
   },
   30000,
 );

@@ -1567,6 +1567,26 @@ export class GameEngine {
     });
   }
 
+  /** Log the fresh plan with its target, so retries and first tries look the same. */
+  private logAiPlan(worm: Worm): void {
+    const plan = this.aiPlan;
+    if (!plan) return;
+    const target = this.nearestEnemy(worm);
+    this.logDebug('ai.plan', 'AI planned turn', {
+      wormId: worm.id,
+      targetId: target?.id,
+      targetTeam: target?.teamId,
+      fireX: plan.fireX,
+      fireY: plan.fireY,
+      angle: plan.angle,
+      power: plan.power,
+      weapon: plan.weapon,
+      retreatX: plan.retreatX,
+      wind: this.wind,
+      mood: this.revengeFocusByTeam[this.activeTeam] ? 'revenge' : 'normal',
+    }, 'cpu', worm.id);
+  }
+
   private aimAt(angle: number, power: number): void {
     const worm = this.activeWorm;
     if (!worm) return;
@@ -1626,12 +1646,24 @@ export class GameEngine {
       // shortcut: straight-line walk, no mines/jumps; revisit with pathfinding.
       if (this.aiFallbackX !== null) {
         const dxFallback = this.aiFallbackX - worm.x;
-        this.moveDir = Math.abs(dxFallback) <= 6 ? 0 : dxFallback > 0 ? 1 : -1;
-        if (Math.abs(worm.x - this.aiLastX) < 0.5) this.aiStall += dt;
-        else {
-          this.aiStall = 0;
-          this.aiLastX = worm.x;
-          this.aiBlockedLogged = false;
+        const dir = Math.abs(dxFallback) <= 6 ? 0 : dxFallback > 0 ? 1 : -1;
+        // Anti-feed: never step onto a mine or off a cliff while blind-rushing.
+        const probeX = worm.x + dir * 16;
+        const mineAhead =
+          dir !== 0 &&
+          this.loot.some((l) => l.kind === 'mine' && Math.hypot(l.x - probeX, l.y - worm.y) < 60);
+        const groundAhead = dir !== 0 ? this.terrain.groundY(probeX, worm.y - 18, 42) : 0;
+        if (dir === 0 || mineAhead || groundAhead === null) {
+          this.moveDir = 0;
+          this.aiStall += dt;
+        } else {
+          this.moveDir = dir;
+          if (Math.abs(worm.x - this.aiLastX) < 0.5) this.aiStall += dt;
+          else {
+            this.aiStall = 0;
+            this.aiLastX = worm.x;
+            this.aiBlockedLogged = false;
+          }
         }
         this.aiFallbackRetry -= dt;
         if (this.aiFallbackRetry <= 0) {
@@ -1641,22 +1673,9 @@ export class GameEngine {
           this.aiBlockedLogged = false;
           if (this.aiPlan) {
             this.aiFallbackX = null;
-            const retryTarget = this.nearestEnemy(worm);
-            this.logDebug('ai.plan', 'AI planned turn', {
-              wormId: worm.id,
-              targetId: retryTarget?.id,
-              targetTeam: retryTarget?.teamId,
-              fireX: this.aiPlan.fireX,
-              fireY: this.aiPlan.fireY,
-              angle: this.aiPlan.angle,
-              power: this.aiPlan.power,
-              weapon: this.aiPlan.weapon,
-              retreatX: this.aiPlan.retreatX,
-              wind: this.wind,
-              mood: this.revengeFocusByTeam[this.activeTeam] ? 'revenge' : 'normal',
-            }, 'cpu', worm.id);
+            this.logAiPlan(worm);
           } else {
-            this.aiFallbackRetry = 2;
+            this.aiFallbackRetry = 1;
             const enemy = this.nearestEnemy(worm);
             if (enemy) this.aiFallbackX = enemy.x;
           }
@@ -1690,24 +1709,11 @@ export class GameEngine {
             return;
           }
           this.aiFallbackX = enemy.x;
-          this.aiFallbackRetry = 2;
+          this.aiFallbackRetry = 1;
           this.logDebug('ai.fallbackWalk', 'AI advancing toward enemy without a plan', { wormId: worm.id, targetId: enemy.id, fromX: worm.x, toX: enemy.x }, 'cpu', worm.id);
           return;
         }
-        const initialTarget = this.nearestEnemy(worm);
-        this.logDebug('ai.plan', 'AI planned turn', {
-          wormId: worm.id,
-          targetId: initialTarget?.id,
-          targetTeam: initialTarget?.teamId,
-          fireX: this.aiPlan.fireX,
-          fireY: this.aiPlan.fireY,
-          angle: this.aiPlan.angle,
-          power: this.aiPlan.power,
-          weapon: this.aiPlan.weapon,
-          retreatX: this.aiPlan.retreatX,
-          wind: this.wind,
-          mood: this.revengeFocusByTeam[this.activeTeam] ? 'revenge' : 'normal',
-        }, 'cpu', worm.id);
+        this.logAiPlan(worm);
       }
     }
 
