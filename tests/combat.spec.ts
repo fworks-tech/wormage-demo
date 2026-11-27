@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
-import { RETREAT_SECONDS, WEAPONS } from '../src/game/config';
+import { RETREAT_SECONDS, WEAPONS, WORLD_W } from '../src/game/config';
 
 const desktop = () => test.info().project.name === 'desktop';
 
@@ -223,6 +223,52 @@ test('the HUD uses the full arena width on wide screens', async ({ page }) => {
   const dock = await page.locator('.weapon-dock').boundingBox();
   expect(dock!.x).toBeGreaterThanOrEqual(0);
   expect(dock!.x + dock!.width).toBeLessThanOrEqual(1900);
+});
+
+test.describe('wide arena resize', () => {
+  test.use({ viewport: { width: 1366, height: 820 }, deviceScaleFactor: 1.4625 });
+
+  test('clamps the camera to the new world bounds immediately', async ({ page }) => {
+    test.skip(!desktop(), 'desktop wide-screen regression');
+    await startMatch(page);
+    await endTurn(page);
+    await page.waitForFunction(() => (window as never as { __WORMAGE__: { snapshot: () => Snapshot } }).__WORMAGE__.snapshot().activeTeam === 1);
+    await page.evaluate(() => {
+      const game = (window as never as { __WORMAGE__: { engine: {
+        activeWorm: { x: number; y: number } | null;
+        mobs: Array<{ alive: boolean }>;
+        teams: Array<{ isAi: boolean }>;
+        terrain: { surfaceY: (x: number) => number };
+      } } }).__WORMAGE__;
+      const engine = game.engine;
+      engine.teams[1].isAi = false;
+      engine.mobs.forEach((mob) => { mob.alive = false; });
+      if (engine.activeWorm) {
+        engine.activeWorm.x = 3800;
+        engine.activeWorm.y = engine.terrain.surfaceY(3800) - 14;
+      }
+    });
+    await page.waitForFunction((worldWidth) => {
+      const game = (window as never as { __WORMAGE__: { toWorld: (x: number, y: number) => { x: number } } }).__WORMAGE__;
+      const canvas = document.querySelector<HTMLCanvasElement>('[data-testid="arena"] canvas')!;
+      return game.toWorld(canvas.getBoundingClientRect().right, canvas.getBoundingClientRect().bottom).x >= worldWidth - 61;
+    }, WORLD_W);
+
+    await page.setViewportSize({ width: 1313, height: 617 });
+    await page.waitForFunction(() => {
+      const canvas = document.querySelector<HTMLCanvasElement>('[data-testid="arena"] canvas');
+      return canvas?.width === 1920 && canvas.height === 902;
+    });
+
+    const right = await page.evaluate(() => {
+      const game = (window as never as { __WORMAGE__: { toWorld: (x: number, y: number) => { x: number } } }).__WORMAGE__;
+      const canvas = document.querySelector<HTMLCanvasElement>('[data-testid="arena"] canvas')!;
+      const rect = canvas.getBoundingClientRect();
+      return game.toWorld(rect.right, rect.bottom).x;
+    });
+    expect(right).toBeLessThanOrEqual(WORLD_W);
+    expect(right).toBeCloseTo(WORLD_W, 1);
+  });
 });
 
 test('the fuse countdown shows the real fuse and scales its bar', async ({ page }) => {

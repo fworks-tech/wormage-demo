@@ -393,6 +393,11 @@ export class ArenaRenderer {
     const scale = Math.min(width / BASE_W, height / BASE_H);
     this.baseScale = Math.max(0.25, Math.min(1, scale));
     this.root.scale.set(this.baseScale);
+    const viewW = width / this.baseScale;
+    const viewH = height / this.baseScale;
+    this.cameraX = Math.max(0, Math.min(WORLD_W - viewW, this.cameraX));
+    this.cameraY = Math.max(0, Math.min(WORLD_H - viewH, this.cameraY));
+    this.root.position.set(-this.cameraX * this.baseScale, -this.cameraY * this.baseScale);
     this.buildVignette();
   }
 
