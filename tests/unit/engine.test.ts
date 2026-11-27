@@ -37,6 +37,49 @@ describe('engine rules without a browser', () => {
     expect(Math.abs(engine.wind)).toBeLessThanOrEqual(WIND_ACCEL.strong);
   });
 
+  test('holding fire and a direction walks the active worm', () => {
+    const engine = new GameEngine(config());
+    const worm = engine.activeWorm!;
+    expect(worm.onGround).toBe(true);
+    const startX = worm.x;
+
+    engine.startCharge();
+    engine.setMove(1);
+    step(engine, 0.4);
+
+    expect(engine.charging).toBe(true);
+    expect(worm.x).toBeGreaterThan(startX + 5);
+  });
+
+  test('walking during a charge does not flip the aimed shot', () => {
+    const engine = new GameEngine(config());
+    const worm = engine.activeWorm!;
+    worm.aimAngle = -0.55;
+    worm.facing = 1;
+    engine.startCharge();
+    engine.setMove(-1);
+    step(engine, 0.5);
+
+    expect(engine.charging).toBe(true);
+    expect(worm.facing).toBe(-1);
+    expect(worm.aimAngle).toBeCloseTo(-0.55);
+  });
+
+  test('holding fire still allows a jump and in-air steering', () => {
+    const engine = new GameEngine(config());
+    const worm = engine.activeWorm!;
+    engine.startCharge();
+    engine.jump(0);
+    expect(worm.onGround).toBe(false);
+    const airX = worm.x;
+
+    engine.setMove(1);
+    step(engine, 0.2);
+
+    expect(engine.charging).toBe(true);
+    expect(worm.x).toBeGreaterThan(airX + 1);
+  });
+
   test('player input cannot discard a shot by ending the turn', () => {
     const engine = new GameEngine(config());
     engine.startCharge();

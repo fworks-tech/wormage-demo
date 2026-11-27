@@ -1288,8 +1288,7 @@ export class GameEngine {
       isActive &&
       worm.onGround &&
       (this.phase === 'aim' || this.retreatActive) &&
-      this.moveDir !== 0 &&
-      !this.charging;
+      this.moveDir !== 0;
 
     if (canWalk) {
       const dir = this.moveDir;
@@ -1302,7 +1301,7 @@ export class GameEngine {
         worm.x = nx;
         if (worm.facing !== dir && !keepPlannedAim) {
           worm.facing = dir as 1 | -1;
-          worm.aimAngle = mirrorAngle(worm.aimAngle);
+          if (!this.charging) worm.aimAngle = mirrorAngle(worm.aimAngle);
         }
         if (ahead !== null) {
           worm.y = ahead;
@@ -1323,8 +1322,7 @@ export class GameEngine {
       !worm.onGround &&
       !worm.launched &&
       (this.phase === 'aim' || this.retreatActive) &&
-      this.moveDir !== 0 &&
-      !this.charging
+      this.moveDir !== 0
     ) {
       worm.vx = this.moveDir * WORM.jumpPush;
     }
