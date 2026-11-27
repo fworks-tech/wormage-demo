@@ -144,13 +144,14 @@ const impactOf = (turn: NonNullable<ReturnType<typeof plan>>, targetX: number) =
   const impact = simulateShot(
     terrain(),
     turn.fireX + Math.cos(turn.angle) * 18,
-    500 - 14 + Math.sin(turn.angle) * 18,
+    turn.fireY - 14 + Math.sin(turn.angle) * 18,
     turn.angle,
     turn.power,
     turn.weapon,
     0,
     def.fuse,
     def.bounces,
+    [{ x: targetX, y: 500 }],
   );
   return impact.valid ? Math.hypot(impact.x - targetX, impact.y - (500 - 13)) : Infinity;
 };
@@ -322,6 +323,39 @@ test('AI scores dynamite self damage at its escape instead of the planting point
   } finally {
     WEAPONS.bazooka.ammo = bazookaAmmo;
   }
+});
+
+test('AI scores projectile plans from the selected firing position', () => {
+  const worm = { id: 'a', teamId: 0, x: 400, y: 500, hp: 100 };
+  const target = { id: 'b', teamId: 1, x: 380, y: 500, hp: 100 };
+  const turn = planAiTurn({
+    terrain: terrain(),
+    worm,
+    worms: [worm, target],
+    ammo: { bazooka: Infinity, grenade: 0, shotgun: 0, dynamite: 0, medkit: 0, shield: 0 },
+    wind: 0,
+    timeLeft: 3,
+    difficulty: { angleError: 0, powerError: 0 },
+    rng: () => 0.5,
+  });
+
+  // Moving right puts more distance between the shooter and the close-range blast.
+  expect(turn).toMatchObject({ weapon: 'bazooka', fireX: 452, power: 0.4 });
+  const impact = simulateShot(
+    terrain(),
+    turn!.fireX + Math.cos(turn!.angle) * 18,
+    turn!.fireY - 14 + Math.sin(turn!.angle) * 18,
+    turn!.angle,
+    turn!.power,
+    turn!.weapon,
+    0,
+    WEAPONS.bazooka.fuse,
+    WEAPONS.bazooka.bounces,
+    [target],
+  );
+  expect(Math.hypot(impact.x - target.x, impact.y - (target.y - 13))).toBeLessThanOrEqual(
+    WEAPONS.bazooka.radius + WORM.radius,
+  );
 });
 
 test('the AI skips its turn rather than shooting terrain with no reachable target', () => {
