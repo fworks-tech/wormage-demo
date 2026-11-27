@@ -35,11 +35,17 @@ export interface ShotPlan {
 
 export interface AiWorm {
   id: string;
+  /** Real teams are >= 0; -1 marks a blast-only pseudo-target (e.g. a mob). */
   teamId: number;
   x: number;
   y: number;
   /** Current HP; optional for callers that don't carry it. */
   hp?: number;
+}
+
+/** Bodies that stop a simulated shot: real worms only. Mobs take blast damage but never stop a projectile, mirroring stepProjectiles. */
+export function simBodies(worms: AiWorm[], shooter: AiWorm): AiWorm[] {
+  return worms.filter((w) => w.id !== shooter.id && w.teamId >= 0);
 }
 
 export interface AiTurnPlan {
@@ -205,7 +211,7 @@ export function isUsefulAiShot({
     if (!escapeWorms) return false;
     scoringWorms = escapeWorms;
   }
-  const bodies = worms.filter((w) => w.id !== shooter.id);
+  const bodies = simBodies(worms, shooter);
   const impact = def.kind === 'drop'
     ? { x: shooter.x, y: shooter.y - 8, valid: true }
     : simulateShot(
@@ -248,7 +254,7 @@ export function planAiShot(
   if (!target) return null;
   const wormX = shooter.x;
   const wormY = shooter.y;
-  const bodies = worms.filter((w) => w.id !== shooter.id);
+  const bodies = simBodies(worms, shooter);
   const facingLeft = target.x < wormX;
   const base = facingLeft ? -Math.PI : 0;
   // Angles grow from -π (left) to -0.08 (right), so left-facing adds and right-facing subtracts.
@@ -475,7 +481,7 @@ function planProjectile(
   const mirror = facingLeft ? 1 : -1;
   const offsets = [0.22, 0.5, 0.75, 1.0, 1.22, 1.42];
   const retreatX = chooseRetreat(terrain, pos, enemies, null, 0, RETREAT_SECONDS) ?? pos.x;
-  const bodies = worms.filter((w) => w.id !== worm.id);
+  const bodies = simBodies(worms, worm);
   const firingWorm = { ...worm, x: pos.x, y: pos.y };
   const scoringWorms = worms.map((w) => w.id === worm.id ? firingWorm : w);
   let best: Candidate | null = null;
