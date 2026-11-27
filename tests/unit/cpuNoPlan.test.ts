@@ -65,3 +65,35 @@ test(
   },
   30000,
 );
+
+test('CPU without a plan passes after a blocked fallback instead of waiting for the clock', () => {
+  const engine = new GameEngine({
+    turnSeconds: 4,
+    wind: 'off',
+    difficulty: 'rookie',
+    seed: 822537370,
+    wormsPerTeam: 1,
+  });
+  engine.endTurn();
+  engine.loot.splice(0);
+  engine.mobs.splice(0);
+
+  const cpu = engine.activeWorm!;
+  const enemy = engine.teams[0].worms[0];
+  cpu.x = 12;
+  cpu.y = engine.terrain.groundY(12, 120, 500) ?? 500;
+  enemy.x = 0;
+  enemy.y = cpu.y;
+
+  const turnAtStart = engine.turn;
+  let ticks = 0;
+  while (engine.turn === turnAtStart && ticks < 4 * 60) {
+    engine.update(DT);
+    ticks += 1;
+  }
+
+  expect(engine.debugLog.some((entry) => entry.category === 'ai.noPlan')).toBe(true);
+  expect(engine.debugLog.some((entry) => entry.category === 'ai.fallbackWalk')).toBe(true);
+  expect(engine.turn).toBeGreaterThan(turnAtStart);
+  expect(ticks).toBeLessThan(3 * 60);
+});

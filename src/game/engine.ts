@@ -1667,9 +1667,10 @@ export class GameEngine {
         if (this.aiFallbackRetry <= 0) {
           this.aiPlan = this.buildAiPlan(worm);
           this.aiLastX = worm.x;
-          this.aiStall = 0;
-          this.aiBlockedLogged = false;
+          // Failed retries must preserve blocked time or a cliff can stall until the turn timer expires.
           if (this.aiPlan) {
+            this.aiStall = 0;
+            this.aiBlockedLogged = false;
             this.aiFallbackX = null;
             this.logAiPlan(worm);
           } else {
