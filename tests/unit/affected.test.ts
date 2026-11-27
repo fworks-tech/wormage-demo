@@ -76,6 +76,8 @@ test('listTests finds nested specs and unit tests', () => {
 
 test('profile sources and identity storage run the profile repository unit', () => {
   expect(selection(['src/state/profile.ts']).unit).toEqual(['tests/unit/profile.test.ts']);
+  expect(selection(['src/state/profile.ts']).e2e).toContain('tests/stages.spec.ts');
+  expect(selection(['src/state/stages.ts']).unit).toContain('tests/unit/profile.test.ts');
   expect(selection(['src/state/storage.ts']).unit).toContain('tests/unit/profile.test.ts');
 });
 

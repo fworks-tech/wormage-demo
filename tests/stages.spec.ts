@@ -53,6 +53,7 @@ test('legacy stage progress migrates into the profile after upgrade', async ({ p
   await page.evaluate(() => localStorage.setItem('wormage.stages.v1', JSON.stringify({ '1-3': true })));
 
   await page.reload();
+  await expect(page.getByTestId('btn-play')).toBeVisible();
 
   const profile = await page.evaluate(() => JSON.parse(localStorage.getItem('wormage.profile.v1') || 'null'));
   expect(profile).toMatchObject({ missionProgress: { '1-3': true } });
