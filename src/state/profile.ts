@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { loadPlayer } from './storage';
+import { loadProgress, resetProgress } from './stages';
 
 const PROFILE_KEY = 'wormage.profile.v1';
 const PROFILE_VERSION = 1;
@@ -56,10 +57,22 @@ export class LocalStorageProfileRepository implements ProfileRepository {
       // corrupt or unavailable storage falls through to a fresh profile
     }
 
+    let created = false;
     if (!profile) {
       profile = createDefaultProfile();
-      this.save(profile);
+      created = true;
     }
+
+    let migrated = false;
+    const missionProgress = { ...profile.missionProgress };
+    for (const [id, completed] of Object.entries(loadProgress() ?? {})) {
+      if (completed === true && missionProgress[id] !== true) {
+        missionProgress[id] = true;
+        migrated = true;
+      }
+    }
+    if (migrated) profile = { ...profile, missionProgress };
+    if (created || migrated) this.save(profile);
     return profile;
   }
 
@@ -78,5 +91,6 @@ export class LocalStorageProfileRepository implements ProfileRepository {
     } catch {
       // ignore
     }
+    resetProgress();
   }
 }

@@ -31,6 +31,10 @@ export function saveProgress(progress: Record<string, boolean>): void {
   try { localStorage.setItem(KEY, JSON.stringify(progress)); } catch { /* ignore */ }
 }
 
+export function resetProgress(): void {
+  try { localStorage.removeItem(KEY); } catch { /* ignore */ }
+}
+
 export function isUnlocked(stage: Stage, progress: Record<string, boolean>): boolean {
   if (!stage.unlockAfter) return true;
   return Boolean(progress[stage.unlockAfter]);
