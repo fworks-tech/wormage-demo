@@ -15,6 +15,11 @@ test('winning a stage marks it complete and unlocks the next', async ({ page }) 
   await page.evaluate(() => localStorage.setItem('wormage.currentStage', '1-3'));
   await page.getByTestId('btn-play').click();
   await page.waitForFunction(() => Boolean((window as never as { __WORMAGE__?: unknown }).__WORMAGE__));
+  await page.evaluate(() => {
+    const key = 'wormage.profile.v1';
+    const profile = JSON.parse(localStorage.getItem(key) || '{}');
+    localStorage.setItem(key, JSON.stringify({ ...profile, xp: 1250, level: 4, unlocks: ['heavy'] }));
+  });
 
   // Player (team 0) wins: hand the turn to the CPU, then surrender for it.
   await page.evaluate(() => {
@@ -35,7 +40,7 @@ test('winning a stage marks it complete and unlocks the next', async ({ page }) 
 
   // The same win is recorded in the profile that cloud save will sync.
   const profile = await page.evaluate(() => JSON.parse(localStorage.getItem('wormage.profile.v1') || 'null'));
-  expect(profile).toMatchObject({ version: 1, xp: 0, level: 1, unlocks: [], missionProgress: { '1-3': true } });
+  expect(profile).toMatchObject({ version: 1, xp: 1250, level: 4, unlocks: ['heavy'], missionProgress: { '1-3': true } });
 
   // Next stage is unlocked in the StageSelect UI.
   await page.getByTestId('btn-change-setup').click();
