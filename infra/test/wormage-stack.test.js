@@ -121,13 +121,14 @@ test('anonymous auth reads an out-of-band SSM SecureString and observe mode', ()
     assert.notEqual(parameter.Properties.Name, '/wormage/auth/secret');
   }
   const policies = alarmTemplate.findResources('AWS::IAM::Policy');
-  const actions = Object.values(policies).flatMap((policy) => policy.Properties.PolicyDocument.Statement || []);
-  const hasGet = actions.some((statement) => {
+  const statements = Object.values(policies).flatMap((policy) => policy.Properties.PolicyDocument.Statement || []);
+  const getStatements = statements.filter((statement) => {
     const action = statement.Action;
     const list = Array.isArray(action) ? action : [action];
     return statement.Effect === 'Allow' && list.includes('ssm:GetParameter');
   });
-  assert.ok(hasGet, 'missing ssm:GetParameter allow statement');
+  assert.ok(getStatements.length > 0, 'missing ssm:GetParameter allow statement');
+  assert.ok(getStatements.some((statement) => JSON.stringify(statement.Resource).includes('wormage/auth/secret')), 'ssm:GetParameter must stay scoped to wormage/auth/secret');
 });
 
 test('stack synthesis fails closed without an auth secret value', () => {
