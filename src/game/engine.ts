@@ -1582,6 +1582,54 @@ export class GameEngine {
     });
   }
 
+  /** Retarget once from the worm's actual pose when movement is blocked. */
+  private tryAiFallbackShot(worm: Worm, retreatX = worm.x): boolean {
+    const target = this.nearestEnemy(worm);
+    if (!target) return false;
+    this.logDebug('ai.fallback', 'AI falling back to shot from current position', { wormId: worm.id, targetId: target.id, targetTeam: target.teamId, fromX: worm.x }, 'cpu', worm.id, 'warn');
+    const shot = planAiShot(
+      this.terrain,
+      { id: worm.id, teamId: worm.teamId, x: worm.x, y: worm.y, hp: worm.hp },
+      this.aliveAiWorms(),
+      this.wind,
+      DIFFICULTY[this.config.difficulty],
+      this.rng,
+    );
+    if (!shot) {
+      this.logDebug('ai.noFallbackShot', 'AI found no damaging fallback shot', { wormId: worm.id, targetId: target.id, x: worm.x, y: worm.y }, 'cpu', worm.id, 'warn');
+      return false;
+    }
+    this.logDebug('ai.fallbackShot', 'AI computed fallback shot', { wormId: worm.id, targetId: target.id, angle: shot.angle, power: shot.power }, 'cpu', worm.id);
+    this.aiPlan = {
+      weapon: 'bazooka',
+      fireX: worm.x,
+      fireY: worm.y,
+      angle: clampAngle(shot.angle),
+      power: shot.power,
+      retreatX,
+    };
+    this.weapon = 'bazooka';
+    this.moveDir = 0;
+    this.aiFallbackX = null;
+    return true;
+  }
+
+  /** Use the existing bounded recovery when the straight no-plan walk stalls. */
+  private tryAiNoPlanRecovery(worm: Worm, dir: -1 | 0 | 1): boolean {
+    const atWorldEdge = (dir === -1 && worm.x <= 12) || (dir === 1 && worm.x >= WORLD_W - 12);
+    if (!atWorldEdge && dir !== 0 && this.aiJumpCount < 2 && (this.aiJumpDeadline === null || this.timeLeft > this.aiJumpDeadline)) {
+      if (this.aiJumpDeadline === null) this.aiJumpDeadline = this.timeLeft - AI.jumpWindowSeconds;
+      this.aiJump(dir);
+      this.aiJumpCount += 1;
+      this.logDebug('ai.jump', 'AI jumped over blocked fallback path', { wormId: worm.id, jumpCount: this.aiJumpCount, fromX: worm.x, dir }, 'cpu', worm.id);
+      this.aiStall = 0;
+      this.aiLastX = worm.x;
+      this.aiBlockedLogged = false;
+      return true;
+    }
+    return this.tryAiFallbackShot(worm);
+  }
+
   /** Log the fresh plan with its target, so retries and first tries look the same. */
   private logAiPlan(worm: Worm): void {
     const plan = this.aiPlan;
@@ -1658,10 +1706,10 @@ export class GameEngine {
       // No-plan fallback (#298): the planner found no scoring shot, but time
       // remains. Walk toward the nearest enemy and retry from the new spot
       // instead of passing the turn ~0.9s in. Only pass when truly stuck.
-      // shortcut: straight-line walk, no mines/jumps; revisit with pathfinding.
+      // shortcut: straight-line walk with bounded jumps, no pathfinding; revisit with a walk simulation.
       if (this.aiFallbackX !== null) {
         const dxFallback = this.aiFallbackX - worm.x;
-        const dir = Math.abs(dxFallback) <= 6 ? 0 : dxFallback > 0 ? 1 : -1;
+        const dir: -1 | 0 | 1 = Math.abs(dxFallback) <= 6 ? 0 : dxFallback > 0 ? 1 : -1;
         // Anti-feed: never step onto a mine or off a cliff while blind-rushing.
         const probeX = worm.x + dir * 16;
         const mineAhead =
@@ -1697,6 +1745,7 @@ export class GameEngine {
           }
         }
         if (!this.aiPlan) {
+          if (this.aiStall >= 1.5 && worm.onGround && this.tryAiNoPlanRecovery(worm, dir)) return;
           if (this.aiStall >= 1.5 || this.timeLeft <= 0.5) {
             this.moveDir = 0;
             this.aiThinking = false;
@@ -1831,38 +1880,9 @@ export class GameEngine {
       }
 
       this.moveDir = 0;
-      const target = this.nearestEnemy(worm);
-      if (target) {
-        this.logDebug('ai.fallback', 'AI falling back to shot from current position', { wormId: worm.id, targetId: target.id, targetTeam: target.teamId, fromX: worm.x }, 'cpu', worm.id, 'warn');
-        const shot = planAiShot(
-          this.terrain,
-          { id: worm.id, teamId: worm.teamId, x: worm.x, y: worm.y, hp: worm.hp },
-          this.aliveAiWorms(),
-          this.wind,
-          DIFFICULTY[this.config.difficulty],
-          this.rng,
-        );
-        if (!shot) {
-          this.logDebug('ai.noFallbackShot', 'AI found no damaging fallback shot', { wormId: worm.id, targetId: target.id, x: worm.x, y: worm.y }, 'cpu', worm.id, 'warn');
-          this.aiPlan = null;
-          this.aiThinking = false;
-          this.finishTurn();
-          return;
-        }
-        this.logDebug('ai.fallbackShot', 'AI computed fallback shot', { wormId: worm.id, targetId: target.id, angle: shot.angle, power: shot.power }, 'cpu', worm.id);
-        // Retarget once, then give the visible reticle time to reach this fallback shot.
-        this.aiPlan = {
-          ...plan,
-          weapon: 'bazooka',
-          fireX: worm.x,
-          fireY: worm.y,
-          angle: clampAngle(shot.angle),
-          power: shot.power,
-        };
-        this.weapon = 'bazooka';
-        this.moveDir = 0;
-        return;
-      }
+      // Retarget once, then give the visible reticle time to reach this fallback shot.
+      if (this.tryAiFallbackShot(worm, plan.retreatX)) return;
+      this.aiPlan = null;
       this.aiThinking = false;
       this.finishTurn();
       return;
