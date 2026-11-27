@@ -2,6 +2,7 @@ import { afterEach, expect, test, vi } from 'vitest';
 import {
   createDefaultProfile,
   LocalStorageProfileRepository,
+  withMissionComplete,
   type Profile,
 } from '../../src/state/profile';
 
@@ -63,6 +64,26 @@ test('save and load round-trip every profile field', () => {
   repository.save(validProfile);
 
   expect(new LocalStorageProfileRepository().load()).toEqual(validProfile);
+});
+
+test('completing a mission records progress without mutating the previous profile', () => {
+  stubStorage(JSON.stringify(validProfile));
+
+  const next = withMissionComplete(validProfile, '3-3');
+
+  expect(next.missionProgress).toEqual({ '1-3': true, '2-3': true, '3-3': true });
+  expect(validProfile.missionProgress).toEqual({ '1-3': true, '2-3': true });
+});
+
+test('mission progress written after a win survives a fresh repository load', () => {
+  const { data } = stubStorage(JSON.stringify(validProfile));
+  const repository = new LocalStorageProfileRepository();
+
+  const next = withMissionComplete(repository.load(), '3-3');
+  repository.save(next);
+
+  expect(JSON.parse(data.get(PROFILE_KEY)!)).toEqual(next);
+  expect(new LocalStorageProfileRepository().load()).toEqual(next);
 });
 
 test('reset removes only the profile payload', () => {
