@@ -99,7 +99,7 @@ Cost Explorer is enabled: `GetCostAndUsage` returned data on 2026-11-27. The bas
 
 Missing service groups are recorded as zero. The account total includes unrelated workloads, so it is not a Wormage-only baseline. November-to-date is also not comparable: it is partial and includes unrelated EC2, ECS, RDS and networking spend.
 
-The four cost tag keys are applied to the stack and backend resources, but Billing did not list them on 2026-11-27 and `UpdateCostAllocationTagsStatus` returned `Tag keys not found`. Recheck after 24–48 hours, activate the keys, then record the first tag-attributed month. Cost allocation tags are not retroactive, so October cannot be attributed to `CostCenter=wormage`.
+The four cost tag keys are applied to the stack and backend resources, but Billing did not list them on 2026-11-27 and `UpdateCostAllocationTagsStatus` returned `Tag keys not found`. Recheck after 24–48 hours, activate the keys, then record the first tag-attributed month. [Cost allocation tag backfill](https://docs.aws.amazon.com/awsaccountbilling/latest/aboutv2/cost-allocation-backfill.html) can apply activation for up to twelve months, but tag values are available only for months when the resource carried the tag. `CostCenter` was added to the stack on 2026-11-27, so October cannot be attributed to `CostCenter=wormage`.
 
 ```bash
 aws ce list-cost-allocation-tags
@@ -110,13 +110,20 @@ aws ce update-cost-allocation-tags-status \
     {"TagKey":"Environment","Status":"Active"},
     {"TagKey":"ManagedBy","Status":"Active"}
   ]'
+# Gate: the update response must contain Errors: []. Retry failed keys.
+aws ce list-cost-allocation-tags
+# Continue only when all four keys show Status=Active; activation can take 24–48 hours.
+MONTH_START=YYYY-MM-DD # First day of the month under review.
+MONTH_END=YYYY-MM-DD   # First day of the following month; End is exclusive.
 aws ce get-cost-and-usage \
-  --time-period Start=2026-11-01,End=2026-12-01 \
+  --time-period Start="$MONTH_START",End="$MONTH_END" \
   --granularity MONTHLY \
   --metrics UnblendedCost \
   --filter '{"And":[{"Tags":{"Key":"CostCenter","Values":["wormage"]}},{"Not":{"Dimensions":{"Key":"RECORD_TYPE","Values":["Credit","Refund"]}}}]}' \
   --group-by Type=DIMENSION,Key=SERVICE
 ```
+
+A query for the current month returns partial costs; use a completed month for a comparable baseline.
 
 Budget refinement stays manual: keep the USD 10 cap, review tagged service costs weekly for the first month, investigate any increase before changing the limit, and update this section with the query date and new baseline only after maintainer review.
 
