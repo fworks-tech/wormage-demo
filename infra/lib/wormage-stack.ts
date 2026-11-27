@@ -85,7 +85,6 @@ export class WormageStack extends cdk.Stack {
       projectionType: dynamodb.ProjectionType.ALL,
     });
 
-
     const debugLogBucket = new s3.Bucket(this, 'DebugLogBucket', {
       encryption: s3.BucketEncryption.S3_MANAGED,
       blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
@@ -168,13 +167,15 @@ export class WormageStack extends cdk.Stack {
       reservedConcurrentExecutions: props?.lambdaReservedConcurrency,
     });
 
-    this.table.grantReadWriteData(this.handler);
-    debugLogBucket.grantWrite(this.handler);
     this.handler.addToRolePolicy(new iam.PolicyStatement({
-      actions: ['ssm:GetParameter'],
-      resources: [this.formatArn({ service: 'ssm', resource: 'parameter', resourceName: 'wormage/auth/secret' })],
+      actions: ['dynamodb:GetItem', 'dynamodb:PutItem', 'dynamodb:UpdateItem', 'dynamodb:Query', 'dynamodb:TransactWriteItems'],
+      resources: [this.table.tableArn, `${this.table.tableArn}/index/LeaderboardIndex`, `${this.table.tableArn}/index/PlayerIndex`],
     }));
-
+    this.handler.addToRolePolicy(new iam.PolicyStatement({
+      actions: ['s3:PutObject'], resources: [debugLogBucket.arnForObjects('debug-logs/*'), debugLogBucket.arnForObjects('bug-reports/*')],
+    }));
+    this.handler.addToRolePolicy(new iam.PolicyStatement({ actions: ['s3:DeleteObject'], resources: [debugLogBucket.arnForObjects('bug-reports/*')] }));
+    this.handler.addToRolePolicy(new iam.PolicyStatement({ actions: ['ssm:GetParameter'], resources: [this.formatArn({ service: 'ssm', resource: 'parameter', resourceName: 'wormage/auth/secret' })] }));
 
     const corsOrigins = props?.corsOrigins && props.corsOrigins.length > 0
       ? props.corsOrigins
