@@ -11,7 +11,9 @@ import {
   simulateShot,
 } from '../../src/game/ai';
 import { AIM, DIFFICULTY, JUMP_REACH, RETREAT_SECONDS, ROPE, WEAPONS, WORM } from '../../src/game/config';
+import { GameEngine } from '../../src/game/engine';
 import { Terrain } from '../../src/game/terrain';
+import type { MatchConfig } from '../../src/game/types';
 import { terrain } from './terrainFixture';
 
 test('reticle sits on the fixed-radius circle in open air', () => {
@@ -414,4 +416,67 @@ test('the AI never plans a shot through an ally', () => {
   expect(Math.hypot(impact.x - ally.x, impact.y - (ally.y - 13))).toBeGreaterThan(
     14 + WORM.radius * 0.4,
   );
+});
+
+test('the reported seeded no-plan stall jumps the crater ahead', () => {
+  const config: MatchConfig = {
+    turnSeconds: 20,
+    wind: 'strong',
+    difficulty: 'rookie',
+    seed: 403416938,
+    wormsPerTeam: 2,
+    map: 'island',
+    mode: 'deathmatch',
+    loadout: 'default',
+    hotseat: false,
+    teamCount: 2,
+  };
+  const engine = new GameEngine(config);
+  // Reproduce the crater that blocked the report's fallback look-ahead.
+  engine.terrain.carve(3024, 552, 42);
+  engine.mobs.splice(0);
+  engine.loot.splice(0);
+  engine.loot.push(
+    { id: 1, x: 2376.3811716251075, y: 507, vx: 0, vy: 0, kind: 'mine', armed: false, fuse: 1.5, ammoGrant: 0 },
+    { id: 2, x: 2426.64316046983, y: 515, vx: 0, vy: 0, kind: 'mine', armed: false, fuse: 1.5, ammoGrant: 0 },
+  );
+  const states = [
+    { x: 1300.2224806012664, y: 312, hp: 95 },
+    { x: 1267.4499111270925, y: 312, hp: 100 },
+    { x: 3071.2333333334286, y: 552, hp: 150 },
+    { x: 3071.2666666667783, y: 552, hp: 50 },
+  ];
+  for (const [teamIndex, team] of engine.teams.entries()) {
+    for (const [wormIndex, worm] of team.worms.entries()) {
+      const state = states[teamIndex * 2 + wormIndex];
+      worm.x = state.x;
+      worm.y = state.y;
+      worm.hp = state.hp;
+      worm.vy = 0;
+      worm.vx = 0;
+      worm.onGround = true;
+      worm.fallDistance = 0;
+    }
+  }
+  engine.teams[1].ammo = { bazooka: Infinity, grenade: 3, shotgun: 4, dynamite: 2, medkit: 2, shield: 0 };
+  engine.wind = -56;
+  engine.turn = 14;
+  engine.timeLeft = 19.2;
+  engine.activeTeam = 1;
+  engine.activeWormId = 't1-w0';
+  engine.aiThinking = true;
+  const cpu = engine.activeWorm!;
+  cpu.aimAngle = -2.5790465438906147;
+  cpu.facing = -1;
+  const startX = cpu.x;
+
+  for (let i = 0; i < 5 * 60 && !engine.events.some((event) => event.type === 'jump'); i += 1) {
+    engine.update(1 / 60);
+  }
+  for (let i = 0; i < 15; i += 1) engine.update(1 / 60);
+
+  expect(engine.debugLog.some((entry) => entry.category === 'ai.noPlan')).toBe(true);
+  expect(engine.debugLog.some((entry) => entry.category === 'ai.fallbackWalk')).toBe(true);
+  expect(engine.debugLog.some((entry) => entry.category === 'ai.jump')).toBe(true);
+  expect(cpu.x).toBeLessThan(startX - 10);
 });
