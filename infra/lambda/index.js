@@ -208,7 +208,7 @@ async function getMatches(event, ddbClient = ddb, authenticatedPlayerId) {
       } catch {
         return json(400, { message: 'invalid cursor' });
       }
-      if (!exclusiveStartKey || typeof exclusiveStartKey !== 'object' || Array.isArray(exclusiveStartKey) || typeof exclusiveStartKey.pk !== 'string' || typeof exclusiveStartKey.sk !== 'string' || typeof exclusiveStartKey.playerId !== 'string' || typeof exclusiveStartKey.createdAt !== 'string') {
+      if (!exclusiveStartKey || typeof exclusiveStartKey !== 'object' || Array.isArray(exclusiveStartKey) || Object.keys(exclusiveStartKey).length !== 4 || typeof exclusiveStartKey.pk !== 'string' || typeof exclusiveStartKey.sk !== 'string' || typeof exclusiveStartKey.playerId !== 'string' || typeof exclusiveStartKey.createdAt !== 'string') {
         return json(400, { message: 'invalid cursor' });
       }
     }
