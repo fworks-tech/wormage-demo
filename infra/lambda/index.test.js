@@ -1605,6 +1605,13 @@ test('replay keeps bazooka ammo infinite (no desync, no infinite->finite)', asyn
   }
 });
 
+test('online validation is a single shared source (no Lambda/mock drift)', () => {
+  const V = require('./validation.cjs');
+  assert.equal(L.validateBody, V.validateBody, 'validateBody must be the shared module');
+  assert.equal(L.validateAction, V.validateAction, 'validateAction must be the shared module');
+  assert.equal(L.checkActionPhase, V.checkActionPhase, 'checkActionPhase must be the shared module');
+});
+
 test('client rebuild from a fresh engine keeps bazooka ammo infinite', () => {
   const engine = new GameEngine(matchConfig({ settings: { seed: 4242, wormsPerTeam: 2 } }));
   const snap = engine.snapshot();

@@ -109,7 +109,7 @@ const RULES = [
   },
   {
     dirs: ['src/api/', 'src/mocks/', 'src/state/'],
-    unit: ['tests/unit/auth.test.ts', 'tests/unit/authoritativeInputs.test.ts', 'tests/unit/mockServer.test.ts', 'tests/unit/onlineMatch.test.ts', 'tests/unit/lambdaReplay.test.ts', 'tests/unit/bugReport.test.ts'],
+    unit: ['tests/unit/auth.test.ts', 'tests/unit/authoritativeInputs.test.ts', 'tests/unit/mockServer.test.ts', 'tests/unit/onlineMatch.test.ts', 'tests/unit/lambdaReplay.test.ts', 'tests/unit/bugReport.test.ts', 'tests/unit/validationParity.test.ts'],
     e2e: ['tests/data.spec.ts', 'tests/menu.spec.ts', 'tests/online.spec.ts', 'tests/online-two-browsers.spec.ts', 'tests/pwa-offline.spec.ts'],
   },
   {
@@ -117,7 +117,7 @@ const RULES = [
     unit: ['tests/unit/manifest.test.ts'],
     e2e: ['tests/pwa-offline.spec.ts', 'tests/pwa.spec.ts'],
   },
-  { dirs: ['infra/'], unit: ['tests/unit/lambdaReplay.test.ts'], e2e: [], infra: true },
+  { dirs: ['infra/'], unit: ['tests/unit/lambdaReplay.test.ts', 'tests/unit/validationParity.test.ts'], e2e: [], infra: true },
   // A new screen or component still runs every spec: over-selecting is cheap.
   { dirs: ['src/ui/'], unit: [], e2e: UI_E2E },
   { dirs: ['docs/'], unit: [], e2e: [] },
