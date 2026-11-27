@@ -231,9 +231,7 @@ test.describe('wide arena resize', () => {
   test('clamps the camera to the new world bounds immediately', async ({ page }) => {
     test.skip(!desktop(), 'desktop wide-screen regression');
     await startMatch(page);
-    await page.evaluate(() => {
-      (window as never as { __WORMAGE__: { engine: { endTurn: () => void } } }).__WORMAGE__.engine.endTurn();
-    });
+    await endTurn(page);
     await page.waitForFunction(() => (window as never as { __WORMAGE__: { snapshot: () => Snapshot } }).__WORMAGE__.snapshot().activeTeam === 1);
     await page.evaluate(() => {
       const game = (window as never as { __WORMAGE__: { engine: {
