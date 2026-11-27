@@ -42,3 +42,8 @@ test('invalid cursor throws', () => {
   const wrongShape = btoa(JSON.stringify({ createdAt: 'x' }));
   expect(() => listMatchesCursor('p-bad', 2, wrongShape)).toThrow();
 });
+
+test('fractional limit below one clamps to one', () => {
+  seed('p-frac', 2);
+  expect(listMatchesCursor('p-frac', 0.5).limit).toBe(1);
+});

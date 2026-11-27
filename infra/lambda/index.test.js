@@ -167,7 +167,7 @@ function makeMockDdb() {
             const page = items.slice(0, input.Limit);
             const last = page[page.length - 1];
             const more = last && items.length > page.length;
-            return { Items: page, ...(more ? { LastEvaluatedKey: { pk: last.pk, sk: last.sk } } : {}) };
+            return { Items: page, ...(more ? { LastEvaluatedKey: { pk: last.pk, sk: last.sk, playerId: last.playerId, createdAt: last.createdAt } } : {}) };
           }
         }
         return { Items: items };
@@ -280,6 +280,16 @@ test('getMatches floors fractional limit', async () => {
   const r = await L.getMatches(ev('GET', '/api/matches', { playerId: 'p-frac', limit: '2.5' }), ddb);
   assert.equal(r.statusCode, 200);
   assert.equal(JSON.parse(r.body).limit, 2);
+  const half = await L.getMatches(ev('GET', '/api/matches', { playerId: 'p-frac', limit: '0.5' }), ddb);
+  assert.equal(half.statusCode, 200);
+  assert.equal(JSON.parse(half.body).limit, 1);
+});
+
+test('getMatches rejects cursor missing index keys', async () => {
+  const ddb = makeMockDdb();
+  const partial = Buffer.from(JSON.stringify({ pk: 'CLIENT#c-1', sk: 'META' }), 'utf8').toString('base64');
+  const r = await L.getMatches(ev('GET', '/api/matches', { playerId: 'p-cur', limit: '2', cursor: partial }), ddb);
+  assert.equal(r.statusCode, 400);
 });
 
 test('postMatch idempotent by clientMatchId', async () => {
