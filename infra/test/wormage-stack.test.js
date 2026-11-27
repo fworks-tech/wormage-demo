@@ -222,3 +222,28 @@ test('lambda ships without X-Ray tracing for zero-cost posture', () => {
   const handler = Object.values(template().findResources('AWS::Lambda::Function'))[0];
   assert.equal(handler.Properties.TracingConfig, undefined);
 });
+
+test('online data expires via TTL while the table resists deletion', () => {
+  alarmTemplate.hasResourceProperties('AWS::DynamoDB::Table', {
+    TimeToLiveSpecification: { AttributeName: 'expiresAt', Enabled: true },
+    DeletionProtectionEnabled: true,
+  });
+});
+
+test('retention is scoped by prefix with multipart abort', () => {
+  const bucket = Object.values(alarmTemplate.findResources('AWS::S3::Bucket'))[0];
+  const rules = bucket.Properties.LifecycleConfiguration.Rules;
+  const byId = Object.fromEntries(rules.map((rule) => [rule.Id, rule]));
+  assert.deepStrictEqual(
+    rules.map((rule) => rule.Id).sort(),
+    ['abort-incomplete-multipart', 'expire-bug-reports', 'expire-debug-logs'],
+  );
+  assert.equal(byId['expire-debug-logs'].Status, 'Enabled');
+  assert.equal(byId['expire-debug-logs'].Prefix, 'debug-logs/');
+  assert.equal(byId['expire-debug-logs'].ExpirationInDays, 7);
+  assert.equal(byId['expire-bug-reports'].Status, 'Enabled');
+  assert.equal(byId['expire-bug-reports'].Prefix, 'bug-reports/');
+  assert.equal(byId['expire-bug-reports'].ExpirationInDays, 30);
+  assert.equal(byId['abort-incomplete-multipart'].Status, 'Enabled');
+  assert.equal(byId['abort-incomplete-multipart'].AbortIncompleteMultipartUpload.DaysAfterInitiation, 1);
+});
