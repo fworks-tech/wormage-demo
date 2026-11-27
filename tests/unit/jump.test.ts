@@ -1,4 +1,6 @@
 import { describe, expect, test } from 'vitest';
+import { chooseRetreat, isUsefulAiShot, planAiTurn, simulateShot } from '../../src/game/ai';
+import { WEAPONS, WORM } from '../../src/game/config';
 import { GameEngine } from '../../src/game/engine';
 import type { MatchConfig } from '../../src/game/types';
 import { terrain } from './terrainFixture';
@@ -162,7 +164,8 @@ describe('jump physics', () => {
     step(engine, 2.5);
 
     expect(engine.events.filter((event) => event.type === 'jump')).toHaveLength(0);
-    expect(engine.hasFired).toBe(true);
+    expect(engine.debugLog.some((entry) => entry.category === 'ai.jump')).toBe(false);
+    expect(engine.debugLog.some((entry) => entry.category === 'ai.noFallbackShot')).toBe(true);
   });
 
   test('the AI does not fire after drowning when its firing spot vanished', () => {
@@ -207,6 +210,204 @@ describe('jump physics', () => {
     expect(engine.hasFired).toBe(false);
   });
 
+  test('the AI validates the same minimum power that fire uses', () => {
+    const angle = -0.5;
+    const shooter = { id: 'cpu', teamId: 1, x: 400, y: 500, hp: 100 };
+    const muzzleX = shooter.x + Math.cos(angle) * 18;
+    const muzzleY = shooter.y - 14 + Math.sin(angle) * 18;
+    const actual = simulateShot(terrain(), muzzleX, muzzleY, angle, 0.12, 'bazooka', 0);
+    const stale = simulateShot(terrain(), muzzleX, muzzleY, angle, 0, 'bazooka', 0);
+    const target = { id: 'player', teamId: 0, x: actual.x, y: actual.y + 13, hp: 100 };
+    expect(Math.hypot(actual.x - target.x, actual.y - (target.y - 13))).toBeLessThanOrEqual(
+      WEAPONS.bazooka.radius + WORM.radius,
+    );
+    expect(Math.hypot(stale.x - target.x, stale.y - (target.y - 13))).toBeGreaterThan(
+      WEAPONS.bazooka.radius + WORM.radius,
+    );
+    expect(isUsefulAiShot({
+      terrain: terrain(),
+      shooter,
+      worms: [shooter, target],
+      weapon: 'bazooka',
+      angle,
+      power: 0.12,
+      wind: 0,
+    })).toBe(true);
+    expect(isUsefulAiShot({
+      terrain: terrain(),
+      shooter,
+      worms: [shooter, target],
+      weapon: 'bazooka',
+      angle,
+      power: 0,
+      wind: 0,
+    })).toBe(false);
+
+    const engine = new GameEngine(config({ wormsPerTeam: 1 }));
+    Object.assign(engine.terrain, terrain());
+    engine.wind = 0;
+    engine.endTurn();
+    const worm = engine.activeWorm!;
+    worm.x = 400;
+    worm.y = 500;
+    worm.vy = 0;
+    worm.onGround = true;
+    worm.aimAngle = angle;
+    const enemy = engine.teams[0].worms[0];
+    enemy.x = target.x;
+    enemy.y = target.y;
+    engine.power = 0;
+    engine.weapon = 'bazooka';
+
+    const internals = engine as unknown as { aiPlan: { weapon: 'bazooka'; fireX: number; fireY: number; angle: number; power: number; retreatX: number }; aiThinking: boolean };
+    internals.aiPlan = { weapon: 'bazooka', fireX: 400, fireY: 500, angle, power: 0.25, retreatX: 400 };
+    internals.aiThinking = false;
+
+    engine.update(DT);
+
+    expect(engine.hasFired).toBe(true);
+    expect(engine.debugLog.find((entry) => entry.category === 'ai.fire')?.data?.power).toBe(0.12);
+  });
+
+  test('the AI fires a dynamite plan using the escape it validated', () => {
+    const shooter = { id: 'cpu', teamId: 1, x: 400, y: 500, hp: 100 };
+    const target = { id: 'player', teamId: 0, x: 480, y: 500, hp: 100 };
+    const retreatX = chooseRetreat(
+      terrain(),
+      shooter,
+      [target],
+      { x: shooter.x, y: shooter.y - 8 },
+      WEAPONS.dynamite.radius + WORM.radius + 6,
+      WEAPONS.dynamite.fuse!,
+    );
+    expect(retreatX).not.toBeNull();
+    const turn = {
+      weapon: 'dynamite' as const,
+      fireX: shooter.x,
+      fireY: shooter.y,
+      angle: -0.5,
+      power: 0.5,
+      retreatX: retreatX!,
+    };
+
+    const engine = new GameEngine(config({ wormsPerTeam: 1 }));
+    Object.assign(engine.terrain, terrain());
+    engine.wind = 0;
+    engine.endTurn();
+    const worm = engine.activeWorm!;
+    worm.x = turn.fireX;
+    worm.y = turn.fireY;
+    worm.vy = 0;
+    worm.onGround = true;
+    worm.fallDistance = 0;
+    worm.aimAngle = turn.angle;
+    const enemy = engine.teams[0].worms[0];
+    enemy.x = target.x;
+    enemy.y = target.y;
+    engine.power = turn.power;
+    engine.weapon = 'dynamite';
+
+    const internals = engine as unknown as { aiPlan: typeof turn; aiThinking: boolean };
+    internals.aiPlan = turn;
+    internals.aiThinking = false;
+
+    engine.update(DT);
+
+    expect(engine.hasFired).toBe(true);
+  });
+
+  test('the AI waits for ground before dropping dynamite', () => {
+    const engine = new GameEngine(config({ wormsPerTeam: 1 }));
+    Object.assign(engine.terrain, terrain());
+    engine.wind = 0;
+    engine.endTurn();
+    const worm = engine.activeWorm!;
+    worm.x = 400;
+    worm.y = 460;
+    worm.vy = 0;
+    worm.onGround = false;
+    worm.aimAngle = -0.5;
+    const enemy = engine.teams[0].worms[0];
+    enemy.x = 430;
+    enemy.y = 400;
+    engine.power = 0.5;
+    engine.weapon = 'dynamite';
+
+    const turn = {
+      weapon: 'dynamite' as const,
+      fireX: 400,
+      fireY: 400,
+      angle: -0.5,
+      power: 0.5,
+      retreatX: 500,
+    };
+    const internals = engine as unknown as { aiPlan: typeof turn; aiThinking: boolean };
+    internals.aiPlan = turn;
+    internals.aiThinking = false;
+    const previousTurn = engine.turn;
+
+    engine.update(DT);
+
+    expect(engine.turn).toBe(previousTurn);
+    expect(engine.hasFired).toBe(false);
+    expect(engine.phase).toBe('aim');
+    expect(engine.debugLog.some((entry) => entry.category === 'ai.fire')).toBe(false);
+  });
+
+  test('the AI revalidates its plan from the pose where it will fire', () => {
+    const shooter = { id: 'cpu', teamId: 1, x: 400, y: 500, hp: 100 };
+    const target = { id: 'player', teamId: 0, x: 900, y: 500, hp: 100 };
+    const plan = planAiTurn({
+      terrain: terrain(),
+      worm: shooter,
+      worms: [shooter, target],
+      ammo: { bazooka: Infinity, grenade: 0, shotgun: 0, dynamite: 0, medkit: 0, shield: 0 },
+      wind: 0,
+      timeLeft: 30,
+      difficulty: { angleError: 0, powerError: 0 },
+      rng: () => 0.5,
+    });
+    expect(plan).not.toBeNull();
+
+    const impact = simulateShot(
+      terrain(),
+      shooter.x + Math.cos(plan!.angle) * 18,
+      460 - 14 + Math.sin(plan!.angle) * 18,
+      plan!.angle,
+      plan!.power,
+      'bazooka',
+      0,
+    );
+    expect(Math.hypot(impact.x - target.x, impact.y - (target.y - 13))).toBeGreaterThan(
+      WEAPONS.bazooka.radius + WORM.radius,
+    );
+
+    const engine = new GameEngine(config({ wormsPerTeam: 1 }));
+    Object.assign(engine.terrain, terrain());
+    engine.wind = 0;
+    engine.endTurn();
+    const worm = engine.activeWorm!;
+    worm.x = 400;
+    worm.y = 460;
+    worm.vy = 0;
+    worm.onGround = false;
+    worm.aimAngle = plan!.angle;
+    const enemy = engine.teams[0].worms[0];
+    enemy.x = 900;
+    enemy.y = 500;
+    engine.power = plan!.power;
+    engine.weapon = plan!.weapon;
+
+    const internals = engine as unknown as { aiPlan: typeof plan; aiThinking: boolean };
+    internals.aiPlan = { ...plan!, fireX: 400, fireY: 500 };
+    internals.aiThinking = false;
+
+    engine.update(DT);
+
+    expect(engine.hasFired).toBe(false);
+    expect(engine.debugLog.some((entry) => entry.category === 'ai.planInvalid')).toBe(true);
+  });
+
   test('the AI keeps jumping while its walk is blocked', () => {
     const engine = new GameEngine(config());
     const blockedX = 1200;
@@ -244,9 +445,10 @@ describe('jump physics', () => {
 
     step(engine, 5.2);
 
-    // Jumps are now bounded so a blocked AI falls back to a shot instead of
-    // hopping in place indefinitely.
+    // Jumps are bounded; when the fallback cannot damage an enemy, the CPU
+    // passes instead of firing into the wall.
     expect(engine.events.filter((event) => event.type === 'jump').length).toBeLessThanOrEqual(2);
-    expect(engine.hasFired).toBe(true);
+    expect(engine.hasFired).toBe(false);
+    expect(engine.debugLog.some((entry) => entry.category === 'ai.noFallbackShot')).toBe(true);
   });
 });

@@ -172,22 +172,84 @@ export function previewFlight(
   return points;
 }
 
+export interface AiShotCheck {
+  terrain: AiTerrain;
+  shooter: AiWorm;
+  worms: AiWorm[];
+  weapon: WeaponId;
+  angle: number;
+  power: number;
+  wind: number;
+  revengeFocus?: { x: number; y: number } | null;
+  retreatX?: number | null;
+}
+
+/** True when the final shot can damage an enemy without breaking the friendly-fire veto. */
+export function isUsefulAiShot({
+  terrain,
+  shooter,
+  worms,
+  weapon,
+  angle,
+  power,
+  wind,
+  revengeFocus = null,
+  retreatX = null,
+}: AiShotCheck): boolean {
+  const def = WEAPONS[weapon];
+  if (def.kind === 'utility') return true;
+  let scoringWorms = worms;
+  if (def.kind === 'drop') {
+    if (retreatX === null) return false;
+    const escapeWorms = dropEscapeWorms(terrain, shooter, worms, retreatX);
+    if (!escapeWorms) return false;
+    scoringWorms = escapeWorms;
+  }
+  const bodies = worms.filter((w) => w.id !== shooter.id);
+  const impact = def.kind === 'drop'
+    ? { x: shooter.x, y: shooter.y - 8, valid: true }
+    : simulateShot(
+        terrain,
+        shooter.x + Math.cos(angle) * 18,
+        shooter.y - 14 + Math.sin(angle) * 18,
+        angle,
+        power,
+        weapon,
+        wind,
+        def.fuse,
+        def.bounces,
+        bodies,
+      );
+  if (!impact.valid) return false;
+  const coll = collateral(impact.x, impact.y, weapon, shooter, scoringWorms);
+  if (AI.friendlyFireVeto && coll.ally > AI.friendlyFireTolerance) return false;
+  return damageScore(impact.x, impact.y, weapon, shooter, scoringWorms, revengeFocus) > 0;
+}
+
 /**
  * Legacy single-shot solver: best bazooka (angle, power) from a fixed spot.
  * Used as the fallback when the AI cannot walk to its planned position.
  */
 export function planAiShot(
   terrain: AiTerrain,
-  wormX: number,
-  wormY: number,
-  targetX: number,
-  targetY: number,
+  shooter: AiWorm,
+  worms: AiWorm[],
   wind: number,
   difficulty: { angleError: number; powerError: number },
   rng: () => number,
-  bodies: ReadonlyArray<{ x: number; y: number }> = [],
-): ShotPlan {
-  const facingLeft = targetX < wormX;
+): ShotPlan | null {
+  const enemies = worms.filter((w) => w.id !== shooter.id && w.teamId !== shooter.teamId);
+  const target = enemies.reduce<AiWorm | null>((nearest, enemy) => {
+    if (!nearest) return enemy;
+    return Math.hypot(enemy.x - shooter.x, enemy.y - shooter.y) < Math.hypot(nearest.x - shooter.x, nearest.y - shooter.y)
+      ? enemy
+      : nearest;
+  }, null);
+  if (!target) return null;
+  const wormX = shooter.x;
+  const wormY = shooter.y;
+  const bodies = worms.filter((w) => w.id !== shooter.id);
+  const facingLeft = target.x < wormX;
   const base = facingLeft ? -Math.PI : 0;
   // Angles grow from -π (left) to -0.08 (right), so left-facing adds and right-facing subtracts.
   const mirror = facingLeft ? 1 : -1;
@@ -201,24 +263,31 @@ export function planAiShot(
       const startY = wormY - 14 + Math.sin(angle) * 18;
       const result = simulateShot(terrain, startX, startY, angle, power, 'bazooka', wind, null, false, bodies);
       if (!result.valid) continue;
-      const dx = result.x - targetX;
-      const dy = result.y - targetY;
-      let score = Math.hypot(dx, dy);
-      if (Math.hypot(result.x - wormX, result.y - wormY) < 70) score += 400;
-      if (!best || score < best.score) best = { score, angle, power };
+      const coll = collateral(result.x, result.y, 'bazooka', shooter, worms);
+      if (AI.friendlyFireVeto && coll.ally > AI.friendlyFireTolerance) continue;
+      const score = damageScore(result.x, result.y, 'bazooka', shooter, worms);
+      if (score <= 0) continue;
+      if (!best || score > best.score) best = { score, angle, power };
     }
   }
 
-  if (!best) {
-    return { angle: base + mirror * 0.8, power: 0.7 };
-  }
+  if (!best) return null;
 
   const jitterAngle = (rng() * 2 - 1) * difficulty.angleError;
   const jitterPower = (rng() * 2 - 1) * difficulty.powerError;
-  return {
-    angle: best.angle + jitterAngle,
+  const shot = {
+    angle: clampAngle(best.angle + jitterAngle),
     power: Math.min(1, Math.max(0.25, best.power + jitterPower)),
   };
+  return isUsefulAiShot({
+    terrain,
+    shooter,
+    worms,
+    weapon: 'bazooka',
+    angle: shot.angle,
+    power: shot.power,
+    wind,
+  }) ? shot : null;
 }
 
 /**
@@ -277,7 +346,7 @@ export function planAiTurn(input: AiTurnInput): AiTurnPlan | null {
   const jitterAngle = isDrop ? 0 : (rng() * 2 - 1) * difficulty.angleError;
   const jitterPower = isDrop ? 0 : (rng() * 2 - 1) * difficulty.powerError;
 
-  return {
+  const plan = {
     weapon: best.weapon,
     fireX: best.fireX,
     fireY: best.fireY,
@@ -285,6 +354,22 @@ export function planAiTurn(input: AiTurnInput): AiTurnPlan | null {
     power: Math.min(1, Math.max(0.25, best.power + jitterPower)),
     retreatX: best.retreatX,
   };
+  if (WEAPONS[plan.weapon].kind === 'utility') return plan;
+  const firingWorm = { ...worm, x: plan.fireX, y: plan.fireY };
+  const scoringWorms = worms.map((w) => w.id === worm.id ? firingWorm : w);
+  return isUsefulAiShot({
+    terrain,
+    shooter: firingWorm,
+    worms: scoringWorms,
+    weapon: plan.weapon,
+    angle: plan.angle,
+    power: plan.power,
+    wind,
+    revengeFocus,
+    retreatX: plan.retreatX,
+  })
+    ? plan
+    : null;
 }
 
 export interface RopeClimbPlan {
@@ -391,6 +476,8 @@ function planProjectile(
   const offsets = [0.22, 0.5, 0.75, 1.0, 1.22, 1.42];
   const retreatX = chooseRetreat(terrain, pos, enemies, null, 0, RETREAT_SECONDS) ?? pos.x;
   const bodies = worms.filter((w) => w.id !== worm.id);
+  const firingWorm = { ...worm, x: pos.x, y: pos.y };
+  const scoringWorms = worms.map((w) => w.id === worm.id ? firingWorm : w);
   let best: Candidate | null = null;
 
   for (const offset of offsets) {
@@ -401,10 +488,10 @@ function planProjectile(
       const muzzleY = pos.y - 14 + Math.sin(angle) * 18;
       const result = simulateShot(terrain, muzzleX, muzzleY, angle, power, weapon, wind, def.fuse, def.bounces, bodies);
       if (!result.valid) continue;
-      const coll = collateral(result.x, result.y, weapon, worm, worms);
+      const coll = collateral(result.x, result.y, weapon, firingWorm, scoringWorms);
       // Friendly-fire veto: skip shots that would hurt allies/self beyond tolerance.
       if (AI.friendlyFireVeto && coll.ally > AI.friendlyFireTolerance) continue;
-      const score = damageScore(result.x, result.y, weapon, worm, worms, revengeFocus);
+      const score = damageScore(result.x, result.y, weapon, firingWorm, scoringWorms, revengeFocus);
       if (score <= 0) continue;
       if (!best || score > best.score) {
         best = { score, angle, power, retreatX };
@@ -421,7 +508,7 @@ function planProjectile(
         const muzzleY = pos.y - 14 + Math.sin(angle) * 18;
         const result = simulateShot(terrain, muzzleX, muzzleY, angle, power, weapon, wind, def.fuse, def.bounces, bodies);
         if (!result.valid) continue;
-        const score = damageScore(result.x, result.y, weapon, worm, worms, revengeFocus);
+        const score = damageScore(result.x, result.y, weapon, firingWorm, scoringWorms, revengeFocus);
         if (score <= 0) continue;
         if (!best || score > best.score) {
           best = { score, angle, power, retreatX };
@@ -447,13 +534,16 @@ function planDrop(
   const retreatX = chooseRetreat(terrain, pos, enemies, blast, safety, def.fuse ?? RETREAT_SECONDS);
   // Never plant a drop without a way out of its own blast.
   if (retreatX === null) return null;
-  const coll = collateral(blast.x, blast.y, weapon, worm, worms);
+  const firingWorm = { ...worm, x: pos.x, y: pos.y };
+  const scoringWorms = dropEscapeWorms(terrain, firingWorm, worms, retreatX);
+  if (!scoringWorms) return null;
+  const coll = collateral(blast.x, blast.y, weapon, firingWorm, scoringWorms);
   if (AI.friendlyFireVeto && coll.ally > AI.friendlyFireTolerance) return null;
   const target = enemies.reduce((nearest, enemy) => {
     const d = Math.hypot(enemy.x - pos.x, enemy.y - pos.y);
     return d < nearest.d ? { enemy, d } : nearest;
   }, { enemy: enemies[0], d: Infinity }).enemy;
-  const score = damageScore(blast.x, blast.y, weapon, worm, worms, revengeFocus);
+  const score = damageScore(blast.x, blast.y, weapon, firingWorm, scoringWorms, revengeFocus);
   if (score <= 0) return null;
   return {
     score,
@@ -462,6 +552,18 @@ function planDrop(
     power: 0.5,
     retreatX,
   };
+}
+
+/** Score drop self-damage where the validated escape leaves the shooter. */
+function dropEscapeWorms(
+  terrain: AiTerrain,
+  shooter: AiWorm,
+  worms: AiWorm[],
+  retreatX: number,
+): AiWorm[] | null {
+  const retreatY = terrain.groundY(retreatX, shooter.y - 80, 200);
+  if (retreatY === null || retreatY > WATER_Y - 30 || Math.abs(retreatY - shooter.y) > 120) return null;
+  return worms.map((w) => w.id === shooter.id ? { ...w, x: retreatX, y: retreatY } : w);
 }
 
 /** Ally/self damage a shot would deal (for friendly-fire veto). */

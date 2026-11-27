@@ -107,7 +107,7 @@ Persisted state is small and synchronous: settings, player identity, profile, la
 `planAiTurn` searches positions reachable within the turn, evaluates every weapon with the shared integrator, and returns a firing spot plus a retreat spot. Dynamite is only a candidate when the escape walk clears its own blast along an unobstructed path.
 
 **Why:** a CPU that fires from wherever it spawned makes weapon choice meaningless and cannot use short-fuse weapons without killing itself.
-**Cost:** one planning pass costs a few milliseconds when the AI turn starts; the search is bounded by the walk budget and does not pathfind around walls (the engine stops at an obstruction and falls back to a bazooka shot).
+**Cost:** one planning pass costs a few milliseconds when the AI turn starts; the search is bounded by the walk budget and does not pathfind around walls (the engine stops at an obstruction, tries a damaging bazooka fallback, and passes if none exists).
 
 ## 16. Fullscreen is entered on a gesture, never forced
 
@@ -142,7 +142,7 @@ The anchored rope is a per-worm tool with its own pendulum state, no ammo slot a
 The CPU walks to its firing spot with the reticle hidden, then stops and slews the reticle to the planned angle at `AI.aimRadiansPerSecond`; `fire()` is gated on the reticle matching the plan within `1e-6` radians.
 
 **Why:** a shot that leaves from an angle the player never saw reads as a cheat, and the pause makes the turn legible instead of instantaneous. The gate also catches a planner angle outside the `AIM` bounds.
-**Cost:** up to ~0.37 s of extra turn time for a half-turn of slew, and the CPU's intent is visible before it fires. The fallback bazooka shot is retargeted once so the visible animation has a stable angle to chase.
+**Cost:** up to ~0.37 s of extra turn time for a half-turn of slew, and the CPU's intent is visible before it fires. A useful fallback bazooka shot is retargeted once so the visible animation has a stable angle to chase; planning and the final revalidation both score damage from the actual firing pose.
 
 ## 21. Zod upgraded to v4 with the debug-logging change
 

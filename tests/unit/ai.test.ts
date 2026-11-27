@@ -4,12 +4,13 @@ import {
   chooseRetreat,
   clampAngle,
   firingPositions,
+  planAiShot,
   planAiTurn,
   planRopeClimb,
   previewFlight,
   simulateShot,
 } from '../../src/game/ai';
-import { AIM, JUMP_REACH, RETREAT_SECONDS, ROPE, WEAPONS, WORM } from '../../src/game/config';
+import { AIM, DIFFICULTY, JUMP_REACH, RETREAT_SECONDS, ROPE, WEAPONS, WORM } from '../../src/game/config';
 import { Terrain } from '../../src/game/terrain';
 import { terrain } from './terrainFixture';
 
@@ -143,13 +144,14 @@ const impactOf = (turn: NonNullable<ReturnType<typeof plan>>, targetX: number) =
   const impact = simulateShot(
     terrain(),
     turn.fireX + Math.cos(turn.angle) * 18,
-    500 - 14 + Math.sin(turn.angle) * 18,
+    turn.fireY - 14 + Math.sin(turn.angle) * 18,
     turn.angle,
     turn.power,
     turn.weapon,
     0,
     def.fuse,
     def.bounces,
+    [{ x: targetX, y: 500 }],
   );
   return impact.valid ? Math.hypot(impact.x - targetX, impact.y - (500 - 13)) : Infinity;
 };
@@ -162,6 +164,60 @@ const walled = (...walls: Array<[number, number]>) => ({
 });
 
 const enemy = { id: 'b', teamId: 1, x: 440, y: 500 };
+
+test('the legacy fallback rejects a shot that only hits terrain', () => {
+  const shooter = { id: 'a', teamId: 0, x: 400, y: 500 };
+  const target = { id: 'b', teamId: 1, x: 200, y: 500 };
+  const shot = planAiShot(walled([300, 360]), shooter, [shooter, target], 0, { angleError: 0, powerError: 0 }, () => 0.5);
+
+  expect(shot).toBeNull();
+});
+
+test('the legacy fallback still finds a damaging shot in the open', () => {
+  const shooter = { id: 'a', teamId: 0, x: 400, y: 500 };
+  const target = { id: 'b', teamId: 1, x: 900, y: 500 };
+  const shot = planAiShot(terrain(), shooter, [shooter, target], 0, { angleError: 0, powerError: 0 }, () => 0.5);
+
+  expect(shot).not.toBeNull();
+  const impact = simulateShot(
+    terrain(),
+    shooter.x + Math.cos(shot!.angle) * 18,
+    shooter.y - 14 + Math.sin(shot!.angle) * 18,
+    shot!.angle,
+    shot!.power,
+    'bazooka',
+    0,
+    null,
+    false,
+    [target],
+  );
+  expect(Math.hypot(impact.x - target.x, impact.y - (target.y - 13))).toBeLessThanOrEqual(
+    WEAPONS.bazooka.radius + WORM.radius,
+  );
+});
+
+test('the legacy fallback rejects rookie jitter that removes all damage', () => {
+  const shooter = { id: 'a', teamId: 0, x: 100, y: 500 };
+  const target = { id: 'b', teamId: 1, x: 500, y: 500 };
+  expect(planAiShot(terrain(), shooter, [shooter, target], 0, { angleError: 0, powerError: 0 }, () => 0.5)).not.toBeNull();
+  expect(planAiShot(terrain(), shooter, [shooter, target], 0, DIFFICULTY.rookie, () => 1)).toBeNull();
+});
+
+test('the AI rejects a plan when rookie jitter removes all damage', () => {
+  const worm = { id: 'a', teamId: 0, x: 100, y: 500 };
+  const target = { id: 'b', teamId: 1, x: 700, y: 500 };
+  const input = {
+    terrain: terrain(),
+    worm,
+    worms: [worm, target],
+    ammo: { bazooka: Infinity, grenade: 0, shotgun: 0, dynamite: 0, medkit: 0, shield: 0 },
+    wind: 0,
+    timeLeft: 45,
+  };
+  expect(planAiTurn({ ...input, difficulty: { angleError: 0, powerError: 0 }, rng: () => 0.5 })).not.toBeNull();
+
+  expect(planAiTurn({ ...input, difficulty: DIFFICULTY.rookie, rng: () => 1 })).toBeNull();
+});
 
 test('the aim preview traces an arc for a fuse-less weapon', () => {
   const points = previewFlight(terrain(), 400, 486, -0.6, 0.8, 'bazooka', 0);
@@ -242,6 +298,63 @@ test('AI drops dynamite at point-blank only when it can escape the blast', () =>
   expect(turn!.weapon).toBe('dynamite');
   expect(Math.abs(turn!.retreatX - turn!.fireX)).toBeGreaterThan(
     WEAPONS.dynamite.radius + WORM.radius,
+  );
+});
+
+test('AI scores dynamite self damage at its escape instead of the planting point', () => {
+  const worm = { id: 'a', teamId: 0, x: 400, y: 500 };
+  const target = { id: 'b', teamId: 1, x: 480, y: 500 };
+  const bazookaAmmo = WEAPONS.bazooka.ammo;
+  WEAPONS.bazooka.ammo = 0;
+  try {
+    const turn = planAiTurn({
+      terrain: terrain(),
+      worm,
+      worms: [worm, target],
+      ammo: { bazooka: 0, grenade: 0, shotgun: 0, dynamite: 1, medkit: 0, shield: 0 },
+      wind: 0,
+      timeLeft: 30,
+      difficulty: { angleError: 0, powerError: 0 },
+      rng: () => 0.5,
+    });
+
+    expect(turn).not.toBeNull();
+    expect(turn!.weapon).toBe('dynamite');
+  } finally {
+    WEAPONS.bazooka.ammo = bazookaAmmo;
+  }
+});
+
+test('AI scores projectile plans from the selected firing position', () => {
+  const worm = { id: 'a', teamId: 0, x: 400, y: 500, hp: 100 };
+  const target = { id: 'b', teamId: 1, x: 380, y: 500, hp: 100 };
+  const turn = planAiTurn({
+    terrain: terrain(),
+    worm,
+    worms: [worm, target],
+    ammo: { bazooka: Infinity, grenade: 0, shotgun: 0, dynamite: 0, medkit: 0, shield: 0 },
+    wind: 0,
+    timeLeft: 3,
+    difficulty: { angleError: 0, powerError: 0 },
+    rng: () => 0.5,
+  });
+
+  // Moving right puts more distance between the shooter and the close-range blast.
+  expect(turn).toMatchObject({ weapon: 'bazooka', fireX: 452, power: 0.4 });
+  const impact = simulateShot(
+    terrain(),
+    turn!.fireX + Math.cos(turn!.angle) * 18,
+    turn!.fireY - 14 + Math.sin(turn!.angle) * 18,
+    turn!.angle,
+    turn!.power,
+    turn!.weapon,
+    0,
+    WEAPONS.bazooka.fuse,
+    WEAPONS.bazooka.bounces,
+    [target],
+  );
+  expect(Math.hypot(impact.x - target.x, impact.y - (target.y - 13))).toBeLessThanOrEqual(
+    WEAPONS.bazooka.radius + WORM.radius,
   );
 });
 

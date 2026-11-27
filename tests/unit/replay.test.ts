@@ -58,15 +58,14 @@ function recordMatch(): GameEngine {
         if (target) {
           plan = planAiShot(
             engine.terrain,
-            shooter.x,
-            shooter.y,
-            target.x,
-            target.y,
+            shooter,
+            engine.teams.flatMap((team) => team.worms).filter((worm) => worm.alive),
             engine.wind,
             { angleError: 0, powerError: 0 },
             () => 0.5,
-            engine.teams.flatMap((team) => team.worms).filter((worm) => worm.alive && worm.id !== shooter.id),
           );
+          // The replay driver may miss deliberately; it only needs a deterministic action log.
+          plan ??= { angle: -0.55, power: 0.7 };
           engine.record({ type: 'aim', delta: plan.angle - shooter.aimAngle });
           engine.record({ type: 'weapon', id: 'bazooka' });
           engine.record({ type: 'startCharge' });
