@@ -2,10 +2,10 @@
 
 | File | Responsibility |
 | --- | --- |
-| `types.ts` | `MatchRecord`, `LeaderboardRow`, `Paginated<T>`, `NewMatchInput`, `MockScenario` |
+| `types.ts` | `MatchRecord`, `LeaderboardRow`, `Paginated<T>`, `CursorPaginated<T>`, `NewMatchInput`, `MockScenario` |
 | `mockServer.ts` | fixtures, pagination, ranking tie-break, idempotent writes, latency/failure scenarios, localStorage persistence |
 | `client.ts` | Axios instances, in-process adapter, `initApiLayer()` transport selection |
-| `queries.ts` | TanStack Query hooks: `useLeaderboard`, `useMatchHistory`, `useRegisterMatch`, query keys |
+| `queries.ts` | TanStack Query hooks: `useLeaderboard`, `useMatchHistory`, `useMatchHistoryCursor`, `useRegisterMatch`, query keys |
 | `debugLog.ts` | chunked `POST /api/debug-logs` uploads, serialized per engine |
 | `bugReport.ts` | bug-report payload, caps and `POST /api/bug-reports` upload |
 
@@ -24,6 +24,7 @@ All paths share request validation and state, so the demo, the tests and the dep
 ```
 GET  /api/leaderboard?configKey=45s-light-veteran&page=1&pageSize=8
 GET  /api/matches?playerId=player-abc&page=1&pageSize=8
+GET  /api/matches?playerId=player-abc&limit=8&cursor=opaque → { items, nextCursor, limit }
 POST /api/matches   { clientMatchId, playerId, playerName, teamName,
                       score, durationSeconds, endReason,
                       turnSeconds, wind, difficulty, kills }

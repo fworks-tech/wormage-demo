@@ -46,6 +46,12 @@ export interface Paginated<T> {
   totalPages: number;
 }
 
+export interface CursorPaginated<T> {
+  items: T[];
+  nextCursor: string | null;
+  limit: number;
+}
+
 export interface LeaderboardRow {
   rank: number;
   playerId: string;

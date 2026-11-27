@@ -5,6 +5,7 @@ import type { OnlineActionLogEntry } from '../api/types';
 import { configKey } from '../game/types';
 import type { Difficulty, WindSetting } from '../game/types';
 import type {
+  CursorPaginated,
   LeaderboardRow,
   MatchRecord,
   MockScenario,
@@ -214,6 +215,37 @@ export function listMatches(playerId: string, page: number, pageSize: number): P
     .filter((m) => m.playerId === playerId)
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   return paginate(rows, page, pageSize);
+}
+
+function encodeCursor(createdAt: string, id: string): string {
+  return Buffer.from(JSON.stringify({ createdAt, id }), 'utf8').toString('base64');
+}
+
+function decodeCursor(cursor: string): { createdAt: string; id: string } {
+  const parsed = JSON.parse(Buffer.from(cursor, 'base64').toString('utf8')) as unknown;
+  if (!parsed || typeof parsed !== 'object' || typeof (parsed as { createdAt?: unknown }).createdAt !== 'string' || typeof (parsed as { id?: unknown }).id !== 'string') {
+    throw new Error('invalid cursor');
+  }
+  return parsed as { createdAt: string; id: string };
+}
+
+export function listMatchesCursor(playerId: string, limit: number, cursor?: string | null): CursorPaginated<MatchRecord> {
+  const safeLimit = Math.max(1, Math.min(50, Math.floor(limit) || 8));
+  const db = getDb();
+  const rows = db.matches
+    .filter((m) => m.playerId === playerId)
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt) || b.id.localeCompare(a.id));
+  let start = 0;
+  if (cursor) {
+    const pos = decodeCursor(cursor);
+    const idx = rows.findIndex((m) => m.createdAt === pos.createdAt && m.id === pos.id);
+    if (idx < 0) throw new Error('invalid cursor');
+    start = idx + 1;
+  }
+  const items = rows.slice(start, start + safeLimit);
+  const last = items[items.length - 1];
+  const hasMore = last != null && start + safeLimit < rows.length;
+  return { items, nextCursor: hasMore && last ? encodeCursor(last.createdAt, last.id) : null, limit: safeLimit };
 }
 
 export function registerMatch(input: NewMatchInput): { record: MatchRecord; created: boolean } | { error: string; status: number } {

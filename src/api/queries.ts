@@ -1,6 +1,6 @@
-import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { keepPreviousData, useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from './client';
-import type { LeaderboardRow, MatchRecord, NewMatchInput, OnlineMatch, Paginated, CreateOnlineMatchInput, JoinOnlineMatchInput } from './types';
+import type { CursorPaginated, LeaderboardRow, MatchRecord, NewMatchInput, OnlineMatch, Paginated, CreateOnlineMatchInput, JoinOnlineMatchInput } from './types';
 
 export const queryKeys = {
   leaderboard: (configKey: string, page: number, pageSize: number) =>
@@ -33,6 +33,22 @@ export function useMatchHistory(playerId: string, page: number, pageSize = 8) {
       return data;
     },
     placeholderData: keepPreviousData,
+    staleTime: 10_000,
+    retry: 1,
+  });
+}
+
+export function useMatchHistoryCursor(playerId: string, limit = 8) {
+  return useInfiniteQuery({
+    queryKey: ['matches-cursor', playerId, limit],
+    queryFn: async ({ pageParam }) => {
+      const { data } = await api.get<CursorPaginated<MatchRecord>>('/api/matches', {
+        params: { playerId, limit, ...(pageParam ? { cursor: pageParam } : {}) },
+      });
+      return data;
+    },
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (lastPage) => lastPage.nextCursor ?? undefined,
     staleTime: 10_000,
     retry: 1,
   });

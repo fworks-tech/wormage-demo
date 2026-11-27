@@ -4,6 +4,7 @@ import {
   latencyMs,
   listLeaderboard,
   listMatches,
+  listMatchesCursor,
   registerDebugLog,
   registerBugReport,
   registerMatch,
@@ -51,6 +52,14 @@ export const handlers = [
     if (isEmpty()) return HttpResponse.json({ items: [], page: 1, pageSize: 8, total: 0, totalPages: 1 });
     const url = new URL(request.url);
     const playerId = auth.playerId ?? url.searchParams.get('playerId') ?? '';
+    const cursor = url.searchParams.get('cursor') ?? undefined;
+    if (cursor != null || url.searchParams.get('limit') != null) {
+      try {
+        return HttpResponse.json(listMatchesCursor(playerId, Number(url.searchParams.get('limit') ?? url.searchParams.get('pageSize') ?? 8), cursor));
+      } catch {
+        return HttpResponse.json({ message: 'invalid cursor' }, { status: 400 });
+      }
+    }
     const page = Number(url.searchParams.get('page') ?? 1);
     const pageSize = Number(url.searchParams.get('pageSize') ?? 8);
     return HttpResponse.json(listMatches(playerId, page, pageSize));

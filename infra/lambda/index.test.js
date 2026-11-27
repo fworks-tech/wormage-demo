@@ -158,7 +158,17 @@ function makeMockDdb() {
         } else if (input.IndexName === 'PlayerIndex') {
           const p = vals[':p'];
           items = items.filter((i) => i.playerId === p);
-          if (input.ScanIndexForward === false) items = items.sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
+          if (input.ScanIndexForward === false) items = items.sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)) || String(b.pk).localeCompare(String(a.pk)));
+          if (input.ExclusiveStartKey) {
+            const idx = items.findIndex((i) => i.pk === input.ExclusiveStartKey.pk && i.sk === input.ExclusiveStartKey.sk);
+            items = idx < 0 ? [] : items.slice(idx + 1);
+          }
+          if (input.Limit) {
+            const page = items.slice(0, input.Limit);
+            const last = page[page.length - 1];
+            const more = last && items.length > page.length;
+            return { Items: page, ...(more ? { LastEvaluatedKey: { pk: last.pk, sk: last.sk } } : {}) };
+          }
         }
         return { Items: items };
       }
@@ -222,6 +232,33 @@ test('leaderboard returns paginated shape', async () => {
 test('matches requires playerId', async () => {
   const ddb = makeMockDdb();
   const r = await L.getMatches(ev('GET', '/api/matches', {}), ddb);
+  assert.equal(r.statusCode, 400);
+});
+
+test('getMatches cursor paginates with Limit and returns nextCursor', async () => {
+  const ddb = makeMockDdb();
+  for (let i = 0; i < 3; i++) {
+    const r = await L.postMatch(ev('POST', '/api/matches', {}, { clientMatchId: `c-cur-${i}`, playerId: 'p-cur', playerName: 'P', teamName: 'T', score: i, durationSeconds: 60, endReason: 'wipeout', turnSeconds: 45, wind: 'light', difficulty: 'veteran' }), ddb);
+    assert.equal(r.statusCode, 201);
+  }
+  const p1 = await L.getMatches(ev('GET', '/api/matches', { playerId: 'p-cur', limit: '2' }), ddb);
+  assert.equal(p1.statusCode, 200);
+  const b1 = JSON.parse(p1.body);
+  assert.equal(b1.items.length, 2);
+  assert.equal(b1.limit, 2);
+  assert.ok(b1.nextCursor);
+  const p2 = await L.getMatches(ev('GET', '/api/matches', { playerId: 'p-cur', limit: '2', cursor: b1.nextCursor }), ddb);
+  assert.equal(p2.statusCode, 200);
+  const b2 = JSON.parse(p2.body);
+  assert.equal(b2.items.length, 1);
+  assert.equal(b2.nextCursor, null);
+  const ids = new Set([...b1.items, ...b2.items].map((m) => m.id));
+  assert.equal(ids.size, 3);
+});
+
+test('getMatches rejects invalid cursor', async () => {
+  const ddb = makeMockDdb();
+  const r = await L.getMatches(ev('GET', '/api/matches', { playerId: 'p-cur', limit: '2', cursor: '!!!' }), ddb);
   assert.equal(r.statusCode, 400);
 });
 

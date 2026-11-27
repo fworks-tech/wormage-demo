@@ -3,6 +3,7 @@ import type { AxiosAdapter, AxiosRequestConfig, AxiosResponse, InternalAxiosRequ
 import {
   listLeaderboard,
   listMatches,
+  listMatchesCursor,
   latencyMs,
   registerMatch,
   registerDebugLog,
@@ -86,6 +87,15 @@ const localAdapter: AxiosAdapter = async (config) => {
       return respond(config, 200, { items: [], page: 1, pageSize: 8, total: 0, totalPages: 1 });
     }
     const playerId = auth.playerId ?? params.get('playerId') ?? '';
+    const cursor = params.get('cursor') ?? undefined;
+    const limitRaw = params.get('limit') ?? params.get('pageSize') ?? undefined;
+    if (cursor != null || params.get('limit') != null) {
+      try {
+        return respond(config, 200, listMatchesCursor(playerId, Number(limitRaw ?? 8), cursor));
+      } catch {
+        return rejectStatus(config, 400, 'invalid cursor');
+      }
+    }
     const page = Number(params.get('page') ?? 1);
     const pageSize = Number(params.get('pageSize') ?? 8);
     return respond(config, 200, listMatches(playerId, page, pageSize));
