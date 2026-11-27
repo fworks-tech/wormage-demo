@@ -123,7 +123,7 @@ aws ce get-cost-and-usage \
   --group-by Type=DIMENSION,Key=SERVICE
 ```
 
-A query for the current month returns partial costs; use a completed month for a comparable baseline.
+A query for the current month returns partial costs. Record the baseline only for a completed month with full `CostCenter` tag coverage and activation; completing a month alone does not tag earlier usage. If the resource carried `CostCenter` throughout a prior month but the key was inactive, complete the appropriate tag backfill before using that month.
 
 Budget refinement stays manual: keep the USD 10 cap, review tagged service costs weekly for the first month, investigate any increase before changing the limit, and update this section with the query date and new baseline only after maintainer review.
 
