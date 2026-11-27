@@ -462,8 +462,12 @@ export function GameView({
           return;
         }
         rendererRef.current = renderer;
-        // E2E needs the painted canvas; the renderer owns it now.
-        (window as unknown as { __WORMAGE__: { painter: unknown } }).__WORMAGE__.painter = renderer.terrainPainter;
+        // E2E needs the painted canvas and screen-to-world bounds; the renderer owns them now.
+        const instrumentation = window as unknown as {
+          __WORMAGE__: { painter: unknown; toWorld: (x: number, y: number) => { x: number; y: number } };
+        };
+        instrumentation.__WORMAGE__.painter = renderer.terrainPainter;
+        instrumentation.__WORMAGE__.toWorld = (x, y) => renderer.toWorld(x, y);
         renderer.app.ticker.add(tick);
         setReady(true);
       } catch (err) {
