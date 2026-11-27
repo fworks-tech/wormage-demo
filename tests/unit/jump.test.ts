@@ -316,6 +316,42 @@ describe('jump physics', () => {
     expect(engine.hasFired).toBe(true);
   });
 
+  test('the AI waits for ground before dropping dynamite', () => {
+    const engine = new GameEngine(config({ wormsPerTeam: 1 }));
+    Object.assign(engine.terrain, terrain());
+    engine.wind = 0;
+    engine.endTurn();
+    const worm = engine.activeWorm!;
+    worm.x = 400;
+    worm.y = 460;
+    worm.vy = 0;
+    worm.onGround = false;
+    worm.aimAngle = -0.5;
+    const enemy = engine.teams[0].worms[0];
+    enemy.x = 430;
+    enemy.y = 400;
+    engine.power = 0.5;
+    engine.weapon = 'dynamite';
+
+    const turn = {
+      weapon: 'dynamite' as const,
+      fireX: 400,
+      fireY: 400,
+      angle: -0.5,
+      power: 0.5,
+      retreatX: 500,
+    };
+    const internals = engine as unknown as { aiPlan: typeof turn; aiThinking: boolean };
+    internals.aiPlan = turn;
+    internals.aiThinking = false;
+
+    engine.update(DT);
+
+    expect(engine.hasFired).toBe(false);
+    expect(engine.phase).toBe('aim');
+    expect(engine.debugLog.some((entry) => entry.category === 'ai.fire')).toBe(false);
+  });
+
   test('the AI revalidates its plan from the pose where it will fire', () => {
     const shooter = { id: 'cpu', teamId: 1, x: 400, y: 500, hp: 100 };
     const target = { id: 'player', teamId: 0, x: 900, y: 500, hp: 100 };
