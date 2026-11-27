@@ -344,9 +344,11 @@ describe('jump physics', () => {
     const internals = engine as unknown as { aiPlan: typeof turn; aiThinking: boolean };
     internals.aiPlan = turn;
     internals.aiThinking = false;
+    const previousTurn = engine.turn;
 
     engine.update(DT);
 
+    expect(engine.turn).toBe(previousTurn);
     expect(engine.hasFired).toBe(false);
     expect(engine.phase).toBe('aim');
     expect(engine.debugLog.some((entry) => entry.category === 'ai.fire')).toBe(false);
