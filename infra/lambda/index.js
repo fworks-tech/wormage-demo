@@ -557,7 +557,8 @@ function githubContext(metadata) {
 
 function buildGithubIssue(metadata) {
   const version = githubSingleLine(metadata.appVersion, 40) || 'unknown';
-  const summary = githubSingleLine(metadata.note, 100) || `${version} report`;
+  // Titles trigger @mentions, so break them while keeping the text readable.
+  const summary = (githubSingleLine(metadata.note, 100) || `${version} report`).replace(/@/g, '@\u200b');
   const marker = githubReportMarker(metadata.reportId);
   const body = [
     '### Player note',
@@ -620,7 +621,6 @@ async function postGithubIssue({ repo, issue, headers, signal, fetchImpl }) {
 function githubRateLimitError() {
   const error = new Error('GitHub issue rate limit exceeded');
   error.name = 'GithubIssueRateLimitError';
-  error.rateLimited = true;
   return error;
 }
 

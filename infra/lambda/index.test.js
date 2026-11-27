@@ -1426,7 +1426,8 @@ function githubResponse(status, body) {
 test('buildGithubIssue publishes only a bounded, redacted summary', () => {
   const issue = L.buildGithubIssue(githubMetadata());
 
-  assert.match(issue.title, /^\[bug report\] @someone/);
+  assert.ok(issue.title.startsWith('[bug report] @'));
+  assert.ok(!issue.title.includes('@someone'));
   assert.ok(issue.title.length <= 200);
   assert.match(issue.marker, /^wormage-report:[a-f0-9]{24}$/);
   assert.ok(issue.body.includes('https://wormage.flabs.tech/demo'));
