@@ -110,27 +110,24 @@ test('API 5xx alarm triggers after two errors', () => {
   });
 });
 
-test('anonymous auth uses a free SSM SecureString and observe mode', () => {
-  alarmTemplate.hasResourceProperties('AWS::SSM::Parameter', {
-    Name: '/wormage/auth/secret',
-    Type: 'SecureString',
-    // Tier omitted: Standard is the CDK default and the free tier.
-  });
+test('anonymous auth reads an out-of-band SSM SecureString and observe mode', () => {
   const handler = Object.values(alarmTemplate.findResources('AWS::Lambda::Function'))[0];
   assert.equal(handler.Properties.Environment.Variables.AUTH_MODE, 'observe');
+  // Published via `aws ssm put-parameter` in deploy-infra.yml, never in CFN:
+  // CDK StringParameter no longer supports SecureString and CFN rejects it.
+  assert.equal(handler.Properties.Environment.Variables.AUTH_SECRET_PARAM, '/wormage/auth/secret');
   const params = alarmTemplate.findResources('AWS::SSM::Parameter');
-  const secretLogicalId = Object.keys(params).find((id) => params[id].Properties.Name === '/wormage/auth/secret');
-  assert.ok(secretLogicalId, 'missing /wormage/auth/secret parameter');
-  assert.deepStrictEqual(handler.Properties.Environment.Variables.AUTH_SECRET_PARAM, { Ref: secretLogicalId });
-  alarmTemplate.hasResourceProperties('AWS::IAM::Policy', {
-    PolicyDocument: Match.objectLike({
-      Statement: Match.arrayWith([Match.objectLike({
-        Action: Match.arrayWith(['ssm:GetParameter']),
-        Effect: 'Allow',
-        Resource: Match.anyValue(),
-      })]),
-    }),
+  for (const [, parameter] of Object.entries(params)) {
+    assert.notEqual(parameter.Properties.Name, '/wormage/auth/secret');
+  }
+  const policies = alarmTemplate.findResources('AWS::IAM::Policy');
+  const actions = Object.values(policies).flatMap((policy) => policy.Properties.PolicyDocument.Statement || []);
+  const hasGet = actions.some((statement) => {
+    const action = statement.Action;
+    const list = Array.isArray(action) ? action : [action];
+    return statement.Effect === 'Allow' && list.includes('ssm:GetParameter');
   });
+  assert.ok(hasGet, 'missing ssm:GetParameter allow statement');
 });
 
 test('stack synthesis fails closed without an auth secret value', () => {

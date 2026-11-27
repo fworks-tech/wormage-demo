@@ -25,6 +25,12 @@ jobs:
         with:
           role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
           aws-region: us-east-1
+      - name: Publish auth secret to SSM
+        run: |
+          if [ -z "$WORMAGE_AUTH_SECRET" ]; then echo "WORMAGE_AUTH_SECRET is required"; exit 1; fi
+          aws ssm put-parameter --name "/wormage/auth/secret" --type SecureString --value "$WORMAGE_AUTH_SECRET" --overwrite --tier Standard --region us-east-1
+        env:
+          WORMAGE_AUTH_SECRET: ${{ secrets.WORMAGE_AUTH_SECRET }}
       - name: Install root deps
         run: npm ci
       - name: Install infra deps

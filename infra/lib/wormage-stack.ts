@@ -7,6 +7,7 @@ import * as dynamodb from 'aws-cdk-lib/aws-dynamodb';
 import * as logs from 'aws-cdk-lib/aws-logs';
 import * as s3 from 'aws-cdk-lib/aws-s3';
 import * as ssm from 'aws-cdk-lib/aws-ssm';
+import * as iam from 'aws-cdk-lib/aws-iam';
 import * as acm from 'aws-cdk-lib/aws-certificatemanager';
 import * as route53 from 'aws-cdk-lib/aws-route53';
 import * as route53Targets from 'aws-cdk-lib/aws-route53-targets';
@@ -109,21 +110,15 @@ export class WormageStack extends cdk.Stack {
       parameterName: '/wormage/debug-logs/prefix',
       stringValue: 'debug-logs',
     });
-    // Free-tier posture: the session key is a short static string, so it lives
-    // in a Standard SSM SecureString (free) instead of Secrets Manager
-    // ($0.40/secret/mo). Encrypted with the AWS-managed key: no custom KMS
-    // key (which would bill $1/mo). Fail closed when the value is missing.
+    // Free-tier posture: the session key lives in a Standard SSM SecureString
+    // (free, AWS-managed key) published out-of-band via `aws ssm put-parameter`
+    // in deploy-infra.yml — never in the CFN template (CDK StringParameter no
+    // longer supports SecureString and a secret value must not land in the
+    // template history). Fail closed when the value is missing.
     if (!props?.authSecretValue) {
       throw new Error('authSecretValue is required: set WORMAGE_AUTH_SECRET (openssl rand -hex 32)');
     }
-    // New logical ID on purpose: CloudFormation cannot change a resource's
-    // Type in place (SecretsManager::Secret -> SSM::Parameter). A fresh ID
-    // makes it create the parameter and delete the old secret instead.
-    const authSecret = new ssm.StringParameter(this, 'AnonymousAuthSecretParam', {
-      parameterName: '/wormage/auth/secret',
-      stringValue: props.authSecretValue,
-      type: ssm.ParameterType.SECURE_STRING,
-    });
+    const authSecretParamName = '/wormage/auth/secret';
 
     this.handler = new lambda.Function(this, 'WormageHandler', {
       runtime: lambda.Runtime.NODEJS_22_X,
@@ -140,7 +135,7 @@ export class WormageStack extends cdk.Stack {
         BUG_REPORTS_ENABLED: bugReportsEnabled.stringValue,
         BUG_REPORT_MAX_BYTES: '4000000',
         BUG_REPORT_PREFIX: 'bug-reports',
-        AUTH_SECRET_PARAM: authSecret.parameterName,
+        AUTH_SECRET_PARAM: authSecretParamName,
         AUTH_MODE: props?.authMode ?? 'observe',
       },
       timeout: cdk.Duration.seconds(10),
@@ -153,7 +148,10 @@ export class WormageStack extends cdk.Stack {
 
     this.table.grantReadWriteData(this.handler);
     debugLogBucket.grantWrite(this.handler);
-    authSecret.grantRead(this.handler);
+    this.handler.addToRolePolicy(new iam.PolicyStatement({
+      actions: ['ssm:GetParameter'],
+      resources: [this.formatArn({ service: 'ssm', resource: 'parameter', resourceName: 'wormage/auth/secret' })],
+    }));
 
 
     const corsOrigins = props?.corsOrigins && props.corsOrigins.length > 0
