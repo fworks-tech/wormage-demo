@@ -48,6 +48,19 @@ test('winning a stage marks it complete and unlocks the next', async ({ page }) 
   const restored = await page.evaluate(() => JSON.parse(localStorage.getItem('wormage.profile.v1') || 'null'));
   expect(restored).toEqual(profile);
 });
+test('legacy stage progress migrates into the profile after upgrade', async ({ page }) => {
+  await page.goto('/?seed=4242');
+  await page.evaluate(() => localStorage.setItem('wormage.stages.v1', JSON.stringify({ '1-3': true })));
+
+  await page.reload();
+
+  const profile = await page.evaluate(() => JSON.parse(localStorage.getItem('wormage.profile.v1') || 'null'));
+  expect(profile).toMatchObject({ missionProgress: { '1-3': true } });
+  await page.getByTestId('btn-stages').click();
+  await expect(page.getByTestId('stage-1-3')).toContainText('✓');
+  await expect(page.getByTestId('stage-2-3')).toBeEnabled();
+});
+
 test('winning stage 1-3 offers Next stage that starts 2-3', async ({ page }) => {
   await page.goto('/?seed=4242');
   await page.evaluate(() => localStorage.setItem('wormage.currentStage', '1-3'));
