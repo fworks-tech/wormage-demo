@@ -789,9 +789,9 @@ async function getOnlineMatch(event, rawCode, ddbClient = ddb, authenticatedPlay
     await ddbClient.send(new UpdateCommand({
       TableName: TABLE,
       Key: { pk: `ONLINE#${code}`, sk: 'META' },
-      UpdateExpression: 'SET #status = :finished',
+      UpdateExpression: 'SET #status = :finished, expiresAt = :exp',
       ExpressionAttributeNames: { '#status': 'status' },
-      ExpressionAttributeValues: { ':finished': 'finished' },
+      ExpressionAttributeValues: { ':finished': 'finished', ':exp': onlineExpiresAt() },
     }));
     match.status = 'finished';
   }
@@ -818,9 +818,9 @@ async function getOnlineMatch(event, rawCode, ddbClient = ddb, authenticatedPlay
           await ddbClient.send(new UpdateCommand({
             TableName: TABLE,
             Key: { pk: `ONLINE#${code}`, sk: 'META' },
-            UpdateExpression: 'SET activeTeam = :at, turn = :t, turnStartedAt = :ts, #phase = :aim, hasFired = :false, weapon = :weapon, snapshot = :null, snapshotTick = :null, revision = :revision',
+            UpdateExpression: 'SET activeTeam = :at, turn = :t, turnStartedAt = :ts, #phase = :aim, hasFired = :false, weapon = :weapon, snapshot = :null, snapshotTick = :null, revision = :revision, expiresAt = :exp',
             ExpressionAttributeNames: { '#phase': 'phase' },
-            ExpressionAttributeValues: { ':at': nextTeam, ':t': newTurn, ':ts': now, ':old': match.turnStartedAt, ':expectedRevision': expectedRevision, ':aim': 'aim', ':false': false, ':weapon': 'bazooka', ':null': null, ':revision': expectedRevision + 1 },
+            ExpressionAttributeValues: { ':at': nextTeam, ':t': newTurn, ':ts': now, ':old': match.turnStartedAt, ':expectedRevision': expectedRevision, ':aim': 'aim', ':false': false, ':weapon': 'bazooka', ':null': null, ':revision': expectedRevision + 1, ':exp': onlineExpiresAt() },
             ConditionExpression: 'turnStartedAt = :old AND (attribute_not_exists(revision) OR revision = :expectedRevision)',
           }));
           match = { ...match, activeTeam: nextTeam, turn: newTurn, turnStartedAt: now, phase: 'aim', hasFired: false, weapon: 'bazooka', snapshot: null, snapshotTick: null, revision: expectedRevision + 1 };
@@ -1050,7 +1050,7 @@ async function submitAction(event, rawCode, ddbClient, authenticatedPlayerId) {
   transactItems.push({
     Put: {
       TableName: TABLE,
-      Item: { pk: 'MATCH#' + code, sk, expiresAt: onlineExpiresAt(), ...entry },
+      Item: { pk: 'MATCH#' + code, sk, ...entry, expiresAt: onlineExpiresAt() },
       ConditionExpression: 'attribute_not_exists(pk)',
     },
   });

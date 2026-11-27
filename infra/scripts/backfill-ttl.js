@@ -30,7 +30,9 @@ async function main() {
     if (!parentCache.has(code)) {
       const res = await ddb.send(new GetCommand({ TableName: TABLE, Key: { pk: `ONLINE#${code}`, sk: 'META' } }));
       const m = res.Item;
-      parentCache.set(code, !m || m.actionLogVersion !== ACTION_LOG_VERSION);
+      // Orphaned actions (parent already gone) are not legacy — backfill them
+      // so they expire instead of leaking forever.
+      parentCache.set(code, !!m && m.actionLogVersion !== ACTION_LOG_VERSION);
     }
     return parentCache.get(code);
   };
