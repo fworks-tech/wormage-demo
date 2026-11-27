@@ -25,6 +25,28 @@ aws cloudwatch set-alarm-state \
 
 Return the alarm to `OK` afterward. Confirm the SNS email subscription before treating the alert path as operational.
 
+## Observability and cost attribution
+
+The HTTP API `$default` stage writes JSON access logs to `/aws/apigateway/wormage` with 30-day retention. Each event contains `requestId`, `routeKey`, method, status, latency, source IP and response length. Authorization headers, request/response bodies, query strings and screenshots are never included. Source IP is operational personal data: keep the log group IAM-restricted and do not export it to broader tooling.
+
+The `wormage-backend` CloudWatch dashboard covers Lambda traffic/errors/latency, API traffic/errors/latency, DynamoDB capacity/throttles and the `Wormage/Application` error/bug-report signals. It uses standard metrics only; detailed route metrics and X-Ray stay disabled for cost control.
+
+All taggable stack resources receive `Project=wormage`, `Environment=prod`, `ManagedBy=CDK` and `CostCenter=wormage`. Billing activation and the first cost baseline are tracked separately in #279; applying a tag does not make it visible in Cost Explorer until its tag key is activated.
+
+HTTP API access logging uses stage log delivery, not an account-wide API Gateway CloudWatch role. The deploy principal still needs the CloudWatch Logs delivery permissions documented by AWS. Verify a real request after deploy:
+
+```bash
+curl -sS -D - -o /dev/null https://api.wormage.flabs.tech/health
+aws logs filter-log-events \
+  --log-group-name /aws/apigateway/wormage \
+  --filter-pattern '{ $.requestId = "<x-amzn-request-id>" }'
+aws logs describe-log-groups \
+  --log-group-name-prefix /aws/apigateway/wormage \
+  --query 'logGroups[0].retentionInDays'
+```
+
+If the filter is empty, repeat it after API Gateway finishes delivering the event; do not treat a single immediate miss as a logging failure.
+
 ## Anonymous authentication
 
 Production uses `AUTH_MODE=observe` until the new client is deployed and no legacy `waiting` or `ready` matches remain. Switch `WORMAGE_AUTH_MODE` to `enforce` and redeploy through the approved workflow only after checking current clients and active matches.

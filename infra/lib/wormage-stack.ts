@@ -53,6 +53,11 @@ export class WormageStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props?: WormageStackProps) {
     super(scope, id, props);
 
+    cdk.Tags.of(this).add('Project', 'wormage');
+    cdk.Tags.of(this).add('Environment', 'prod');
+    cdk.Tags.of(this).add('ManagedBy', 'CDK');
+    cdk.Tags.of(this).add('CostCenter', 'wormage');
+
     this.table = new dynamodb.Table(this, 'WormageTable', {
       tableName: 'wormage',
       partitionKey: { name: 'pk', type: dynamodb.AttributeType.STRING },
@@ -187,6 +192,15 @@ export class WormageStack extends cdk.Stack {
         maxAge: cdk.Duration.days(1),
       },
     });
+    const accessLogGroup = new logs.LogGroup(this, 'HttpApiAccessLogs', {
+      logGroupName: '/aws/apigateway/wormage',
+      retention: logs.RetentionDays.ONE_MONTH,
+    });
+    const accessLogFormat = JSON.stringify({
+      requestId: '$context.requestId', routeKey: '$context.routeKey', httpMethod: '$context.httpMethod',
+      status: '$context.status', responseLatency: '$context.responseLatency', sourceIp: '$context.identity.sourceIp',
+      responseLength: '$context.responseLength',
+    });
 
     const integration = new HttpLambdaIntegration('WormageIntegration', this.handler);
     this.httpApi.addRoutes({
@@ -238,6 +252,10 @@ export class WormageStack extends cdk.Stack {
     ];
     const cfnStage = this.httpApi.defaultStage?.node.defaultChild as apigwv2.CfnStage | undefined;
     if (cfnStage) {
+      cfnStage.accessLogSettings = {
+        destinationArn: accessLogGroup.logGroupArn,
+        format: accessLogFormat,
+      };
       cfnStage.defaultRouteSettings = {
         throttlingBurstLimit: 20,
         throttlingRateLimit: 10,
@@ -373,6 +391,51 @@ export class WormageStack extends cdk.Stack {
       alarmDescription: 'API Gateway 5xx count',
     }).addAlarmAction(new cwActions.SnsAction(alarmTopic));
 
+    const dashboard = new cloudwatch.Dashboard(this, 'WormageDashboard', {
+      dashboardName: 'wormage-backend',
+      start: '-PT8H',
+      periodOverride: cloudwatch.PeriodOverride.INHERIT,
+    });
+    dashboard.addWidgets(
+      new cloudwatch.TextWidget({ width: 24, height: 1, markdown: '# Wormage backend' }),
+      new cloudwatch.GraphWidget({
+        width: 12, height: 6, title: 'Lambda requests and errors',
+        left: [this.handler.metricInvocations({ period: cdk.Duration.minutes(5), statistic: 'Sum' })],
+        right: [lambdaErrors, lambdaThrottles],
+      }),
+      new cloudwatch.GraphWidget({
+        width: 12, height: 6, title: 'API traffic and errors',
+        left: [this.httpApi.metricCount({ period: cdk.Duration.minutes(5), statistic: 'Sum' })],
+        right: [
+          this.httpApi.metricClientError({ period: cdk.Duration.minutes(5), statistic: 'Sum' }),
+          api5xx,
+        ],
+      }),
+      new cloudwatch.GraphWidget({
+        width: 12, height: 6, title: 'Latency p99',
+        left: [
+          lambdaDuration,
+          this.httpApi.metricLatency({ period: cdk.Duration.minutes(5), statistic: 'p99' }),
+          this.httpApi.metricIntegrationLatency({ period: cdk.Duration.minutes(5), statistic: 'p99' }),
+        ],
+      }),
+      new cloudwatch.GraphWidget({
+        width: 12, height: 6, title: 'DynamoDB capacity and throttles',
+        left: [
+          this.table.metricConsumedReadCapacityUnits({ period: cdk.Duration.minutes(5), statistic: 'Sum' }),
+          this.table.metricConsumedWriteCapacityUnits({ period: cdk.Duration.minutes(5), statistic: 'Sum' }),
+        ],
+        right: [tableThrottles],
+      }),
+      new cloudwatch.GraphWidget({
+        width: 24, height: 6, title: 'Application signals',
+        left: [
+          applicationErrorFilter.metric({ period: cdk.Duration.minutes(5), statistic: 'Sum' }),
+          bugReportFilter.metric({ period: cdk.Duration.minutes(5), statistic: 'Sum' }),
+        ],
+      }),
+    );
+
     // WAF: regional WebACL association is not supported for HTTP APIs (v2) —
     // WAFv2 accepts REST API stage ARNs (/restapis/...). Rate limiting for this
     // HTTP API relies on the default stage throttling (20 burst / 10 rate) until
@@ -422,6 +485,14 @@ export class WormageStack extends cdk.Stack {
     new cdk.CfnOutput(this, 'DebugLogBucketName', {
       value: debugLogBucket.bucketName,
       description: 'Wormage debug log bucket',
+    });
+    new cdk.CfnOutput(this, 'HttpApiAccessLogGroupName', {
+      value: accessLogGroup.logGroupName,
+      description: 'CloudWatch log group for HTTP API access logs',
+    });
+    new cdk.CfnOutput(this, 'DashboardName', {
+      value: dashboard.dashboardName,
+      description: 'CloudWatch dashboard for backend health',
     });
   }
 }
