@@ -75,9 +75,22 @@ A player's campaign progress lives only in the browser. `LocalStorageProfileRepo
 
 ## Tasks
 
-Implementation is blocked until #163, #166, #167 and #168 land and the profile has real writers. Use stacked branches, each with its own PR and the previous branch as base:
+Implementation is blocked until #163, #166, #167 and #168 land and the profile has real writers. Use stacked branches, each with its own PR and the previous branch as base. Each line below is one commit ordered by dependency; the test commit comes before the behavior it pins.
 
-- [ ] `docs/issue-171-cloud-save-plan` — this spec and ADR-0010.
-- [ ] `feat/171-profile-api` — DynamoDB profile item, GET/PUT/DELETE routes, auth-derived id, handler tests.
-- [ ] `feat/171-profile-sync` — client sync helper, local cursor, signed-out behavior, unit tests (`Closes #171`).
-- [ ] `docs/171-privacy` — document stored fields, deletion and retention in `docs/DECISIONS.md` and `docs/RUNBOOK.md`; can be folded into the API branch if small.
+- [x] `docs/issue-171-cloud-save-plan` (base `main`, PR #310)
+  - [x] `docs(profile): plan cloud save on the anonymous identity` — spec, criteria and task order.
+  - [x] `docs(adr): record cloud profile identity decision` — ADR-0010 and index entry.
+- [ ] `feat/171-profile-api` (base `docs/issue-171-cloud-save-plan` until PR #310 merges, then `main`)
+  - [ ] `test(api): pin profile GET/PUT/DELETE, auth-derived id and stale-revision rejection`
+  - [ ] `feat(api): store profile items under pk=PROFILE#<playerId>, sk=META`
+  - [ ] `feat(api): return 404 from GET /api/profile for a new identity`
+  - [ ] `feat(api): add PUT /api/profile with a conditional revision write`
+  - [ ] `feat(api): add DELETE /api/profile`
+  - [ ] `docs(api): document routes, stored fields and retention`
+- [ ] `feat/171-profile-sync` (base `feat/171-profile-api`)
+  - [ ] `test(state): pin first sync, newest-wins conflict and signed-out decisions`
+  - [ ] `feat(state): add the local sync cursor (wormage.profile-sync.v1)`
+  - [ ] `feat(state): add the pure profile merge helper`
+  - [ ] `feat(api): expose /api/profile in client and MSW transports`
+  - [ ] `feat(state): sync after ensureAnonymousSession without blocking play`
+  - [ ] `docs(profile): describe privacy, deletion and offline behavior` (`Closes #171`)
