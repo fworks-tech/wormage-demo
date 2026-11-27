@@ -38,6 +38,7 @@ test('game sources run the game units and the gameplay specs', () => {
   expect(result.unit).toEqual([
     'tests/unit/ai.test.ts',
     'tests/unit/authoritativeInputs.test.ts',
+    'tests/unit/cpuNoPlan.test.ts',
     'tests/unit/debugLog.test.ts',
     'tests/unit/engine.test.ts',
     'tests/unit/jump.test.ts',
