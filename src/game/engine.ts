@@ -1871,6 +1871,8 @@ export class GameEngine {
     this.moveDir = 0;
     // update() slews the reticle each frame; never fire along a different angle.
     if (Math.abs(clampAngle(plan.angle) - worm.aimAngle) > 1e-6) return;
+    // Drop scoring assumes the grounded planting pose; an airborne charge would land elsewhere.
+    if (WEAPONS[plan.weapon].kind === 'drop' && !worm.onGround) return;
     if (!this.aiShotIsUseful(worm, plan.weapon, plan.retreatX)) {
       this.logDebug('ai.planInvalid', 'AI plan no longer damages an enemy from the firing pose', { wormId: worm.id, weapon: plan.weapon, angle: worm.aimAngle, power: Math.max(0.12, this.power), x: worm.x, y: worm.y }, 'cpu', worm.id, 'warn');
       this.aiPlan = null;
