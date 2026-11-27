@@ -39,4 +39,6 @@ test('cursor paginates without overlap and ends with null nextCursor', () => {
 test('invalid cursor throws', () => {
   seed('p-bad', 1);
   expect(() => listMatchesCursor('p-bad', 2, '!!!not-base64')).toThrow();
+  const wrongShape = btoa(JSON.stringify({ createdAt: 'x' }));
+  expect(() => listMatchesCursor('p-bad', 2, wrongShape)).toThrow();
 });

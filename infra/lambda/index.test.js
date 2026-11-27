@@ -262,6 +262,26 @@ test('getMatches rejects invalid cursor', async () => {
   assert.equal(r.statusCode, 400);
 });
 
+test('getMatches rejects incomplete cursor key shape', async () => {
+  const ddb = makeMockDdb();
+  const key = Buffer.from(JSON.stringify({ pk: 123 }), 'utf8').toString('base64');
+  const r = await L.getMatches(ev('GET', '/api/matches', { playerId: 'p-cur', limit: '2', cursor: key }), ddb);
+  assert.equal(r.statusCode, 400);
+  const nullKey = Buffer.from('null', 'utf8').toString('base64');
+  const r2 = await L.getMatches(ev('GET', '/api/matches', { playerId: 'p-cur', limit: '2', cursor: nullKey }), ddb);
+  assert.equal(r2.statusCode, 400);
+});
+
+test('getMatches floors fractional limit', async () => {
+  const ddb = makeMockDdb();
+  for (let i = 0; i < 3; i++) {
+    await L.postMatch(ev('POST', '/api/matches', {}, { clientMatchId: `c-frac-${i}`, playerId: 'p-frac', playerName: 'P', teamName: 'T', score: i, durationSeconds: 60, endReason: 'wipeout', turnSeconds: 45, wind: 'light', difficulty: 'veteran' }), ddb);
+  }
+  const r = await L.getMatches(ev('GET', '/api/matches', { playerId: 'p-frac', limit: '2.5' }), ddb);
+  assert.equal(r.statusCode, 200);
+  assert.equal(JSON.parse(r.body).limit, 2);
+});
+
 test('postMatch idempotent by clientMatchId', async () => {
   const ddb = makeMockDdb();
   const body = { clientMatchId: 'c-1', playerId: 'p', playerName: 'P', teamName: 'T', score: 50, durationSeconds: 60, endReason: 'wipeout', turnSeconds: 45, wind: 'light', difficulty: 'veteran' };
