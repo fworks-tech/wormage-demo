@@ -18,6 +18,7 @@ import type { GameSettings } from './game/types';
 import type { Bindings } from './state/bindings';
 import { completeStage, nextStage } from './state/stages';
 import type { Stage } from './state/stages';
+import { LocalStorageProfileRepository, withMissionComplete } from './state/profile';
 import type { Screen, SessionResult } from './types';
 
 function newClientId(): string {
@@ -34,6 +35,11 @@ export default function App() {
   const [onlinePlayerIndex, setOnlinePlayerIndex] = useState(0);
   const [matchKey, setMatchKey] = useState(0);
   const [result, setResult] = useState<SessionResult | null>(() => loadLastResult<SessionResult>());
+  const profileRepositoryRef = useRef<LocalStorageProfileRepository | null>(null);
+  if (!profileRepositoryRef.current) {
+    profileRepositoryRef.current = new LocalStorageProfileRepository();
+    profileRepositoryRef.current.load();
+  }
   const clientMatchId = useRef<string>('');
   const register = useRegisterMatch();
 
@@ -81,7 +87,14 @@ export default function App() {
       const withStage: SessionResult = currentStage
         ? { ...finished, stageId: currentStage }
         : finished;
-      if (currentStage && finished.winnerTeam === 0) completeStage(currentStage);
+      if (currentStage && finished.winnerTeam === 0) {
+        completeStage(currentStage);
+        const repository = profileRepositoryRef.current;
+        if (repository) {
+          const nextProfile = withMissionComplete(repository.load(), currentStage);
+          repository.save(nextProfile);
+        }
+      }
       localStorage.removeItem('wormage.currentStage');
       setResult(withStage);
       saveLastResult(withStage);

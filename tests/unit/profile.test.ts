@@ -2,6 +2,7 @@ import { afterEach, expect, test, vi } from 'vitest';
 import {
   createDefaultProfile,
   LocalStorageProfileRepository,
+  withMissionComplete,
   type Profile,
 } from '../../src/state/profile';
 
@@ -65,16 +66,66 @@ test('save and load round-trip every profile field', () => {
   expect(new LocalStorageProfileRepository().load()).toEqual(validProfile);
 });
 
-test('reset removes only the profile payload', () => {
+test('legacy stage progress migrates into a new profile on first load', () => {
+  const { data } = stubStorage();
+  data.set('wormage.stages.v1', JSON.stringify({ '1-3': true, '2-3': false }));
+
+  const profile = new LocalStorageProfileRepository().load();
+
+  expect(profile.missionProgress).toEqual({ '1-3': true });
+  expect(JSON.parse(data.get(PROFILE_KEY)!)).toEqual(profile);
+});
+
+test('legacy migration preserves XP, level and unlocks', () => {
+  const { data } = stubStorage(JSON.stringify(validProfile));
+  data.set('wormage.stages.v1', JSON.stringify({ '3-3': true }));
+
+  const profile = new LocalStorageProfileRepository().load();
+
+  expect(profile).toEqual({
+    ...validProfile,
+    missionProgress: { '1-3': true, '2-3': true, '3-3': true },
+  });
+  expect(JSON.parse(data.get(PROFILE_KEY)!)).toEqual(profile);
+});
+
+test('completing a mission records progress without mutating the previous profile', () => {
+  stubStorage(JSON.stringify(validProfile));
+
+  const next = withMissionComplete(validProfile, '3-3');
+
+  expect(next).toEqual({
+    ...validProfile,
+    missionProgress: { '1-3': true, '2-3': true, '3-3': true },
+  });
+  expect(validProfile.missionProgress).toEqual({ '1-3': true, '2-3': true });
+});
+
+test('mission progress written after a win survives a fresh repository load', () => {
+  const { data } = stubStorage(JSON.stringify(validProfile));
+  const repository = new LocalStorageProfileRepository();
+
+  const next = withMissionComplete(repository.load(), '3-3');
+  repository.save(next);
+
+  expect(JSON.parse(data.get(PROFILE_KEY)!)).toEqual(next);
+  expect(new LocalStorageProfileRepository().load()).toEqual(next);
+});
+
+test('reset clears profile and campaign progress but keeps settings and bindings', () => {
   const { data } = stubStorage(JSON.stringify(validProfile));
   data.set('wormage.settings.v1', '{"turnTimer":45}');
   data.set('wormage.bindings.v1', '{"fire":"KeyF"}');
+  data.set('wormage.stages.v1', JSON.stringify({ '1-3': true }));
+  const repository = new LocalStorageProfileRepository();
 
-  new LocalStorageProfileRepository().reset();
+  repository.reset();
 
   expect(data.has(PROFILE_KEY)).toBe(false);
+  expect(data.has('wormage.stages.v1')).toBe(false);
   expect(data.get('wormage.settings.v1')).toBe('{"turnTimer":45}');
   expect(data.get('wormage.bindings.v1')).toBe('{"fire":"KeyF"}');
+  expect(repository.load().missionProgress).toEqual({});
 });
 
 test.each([

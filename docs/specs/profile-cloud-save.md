@@ -6,7 +6,7 @@ Decision: [ADR-0010](../adr/0010-cloud-profile-identity.md)
 
 ## Problem
 
-A player's campaign progress lives only in the browser. `LocalStorageProfileRepository` exists (`src/state/profile.ts`), but no runtime code reads or writes it — mission progress is stored separately in `wormage.stages.v1` (`src/state/stages.ts`). Cloud sync today would copy an empty file. M5 must first make the profile a live part of the game; only then can M6 move it between devices without breaking offline play.
+A player's campaign progress lives only in the browser. `LocalStorageProfileRepository` now receives mission wins from `App`, and legacy `wormage.stages.v1` progress migrates into it on load. XP, level and unlocks still have no runtime writers, so cloud sync must wait for the remaining M5 work.
 
 ## Problem brief
 
@@ -28,7 +28,7 @@ A player's campaign progress lives only in the browser. `LocalStorageProfileRepo
 
 **Risks and constraints**
 
-- M5 (#163–#168) is still open; #171's own plan says to wait until the profile is stable.
+- M5 (#163–#168) is still open; #168 delivers mission-progress persistence and legacy migration, while #163/#166/#167 still gate a complete profile.
 - The existing HS256 bearer identity (`src/api/auth.ts`) issues a stable `playerId`; Cognito would add a second identity source. ADR-0010 keeps the existing one.
 - Cloud save is conditional in `docs/ROADMAP.md`; it is not a prerequisite for the PWA or Capacitor wrapper.
 - Profile fields currently include a display `name`; storing it server-side needs a privacy note and a delete path.
@@ -75,7 +75,7 @@ A player's campaign progress lives only in the browser. `LocalStorageProfileRepo
 
 ## Tasks
 
-Implementation is blocked until #163, #166, #167 and #168 land and the profile has real writers. Use stacked branches, each with its own PR and the previous branch as base. Each line below is one commit ordered by dependency; the test commit comes before the behavior it pins.
+Implementation is blocked until #163, #166 and #167 land and the profile has real writers for XP, levels and unlocks. #168 delivers mission-progress persistence and legacy migration. Use stacked branches, each with its own PR and the previous branch as base. Each line below is one commit ordered by dependency; the test commit comes before the behavior it pins.
 
 - [x] `docs/issue-171-cloud-save-plan` (base `main`, PR #310)
   - [x] `docs(profile): plan cloud save on the anonymous identity` — spec, criteria and task order.

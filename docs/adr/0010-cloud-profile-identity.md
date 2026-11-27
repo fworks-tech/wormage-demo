@@ -6,7 +6,7 @@
 
 ## Context
 
-Issue #171 asks for cloud save and its plan proposes a Cognito identity pool. The app already issues a stable anonymous `playerId` from `POST /api/auth/session`: an HS256 bearer token whose verified `sub` claim is the only accepted identity (ADR-0008). Cognito is not present in the client or the CDK stack; adding a user or identity pool would create a second identity source, need a sign-in UI and token verification path, and expand M5 scope. The local profile (`src/state/profile.ts`) is also not yet written by gameplay, so sync cannot ship before M5.
+Issue #171 asks for cloud save and its plan proposes a Cognito identity pool. The app already issues a stable anonymous `playerId` from `POST /api/auth/session`: an HS256 bearer token whose verified `sub` claim is the only accepted identity (ADR-0008). Cognito is not present in the client or the CDK stack; adding a user or identity pool would create a second identity source, need a sign-in UI and token verification path, and expand M5 scope. The local profile now records mission progress from gameplay, but XP, level and unlocks are still not written; sync cannot ship until M5 completes those fields.
 
 ## Decision
 
@@ -25,5 +25,6 @@ Profile sync uses the verified anonymous `playerId` as its cloud key. `GET/PUT/D
 - Cross-device sync works only when both devices authenticate as the same anonymous identity; losing the local token loses access to the cloud profile.
 - No password, email or recovery flow exists; account lifecycle remains a future decision.
 - Profile storage contains a player-chosen display name, XP, level, unlocks and mission progress. A delete route and a privacy note are part of the work, not extras.
+- Existing `wormage.stages.v1` wins migrate into the profile on first load; reset clears both stores so old progress cannot reappear.
 - Last-write-wins can discard progress from a second offline device; the rule is documented and tested rather than hidden.
 - If Cognito is introduced later, this decision needs a superseding ADR and an identity migration plan.

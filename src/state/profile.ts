@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { loadPlayer } from './storage';
+import { loadProgress, resetProgress } from './stages';
 
 const PROFILE_KEY = 'wormage.profile.v1';
 const PROFILE_VERSION = 1;
@@ -35,6 +36,13 @@ export function createDefaultProfile(): Profile {
   };
 }
 
+export function withMissionComplete(profile: Profile, missionId: string): Profile {
+  return {
+    ...profile,
+    missionProgress: { ...profile.missionProgress, [missionId]: true },
+  };
+}
+
 export class LocalStorageProfileRepository implements ProfileRepository {
   load(): Profile {
     let profile: Profile | undefined;
@@ -42,16 +50,29 @@ export class LocalStorageProfileRepository implements ProfileRepository {
       const raw = localStorage.getItem(PROFILE_KEY);
       if (raw) {
         const parsed = ProfileSchema.safeParse(JSON.parse(raw));
+        // shortcut: mismatched versions reset to defaults; add a migration when v2 ships
         if (parsed.success) profile = parsed.data;
       }
     } catch {
       // corrupt or unavailable storage falls through to a fresh profile
     }
 
+    let created = false;
     if (!profile) {
       profile = createDefaultProfile();
-      this.save(profile);
+      created = true;
     }
+
+    let migrated = false;
+    const missionProgress = { ...profile.missionProgress };
+    for (const [id, completed] of Object.entries(loadProgress() ?? {})) {
+      if (completed === true && missionProgress[id] !== true) {
+        missionProgress[id] = true;
+        migrated = true;
+      }
+    }
+    if (migrated) profile = { ...profile, missionProgress };
+    if (created || migrated) this.save(profile);
     return profile;
   }
 
@@ -70,5 +91,6 @@ export class LocalStorageProfileRepository implements ProfileRepository {
     } catch {
       // ignore
     }
+    resetProgress();
   }
 }

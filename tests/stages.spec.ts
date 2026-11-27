@@ -15,6 +15,11 @@ test('winning a stage marks it complete and unlocks the next', async ({ page }) 
   await page.evaluate(() => localStorage.setItem('wormage.currentStage', '1-3'));
   await page.getByTestId('btn-play').click();
   await page.waitForFunction(() => Boolean((window as never as { __WORMAGE__?: unknown }).__WORMAGE__));
+  await page.evaluate(() => {
+    const key = 'wormage.profile.v1';
+    const profile = JSON.parse(localStorage.getItem(key) || '{}');
+    localStorage.setItem(key, JSON.stringify({ ...profile, xp: 1250, level: 4, unlocks: ['heavy'] }));
+  });
 
   // Player (team 0) wins: hand the turn to the CPU, then surrender for it.
   await page.evaluate(() => {
@@ -33,12 +38,35 @@ test('winning a stage marks it complete and unlocks the next', async ({ page }) 
   const progress = await page.evaluate(() => JSON.parse(localStorage.getItem('wormage.stages.v1') || '{}'));
   expect(progress['1-3']).toBe(true);
 
+  // The same win is recorded in the profile that cloud save will sync.
+  const profile = await page.evaluate(() => JSON.parse(localStorage.getItem('wormage.profile.v1') || 'null'));
+  expect(profile).toMatchObject({ version: 1, xp: 1250, level: 4, unlocks: ['heavy'], missionProgress: { '1-3': true } });
+
   // Next stage is unlocked in the StageSelect UI.
   await page.getByTestId('btn-change-setup').click();
   await page.getByTestId('btn-stages').click();
   await expect(page.getByTestId('stage-2-3')).toBeEnabled();
   await expect(page.getByTestId('stage-1-3')).toContainText('✓');
+
+  await page.reload();
+  await expect(page.getByTestId('btn-play')).toBeVisible();
+  const restored = await page.evaluate(() => JSON.parse(localStorage.getItem('wormage.profile.v1') || 'null'));
+  expect(restored).toEqual(profile);
 });
+test('legacy stage progress migrates into the profile after upgrade', async ({ page }) => {
+  await page.goto('/?seed=4242');
+  await page.evaluate(() => localStorage.setItem('wormage.stages.v1', JSON.stringify({ '1-3': true })));
+
+  await page.reload();
+  await expect(page.getByTestId('btn-play')).toBeVisible();
+
+  const profile = await page.evaluate(() => JSON.parse(localStorage.getItem('wormage.profile.v1') || 'null'));
+  expect(profile).toMatchObject({ missionProgress: { '1-3': true } });
+  await page.getByTestId('btn-stages').click();
+  await expect(page.getByTestId('stage-1-3')).toContainText('✓');
+  await expect(page.getByTestId('stage-2-3')).toBeEnabled();
+});
+
 test('winning stage 1-3 offers Next stage that starts 2-3', async ({ page }) => {
   await page.goto('/?seed=4242');
   await page.evaluate(() => localStorage.setItem('wormage.currentStage', '1-3'));
