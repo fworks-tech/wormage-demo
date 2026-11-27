@@ -59,6 +59,10 @@ export class WormageStack extends cdk.Stack {
       billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
       removalPolicy: cdk.RemovalPolicy.RETAIN,
       pointInTimeRecovery: true,
+      // Online matches/action logs expire after 30 days via Lambda-stamped
+      // `expiresAt` (epoch seconds). Ranking/history items never carry it.
+      timeToLiveAttribute: 'expiresAt',
+      deletionProtection: true,
     });
 
     this.table.addGlobalSecondaryIndex({
@@ -84,7 +88,19 @@ export class WormageStack extends cdk.Stack {
         {
           id: 'expire-debug-logs',
           enabled: true,
+          prefix: 'debug-logs/',
           expiration: cdk.Duration.days(7),
+        },
+        {
+          id: 'expire-bug-reports',
+          enabled: true,
+          prefix: 'bug-reports/',
+          expiration: cdk.Duration.days(30),
+        },
+        {
+          id: 'abort-incomplete-multipart',
+          enabled: true,
+          abortIncompleteMultipartUploadAfter: cdk.Duration.days(1),
         },
       ],
       removalPolicy: cdk.RemovalPolicy.RETAIN,

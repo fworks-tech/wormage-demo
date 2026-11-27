@@ -10,6 +10,12 @@ const { replayActionLog, sortActions, ENGINE_VERSION } = require('./replay.js');
 
 const TABLE = process.env.TABLE_NAME;
 const ACTION_LOG_VERSION = 2;
+// Online retention: DynamoDB TTL needs epoch seconds. Ranking/history
+// (CLIENT#) items never carry expiresAt.
+const ONLINE_TTL_SECONDS = 30 * 24 * 60 * 60;
+function onlineExpiresAt(fromMs = Date.now()) {
+  return Math.floor(fromMs / 1000) + ONLINE_TTL_SECONDS;
+}
 const LEGACY_MATCH = Object.freeze({ legacy: true });
 const FORBIDDEN_MATCH = Object.freeze({ forbidden: true });
 const ddb = DynamoDBDocumentClient.from(new DynamoDBClient({}));
@@ -684,6 +690,7 @@ async function postOnlineMatch(event, ddbClient = ddb, authenticatedPlayerId) {
       endReason: null,
       phase: 'aim',
       hasFired: false,
+      expiresAt: onlineExpiresAt(),
       engineVersion: ENGINE_VERSION,
       revision: 0,
       ammo: [{ bazooka: 999, grenade: 3, shotgun: 4, dynamite: 2, medkit: 2, shield: 1 },
@@ -736,9 +743,9 @@ async function joinOnlineMatch(event, rawCode, ddbClient = ddb, authenticatedPla
     await ddbClient.send(new UpdateCommand({
       TableName: TABLE,
       Key: { pk: `ONLINE#${code}`, sk: 'META' },
-      UpdateExpression: 'SET players = list_append(players, :p), #s = :ready, activeTeam = :at, turn = :t, turnStartedAt = :ts',
+      UpdateExpression: 'SET players = list_append(players, :p), #s = :ready, activeTeam = :at, turn = :t, turnStartedAt = :ts, expiresAt = :exp',
       ExpressionAttributeNames: { '#s': 'status' },
-      ExpressionAttributeValues: { ':p': [newPlayer], ':ready': 'ready', ':max': match.maxPlayers || 2, ':at': 0, ':t': 1, ':ts': now },
+      ExpressionAttributeValues: { ':p': [newPlayer], ':ready': 'ready', ':max': match.maxPlayers || 2, ':at': 0, ':t': 1, ':ts': now, ':exp': onlineExpiresAt() },
       ConditionExpression: 'size(players) < :max',
     }));
   } catch (err) {
@@ -1026,6 +1033,7 @@ async function submitAction(event, rawCode, ddbClient, authenticatedPlayerId) {
     snapshot: snap,
     snapshotTick: replay.tick,
     revision: revision + 1,
+    expiresAt: onlineExpiresAt(),
   };
   // getOnlineMatch advances an expired turn on its own. A replay that stopped
   // at an earlier tick must not drag the match back to the previous team.
@@ -1042,7 +1050,7 @@ async function submitAction(event, rawCode, ddbClient, authenticatedPlayerId) {
   transactItems.push({
     Put: {
       TableName: TABLE,
-      Item: { pk: 'MATCH#' + code, sk, ...entry },
+      Item: { pk: 'MATCH#' + code, sk, expiresAt: onlineExpiresAt(), ...entry },
       ConditionExpression: 'attribute_not_exists(pk)',
     },
   });
@@ -1116,9 +1124,9 @@ async function forfeitOnlineMatch(event, rawCode, ddbClient, authenticatedPlayer
   await ddbClient.send(new UpdateCommand({
     TableName: TABLE,
     Key: { pk: 'ONLINE#' + code, sk: 'META' },
-    UpdateExpression: 'SET #s = :finished, winnerTeam = :w, endReason = :r, finishedAt = :f',
+    UpdateExpression: 'SET #s = :finished, winnerTeam = :w, endReason = :r, finishedAt = :f, expiresAt = :exp',
     ExpressionAttributeNames: { '#s': 'status' },
-    ExpressionAttributeValues: { ':finished': 'finished', ':w': winner, ':r': 'surrender', ':f': now },
+    ExpressionAttributeValues: { ':finished': 'finished', ':w': winner, ':r': 'surrender', ':f': now, ':exp': onlineExpiresAt() },
   }));
 
   const after = await ddbClient.send(new GetCommand({ TableName: TABLE, Key: { pk: 'ONLINE#' + code, sk: 'META' } }));

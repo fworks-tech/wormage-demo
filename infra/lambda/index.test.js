@@ -241,6 +241,45 @@ test('postMatch requires clientMatchId', async () => {
   assert.equal(r.statusCode, 400);
 });
 
+test('ranking items never carry TTL while online matches expire in 30 days', async () => {
+  const ddb = makeMockDdb();
+  const before = Math.floor(Date.now() / 1000);
+  const body = { clientMatchId: 'c-nottl', playerId: 'p', playerName: 'P', teamName: 'T', score: 50, durationSeconds: 60, endReason: 'wipeout', turnSeconds: 45, wind: 'light', difficulty: 'veteran' };
+  const r = await L.postMatch(ev('POST', '/api/matches', {}, body), ddb);
+  assert.equal(r.statusCode, 201);
+  assert.equal(ddb.store.get('CLIENT#c-nottl#META').expiresAt, undefined);
+
+  const c = await L.postOnlineMatch(ev('POST', '/api/matches/online', {}, { playerId: 'p1', playerName: 'Alice' }), ddb);
+  assert.equal(c.statusCode, 201);
+  const code = JSON.parse(c.body).code;
+  const meta = ddb.store.get(`ONLINE#${code}#META`);
+  assert.equal(typeof meta.expiresAt, 'number');
+  assert.ok(meta.expiresAt - before >= 30 * 24 * 60 * 60 - 5, `expiresAt too soon: ${meta.expiresAt - before}`);
+  assert.ok(meta.expiresAt - before <= 30 * 24 * 60 * 60 + 5, `expiresAt too late: ${meta.expiresAt - before}`);
+});
+
+test('online actions refresh TTL on the log and the match', async () => {
+  const ddb = makeMockDdb();
+  const c = await L.postOnlineMatch(ev('POST', '/api/matches/online', {}, { playerId: 'p1', playerName: 'Alice' }), ddb);
+  const code = JSON.parse(c.body).code;
+  await L.joinOnlineMatch(ev('POST', `/api/matches/online/${code}/join`, {}, { playerId: 'p2', playerName: 'Bob' }), code, ddb);
+  const r = await L.submitAction(ev('POST', `/api/matches/online/${code}/action`, {}, {
+    playerId: 'p1', action: { type: 'move', dir: 0 }, clientActionId: 'ttl-move-1', tick: 5,
+  }), code, ddb);
+  assert.equal(r.statusCode, 200, r.body);
+
+  const actions = await storedActions(ddb, code);
+  assert.equal(actions.length, 1);
+  assert.equal(typeof actions[0].expiresAt, 'number');
+  const meta = ddb.store.get(`ONLINE#${code}#META`);
+  assert.equal(typeof meta.expiresAt, 'number');
+  assert.ok(meta.expiresAt >= actions[0].expiresAt - 60, 'match TTL must refresh with the action');
+
+  const f = await L.forfeitOnlineMatch(ev('POST', `/api/matches/online/${code}/forfeit`, {}, { playerId: 'p2' }), code, ddb);
+  assert.equal(f.statusCode, 200, f.body);
+  assert.equal(typeof ddb.store.get(`ONLINE#${code}#META`).expiresAt, 'number');
+});
+
 test('postMatch propagates non-condition errors', async () => {
   const ddb = {
     async send() { const e = new Error('boom'); e.name = 'InternalServerError'; throw e; },
@@ -592,7 +631,9 @@ test('submitAction stores one ordered item per action', async () => {
     playerId: 'p1',
     clientActionId: 'weapon-1',
     at: actions[0].at,
+    expiresAt: actions[0].expiresAt,
   });
+  assert.equal(typeof actions[0].expiresAt, 'number');
   assert.equal(ddb.store.has(`ACTION#${code}#LOG`), false);
 
   const got = await L.getOnlineMatch(ev('GET', `/api/matches/online/${code}`, {}), code, ddb);

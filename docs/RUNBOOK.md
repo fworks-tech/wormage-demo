@@ -65,3 +65,27 @@ Reserved concurrency stays unset while the account concurrent-execution quota is
 ## Rollback
 
 Infrastructure rollback is a revert plus redeploy through the same approved workflow. Do not use `cdk destroy` as a rollback. Removing an SNS subscription stops notification delivery but leaves the alarms in place.
+
+## Retention and deletion protection
+
+Online data is bounded; ranking/history is forever. `expiresAt` (epoch seconds, DynamoDB TTL) rides on online match metadata (`ONLINE#`) and the action log (`MATCH#`) with 30-day retention, refreshed on every write. Ranking/history items (`CLIENT#`) never carry `expiresAt` — a TTL stamp there would silently wipe the leaderboard.
+
+S3 lifecycle on the data bucket: `debug-logs/` expires after 7 days, `bug-reports/` after 30 days, and incomplete multipart uploads abort after 1 day.
+
+Production delete guards (all fail closed): the stack has CloudFormation termination protection, the table has deletion protection plus `RETAIN` removal policy and point-in-time recovery, and the bucket is `RETAIN`. Do not relax these without an ADR.
+
+Verify live after deploy:
+
+```bash
+aws dynamodb describe-time-to-live --table-name wormage
+aws dynamodb describe-table --table-name wormage --query Table.DeletionProtectionEnabled
+aws s3api get-bucket-lifecycle-configuration --bucket <debug-log-bucket>
+aws cloudformation describe-stacks --stack-name WormageStack --query 'Stacks[0].EnableTerminationProtection'
+```
+
+Existing online rows predate TTL. Backfill them with the idempotent dry-run script (writes nothing by default, skips legacy matches so no active legacy match expires before the auth cutover):
+
+```bash
+TABLE_NAME=wormage node infra/scripts/backfill-ttl.js
+TABLE_NAME=wormage node infra/scripts/backfill-ttl.js --apply
+```
