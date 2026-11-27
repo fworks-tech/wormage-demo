@@ -6,6 +6,8 @@ const { GetCommand, PutCommand, QueryCommand, UpdateCommand } = require('@aws-sd
 const { PutObjectCommand, DeleteObjectCommand } = require('@aws-sdk/client-s3');
 const L = require('./index.js');
 const { GameEngine } = require('./engine.cjs');
+const { marshall } = require('@aws-sdk/util-dynamodb');
+const { replayActionLog, matchConfig } = require('./replay.js');
 
 function makeMockDdb() {
   const store = new Map();
@@ -1561,4 +1563,56 @@ test('handler routes online match endpoints', async () => {
   // monkey: handler uses module-level ddb; instead test functions already. Just sanity check regex path.
   const r = await L.joinOnlineMatch(ev('POST', '/api/matches/online/ABCDEF/join', {}, { playerId: 'p', playerName: 'P' }), 'ABCDEF', ddb);
   assert.equal(r.statusCode, 404);
+});
+
+test('submitAction snapshot marshals to DynamoDB with no non-finite ammo', async () => {
+  const ddb = makeMockDdb();
+  const c = await L.postOnlineMatch(ev('POST', '/api/matches/online', {}, { playerId: 'p1', playerName: 'Alice', settings: { seed: 4242 } }), ddb);
+  const code = JSON.parse(c.body).code;
+  await L.joinOnlineMatch(ev('POST', `/api/matches/online/${code}/join`, {}, { playerId: 'p2', playerName: 'Bob' }), code, ddb);
+  const r = await L.submitAction(ev('POST', `/api/matches/online/${code}/action`, {}, { playerId: 'p1', action: { type: 'endTurn' }, clientActionId: 'endTurn-1', tick: 0 }), code, ddb);
+  assert.equal(r.statusCode, 200, r.body);
+
+  const meta = await ddb.send(new GetCommand({ TableName: 't', Key: { pk: `ONLINE#${code}`, sk: 'META' } }));
+  const snap = meta.Item.snapshot;
+  assert.ok(snap, 'snapshot persisted');
+  assert.equal(snap.teams.length, 2);
+
+  // O marshaller real do DynamoDB rejeita numeros nao finitos (Infinity /
+  // -Infinity / NaN) com SerializationException. O item persistido deve ser
+  // aceito por ele.
+  assert.doesNotThrow(() => marshall(meta.Item), 'persisted item must marshal');
+
+  // Nenhum numero nao finito em qualquer lugar do snapshot persistido.
+  for (const team of snap.teams) {
+    for (const [weapon, ammo] of Object.entries(team.ammo)) {
+      assert.ok(typeof ammo !== 'number' || Number.isFinite(ammo), `ammo.${weapon} deve ser finito, obteve ${ammo}`);
+    }
+  }
+});
+
+test('replay keeps bazooka ammo infinite (no desync, no infinite->finite)', async () => {
+  const ddb = makeMockDdb();
+  const c = await L.postOnlineMatch(ev('POST', '/api/matches/online', {}, { playerId: 'p1', playerName: 'Alice', settings: { seed: 4242, wormsPerTeam: 2 } }), ddb);
+  const code = JSON.parse(c.body).code;
+  await L.joinOnlineMatch(ev('POST', `/api/matches/online/${code}/join`, {}, { playerId: 'p2', playerName: 'Bob' }), code, ddb);
+  await L.submitAction(ev('POST', `/api/matches/online/${code}/action`, {}, { playerId: 'p1', action: { type: 'endTurn' }, clientActionId: 'endTurn-1', tick: 0 }), code, ddb);
+
+  const replay = replayActionLog({ GameEngine, match: { code, settings: { seed: 4242, wormsPerTeam: 2 } }, actions: [{ action: { type: 'endTurn' }, tick: 0 }], stopTick: 0 });
+  assert.ok(replay.snapshot);
+  for (const team of replay.snapshot.teams) {
+    assert.equal(team.ammo.bazooka, Infinity, 'bazooka deve permanecer infinito apos o replay');
+  }
+});
+
+test('client rebuild from a fresh engine keeps bazooka ammo infinite', () => {
+  const engine = new GameEngine(matchConfig({ settings: { seed: 4242, wormsPerTeam: 2 } }));
+  const snap = engine.snapshot();
+  assert.ok(snap);
+  assert.equal(snap.teams.length, 2);
+  for (const team of snap.teams) {
+    assert.equal(team.ammo.bazooka, Infinity, 'bazooka deve permanecer infinito no engine reconstruido pelo cliente');
+    assert.equal(team.ammo.grenade, 3);
+    assert.equal(team.ammo.shotgun, 4);
+  }
 });

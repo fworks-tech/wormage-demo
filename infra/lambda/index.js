@@ -895,6 +895,25 @@ async function replayOnlineMatch(code, ddbClient, authenticatedPlayerId) {
   return replayActionLog({ GameEngine, match: got.Item, actions: log.actions });
 }
 
+// O engine guarda propositalmente a municao do bazooka como Infinity (ilimitada).
+// O DynamoDB nao marshal numeros nao finitos (Infinity / -Infinity / NaN) e o
+// SDK lança SerializationException. Este helper retira numeros nao finitos de
+// um valor antes de persisti-lo, SEM mutar o original: o engine em memoria, o
+// replay e o cliente continuam vendo Infinity, apenas o item gravado fica valido.
+// shortcut: cobre objetos/arrays/numeros puros; revisar se o snapshot ganhar
+// Date, bigint ou outros tipos nao-JSON.
+function dynamoSafe(value) {
+  if (value === null || value === undefined) return value;
+  if (typeof value === 'number') return Number.isFinite(value) ? value : null;
+  if (Array.isArray(value)) return value.map(dynamoSafe);
+  if (typeof value === 'object') {
+    const out = {};
+    for (const [key, child] of Object.entries(value)) out[key] = dynamoSafe(child);
+    return out;
+  }
+  return value;
+}
+
 async function submitAction(event, rawCode, ddbClient, authenticatedPlayerId) {
   if (!ddbClient) ddbClient = ddb;
   const code = String(rawCode || '').toUpperCase().trim();
@@ -1030,7 +1049,7 @@ async function submitAction(event, rawCode, ddbClient, authenticatedPlayerId) {
     winnerTeam: snap.winnerTeam,
     endReason: snap.endReason,
     engineVersion: replay.engineVersion,
-    snapshot: snap,
+    snapshot: dynamoSafe(snap),
     snapshotTick: replay.tick,
     revision: revision + 1,
     expiresAt: onlineExpiresAt(),
