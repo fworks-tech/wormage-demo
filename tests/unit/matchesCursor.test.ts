@@ -1,5 +1,5 @@
 import { beforeEach, expect, test } from 'vitest';
-import { listMatchesCursor, resetMockData, registerMatch } from '../../src/api/mockServer';
+import { listMatchesCursor, resetMockData, registerMatch, validateMatchesCursor } from '../../src/api/mockServer';
 
 beforeEach(() => resetMockData());
 
@@ -46,4 +46,15 @@ test('invalid cursor throws', () => {
 test('fractional limit below one clamps to one', () => {
   seed('p-frac', 2);
   expect(listMatchesCursor('p-frac', 0.5).limit).toBe(1);
+});
+
+test('validateMatchesCursor accepts absent/empty but rejects malformed', () => {
+  seed('p-val', 2);
+  const real = listMatchesCursor('p-val', 1).nextCursor;
+  expect(() => validateMatchesCursor(undefined)).not.toThrow();
+  expect(() => validateMatchesCursor(null)).not.toThrow();
+  expect(() => validateMatchesCursor('')).not.toThrow();
+  expect(() => validateMatchesCursor(real)).not.toThrow();
+  expect(() => validateMatchesCursor('!!!not-base64')).toThrow();
+  expect(() => validateMatchesCursor(btoa(JSON.stringify({ createdAt: 'x' })))).toThrow();
 });
