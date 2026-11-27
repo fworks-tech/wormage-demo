@@ -230,14 +230,14 @@ export function registerMatch(input: NewMatchInput): { record: MatchRecord; crea
     playerId: input.playerId,
     playerName: input.playerName,
     teamName: input.teamName,
-    score: Math.round(input.score),
-    durationSeconds: Math.round(input.durationSeconds),
+    score: Math.max(0, Math.round(Number(input.score) || 0)),
+    durationSeconds: Math.max(0, Math.round(Number(input.durationSeconds) || 0)),
     endReason: input.endReason,
     configKey: keyOf(input.turnSeconds, input.wind, input.difficulty, input.map, input.mode, input.loadout),
     turnSeconds: input.turnSeconds,
     wind: input.wind,
     difficulty: input.difficulty,
-    kills: input.kills,
+    kills: Math.max(0, Math.round(Number(input.kills) || 0)),
     createdAt: new Date().toISOString(),
   };
   const next: Db = { ...db, matches: [...db.matches, record] };

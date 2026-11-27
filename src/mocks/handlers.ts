@@ -59,14 +59,11 @@ export const handlers = [
   http.post('/api/matches', async ({ request }) => {
     await delay(latencyMs());
     if (shouldFail()) return HttpResponse.json({ message: 'Upstream unavailable' }, { status: 503 });
-    const body = (await request.json()) as NewMatchInput;
+    const body = (await request.json()) as NewMatchInput | null;
     const auth = await mockAuth(request.headers, body?.playerId);
     if (auth.status) return authFailure(auth.status);
-    if (!body?.clientMatchId) {
-      return HttpResponse.json({ message: 'clientMatchId is required' }, { status: 422 });
-    }
-    body.playerId = auth.playerId ?? body.playerId;
-    const result = registerMatch(body);
+    if (body && typeof body === 'object') body.playerId = auth.playerId ?? body.playerId;
+    const result = registerMatch(body as NewMatchInput);
     if ('error' in result) {
       return HttpResponse.json({ message: result.error }, { status: result.status });
     }

@@ -162,4 +162,12 @@ describe('shared online validation (Lambda + mock single source)', () => {
     expect(bad).toEqual({ error: shared.validateBody({ clientMatchId: 'partial-1' }), status: 400 });
     expect(shared.validateBody({ clientMatchId: 'partial-1' })).toBe('playerId is required');
   });
+
+  test('mock registerMatch defaults omitted numerics like the Lambda (no NaN drift)', () => {
+    const result = registerMatch({ clientMatchId: 'c-omit', playerId: 'p', playerName: 'P', teamName: 'T' } as never);
+    if (!('record' in result)) throw new Error('expected record');
+    expect(result.record.score).toBe(0);
+    expect(result.record.durationSeconds).toBe(0);
+    expect(result.record.kills).toBe(0);
+  });
 });
