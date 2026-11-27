@@ -35,6 +35,13 @@ export function createDefaultProfile(): Profile {
   };
 }
 
+export function withMissionComplete(profile: Profile, missionId: string): Profile {
+  return {
+    ...profile,
+    missionProgress: { ...profile.missionProgress, [missionId]: true },
+  };
+}
+
 export class LocalStorageProfileRepository implements ProfileRepository {
   load(): Profile {
     let profile: Profile | undefined;
@@ -42,6 +49,7 @@ export class LocalStorageProfileRepository implements ProfileRepository {
       const raw = localStorage.getItem(PROFILE_KEY);
       if (raw) {
         const parsed = ProfileSchema.safeParse(JSON.parse(raw));
+        // shortcut: mismatched versions reset to defaults; add a migration when v2 ships
         if (parsed.success) profile = parsed.data;
       }
     } catch {

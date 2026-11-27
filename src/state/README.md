@@ -6,7 +6,7 @@
 | --- | --- | --- |
 | `wormage.settings.v1` | turn timer, wind, difficulty, sound | `App` via `loadSettings`/`saveSettings` |
 | `wormage.player.v1` | stable player id + display name | `App`, match registration |
-| `wormage.profile.v1` | versioned profile: id, name, XP, level, unlocks, mission progress | `LocalStorageProfileRepository`; campaign/cloud sync not wired yet |
+| `wormage.profile.v1` | versioned profile: id, name, XP, level, unlocks, mission progress | `App` through `LocalStorageProfileRepository`; mission wins write progress here, cloud sync not wired yet |
 | `wormage.lastResult.v1` | last completed `SessionResult` | menu “last drop”, restored after refresh |
 | `wormage.mockdb.v1` | mock matches (fixtures + player records) | `src/api/mockServer.ts` |
 | `wormage.netScenario.v1` | demo network scenario | `src/api/mockServer.ts` |
