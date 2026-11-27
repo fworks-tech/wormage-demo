@@ -1615,9 +1615,9 @@ export class GameEngine {
   }
 
   /** Use the existing bounded recovery when the straight no-plan walk stalls. */
-  private tryAiNoPlanRecovery(worm: Worm, dir: -1 | 0 | 1): boolean {
+  private tryAiNoPlanRecovery(worm: Worm, dir: -1 | 0 | 1, mineAhead: boolean): boolean {
     const atWorldEdge = (dir === -1 && worm.x <= 12) || (dir === 1 && worm.x >= WORLD_W - 12);
-    if (!atWorldEdge && dir !== 0 && this.aiJumpCount < 2 && (this.aiJumpDeadline === null || this.timeLeft > this.aiJumpDeadline)) {
+    if (!mineAhead && !atWorldEdge && dir !== 0 && this.aiJumpCount < 2 && (this.aiJumpDeadline === null || this.timeLeft > this.aiJumpDeadline)) {
       if (this.aiJumpDeadline === null) this.aiJumpDeadline = this.timeLeft - AI.jumpWindowSeconds;
       this.aiJump(dir);
       this.aiJumpCount += 1;
@@ -1745,7 +1745,7 @@ export class GameEngine {
           }
         }
         if (!this.aiPlan) {
-          if (this.aiStall >= 1.5 && worm.onGround && this.tryAiNoPlanRecovery(worm, dir)) return;
+          if (this.aiStall >= 1.5 && worm.onGround && this.tryAiNoPlanRecovery(worm, dir, mineAhead)) return;
           if (this.aiStall >= 1.5 || this.timeLeft <= 0.5) {
             this.moveDir = 0;
             this.aiThinking = false;
