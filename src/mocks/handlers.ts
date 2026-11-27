@@ -49,8 +49,14 @@ export const handlers = [
     if (shouldFail()) return HttpResponse.json({ message: 'Upstream unavailable' }, { status: 503 });
     const auth = await mockAuth(request.headers);
     if (auth.status) return authFailure(auth.status);
-    if (isEmpty()) return HttpResponse.json({ items: [], page: 1, pageSize: 8, total: 0, totalPages: 1 });
     const url = new URL(request.url);
+    if (isEmpty()) {
+      if (url.searchParams.get('cursor') != null || url.searchParams.get('limit') != null) {
+        const limit = Math.max(1, Math.min(50, Math.floor(Number(url.searchParams.get('limit') ?? url.searchParams.get('pageSize') ?? 8) || 8)));
+        return HttpResponse.json({ items: [], nextCursor: null, limit });
+      }
+      return HttpResponse.json({ items: [], page: 1, pageSize: 8, total: 0, totalPages: 1 });
+    }
     const playerId = auth.playerId ?? url.searchParams.get('playerId') ?? '';
     const cursor = url.searchParams.get('cursor') ?? undefined;
     if (cursor != null || url.searchParams.get('limit') != null) {

@@ -84,6 +84,10 @@ const localAdapter: AxiosAdapter = async (config) => {
     const auth = await mockAuth(config.headers);
     if (auth.status) return rejectStatus(config, auth.status, auth.status === 401 ? 'authentication required' : 'forbidden');
     if (isEmpty()) {
+      if (params.get('cursor') != null || params.get('limit') != null) {
+        const limit = Math.max(1, Math.min(50, Math.floor(Number(params.get('limit') ?? params.get('pageSize') ?? 8) || 8)));
+        return respond(config, 200, { items: [], nextCursor: null, limit });
+      }
       return respond(config, 200, { items: [], page: 1, pageSize: 8, total: 0, totalPages: 1 });
     }
     const playerId = auth.playerId ?? params.get('playerId') ?? '';

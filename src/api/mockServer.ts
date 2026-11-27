@@ -234,7 +234,7 @@ function decodeCursor(cursor: string): { createdAt: string; id: string } {
 }
 
 export function listMatchesCursor(playerId: string, limit: number, cursor?: string | null): CursorPaginated<MatchRecord> {
-  const safeLimit = Math.max(1, Math.min(50, Math.floor(limit) || 8));
+  const safeLimit = Math.max(1, Math.min(50, Math.floor(limit || 8)));
   const db = getDb();
   const rows = db.matches
     .filter((m) => m.playerId === playerId)

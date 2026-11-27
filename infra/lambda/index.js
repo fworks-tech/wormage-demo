@@ -200,7 +200,7 @@ async function getMatches(event, ddbClient = ddb, authenticatedPlayerId) {
   if (!playerId) return json(400, { message: 'playerId is required' });
 
   if (q.cursor != null || q.limit != null) {
-    const limit = Math.max(1, Math.min(50, Math.floor(Number(q.limit)) || 8));
+    const limit = Math.max(1, Math.min(50, Math.floor(Number(q.limit) || 8)));
     let exclusiveStartKey;
     if (q.cursor) {
       try {
@@ -208,7 +208,7 @@ async function getMatches(event, ddbClient = ddb, authenticatedPlayerId) {
       } catch {
         return json(400, { message: 'invalid cursor' });
       }
-      if (!exclusiveStartKey || typeof exclusiveStartKey !== 'object' || Array.isArray(exclusiveStartKey) || typeof exclusiveStartKey.pk !== 'string' || typeof exclusiveStartKey.sk !== 'string') {
+      if (!exclusiveStartKey || typeof exclusiveStartKey !== 'object' || Array.isArray(exclusiveStartKey) || typeof exclusiveStartKey.pk !== 'string' || typeof exclusiveStartKey.sk !== 'string' || typeof exclusiveStartKey.playerId !== 'string' || typeof exclusiveStartKey.createdAt !== 'string') {
         return json(400, { message: 'invalid cursor' });
       }
     }
