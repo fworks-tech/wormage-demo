@@ -5,6 +5,7 @@
    ========================================================================== */
 
 :root {
+  color-scheme: dark;
   --void: #070b0c;
   --void-2: #0b1214;
   --panel: rgba(15, 24, 24, 0.82);
@@ -1335,6 +1336,8 @@ html:fullscreen {
   font-family: inherit;
   font-size: 13px;
   color: inherit;
+  scrollbar-width: thin;
+  scrollbar-color: var(--muted) transparent;
 }
 
 .report-note:focus-visible {
@@ -1346,6 +1349,8 @@ html:fullscreen {
   width: min(420px, 100%);
   max-height: calc(100dvh - 40px);
   overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--muted) transparent;
   background: var(--panel-solid);
   border: 1px solid var(--line);
   border-radius: 8px;
@@ -1360,6 +1365,39 @@ html:fullscreen {
   font-size: 44px;
   letter-spacing: 0.04em;
   text-transform: uppercase;
+}
+
+/* Themed scrollbars: muted thumb (3:1+ contrast), amber on hover. */
+.overlay-card::-webkit-scrollbar,
+.report-note::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+.overlay-card::-webkit-scrollbar-track,
+.report-note::-webkit-scrollbar-track {
+  background: transparent;
+}
+.overlay-card::-webkit-scrollbar-thumb,
+.report-note::-webkit-scrollbar-thumb {
+  background: var(--muted);
+  border-radius: 8px;
+  border: 2px solid var(--panel-solid);
+}
+.report-note::-webkit-scrollbar-thumb {
+  border-color: #0c1616;
+}
+/* Standard scrollbars (Chrome 121+): hover via scrollbar-color. */
+.overlay-card:hover,
+.report-note:hover {
+  scrollbar-color: var(--amber) transparent;
+}
+.overlay-card::-webkit-scrollbar-thumb:hover,
+.report-note::-webkit-scrollbar-thumb:hover {
+  background: var(--amber);
+}
+.overlay-card::-webkit-scrollbar-corner,
+.report-note::-webkit-scrollbar-corner {
+  background: transparent;
 }
 
 .overlay-actions {
