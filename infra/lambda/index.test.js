@@ -1291,6 +1291,11 @@ test('validateBody accepts a valid body', async () => {
   assert.equal(r, null);
 });
 
+function mockListObjects(store, input) {
+  if (store.has(input.Prefix)) return { Contents: [{ Key: input.Prefix }] };
+  return { Contents: [] };
+}
+
 function makeMockS3() {
   const store = new Map();
   return {
@@ -1302,10 +1307,7 @@ function makeMockS3() {
         store.set(input.Key, { Bucket: input.Bucket, Body: input.Body, ContentType: input.ContentType });
         return {};
       }
-      if (name === 'ListObjectsV2Command') {
-        if (store.has(input.Prefix)) return { Contents: [{ Key: input.Prefix }] };
-        return { Contents: [] };
-      }
+      if (name === 'ListObjectsV2Command') return mockListObjects(store, input);
       if (name === 'DeleteObjectCommand') {
         store.delete(input.Key);
         return {};
@@ -1430,9 +1432,9 @@ function githubResponse(status, body) {
 test('buildGithubIssue publishes only a bounded, redacted summary', () => {
   const issue = L.buildGithubIssue(githubMetadata());
 
-  assert.ok(issue.title.startsWith('[bug report] @'));
+  assert.ok(issue.title.startsWith('fix(game): @'));
   assert.ok(!issue.title.includes('@someone'));
-  assert.ok(issue.title.length <= 200);
+  assert.ok(issue.title.length <= 150);
   assert.match(issue.marker, /^wormage-report:[a-f0-9]{24}$/);
   assert.ok(issue.body.includes('https://wormage.flabs.tech/demo'));
   assert.ok(!issue.body.includes('seed=4242'));
@@ -1468,7 +1470,7 @@ test('buildGithubIssue bounds untrusted text and rejects unsafe page URLs', () =
     url: 'javascript:alert(1)',
   }));
 
-  assert.ok(issue.title.length <= 200);
+  assert.ok(issue.title.length <= 150);
   assert.ok(issue.body.includes('Page: unavailable'));
   assert.ok(!issue.body.includes('v'.repeat(500)));
   assert.ok(issue.body.length < 4000);
@@ -2020,10 +2022,7 @@ test('postBugReport deletes the screenshot and skips GitHub if metadata write fa
         store.set(input.Key, { Bucket: input.Bucket, Body: input.Body, ContentType: input.ContentType });
         return {};
       }
-      if (name === 'ListObjectsV2Command') {
-        if (store.has(input.Prefix)) return { Contents: [{ Key: input.Prefix }] };
-        return { Contents: [] };
-      }
+      if (name === 'ListObjectsV2Command') return mockListObjects(store, input);
       if (name === 'DeleteObjectCommand') {
         store.delete(input.Key);
         return {};
@@ -2064,10 +2063,7 @@ test('postBugReport keeps the accepted screenshot when a retry metadata write fa
     async send(cmd) {
       const input = cmd.input || cmd;
       const name = cmd && cmd.constructor && cmd.constructor.name;
-      if (name === 'ListObjectsV2Command') {
-        if (store.has(input.Prefix)) return { Contents: [{ Key: input.Prefix }] };
-        return { Contents: [] };
-      }
+      if (name === 'ListObjectsV2Command') return mockListObjects(store, input);
       if (name === 'PutObjectCommand') {
         if (String(input.Key).endsWith('.json')) {
           jsonPuts += 1;

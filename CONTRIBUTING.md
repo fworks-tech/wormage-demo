@@ -21,7 +21,7 @@ Node 20+ is required.
 
 ## Workflow
 
-1. **Open an issue first.** Every change traces to an issue with scope and acceptance criteria. Milestones are defined in [docs/ROADMAP.md](docs/ROADMAP.md).
+1. **Open an issue first.** Every change traces to an issue with scope and acceptance criteria. Issue titles follow the same `type(scope): subject` shape as commits; `epic:` is reserved for tracking epics that group child issues. Milestones are defined in [docs/ROADMAP.md](docs/ROADMAP.md).
 2. **Branch per issue**, named `type/short-slug`:
    - `feat/online-match-api`
    - `fix/end-turn-mid-flight`

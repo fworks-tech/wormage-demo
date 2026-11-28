@@ -571,7 +571,7 @@ function buildGithubIssue(metadata) {
     '',
     marker,
   ].join('\n');
-  return { title: `[bug report] ${summary}`.slice(0, 200), body, marker };
+  return { title: `fix(game): ${summary}`.slice(0, 150), body, marker };
 }
 
 function githubHeaders(token) {
@@ -701,6 +701,53 @@ async function maybeCreateGithubIssue(metadata, reportKey, reportId, { createIss
   }
 }
 
+/** Store screenshot + metadata; a failed retry keeps an accepted screenshot. */
+async function persistBugReport(s3Client, { bucket, base, body, screenshotBytes }) {
+  let screenshotKey = null;
+  if (screenshotBytes && body.screenshot) {
+    const ext = body.screenshot.mime === 'image/png' ? 'png' : 'jpg';
+    screenshotKey = `${base}.${ext}`;
+    await s3Client.send(new PutObjectCommand({
+      Bucket: bucket,
+      Key: screenshotKey,
+      Body: screenshotBytes,
+      ContentType: body.screenshot.mime,
+    }));
+  }
+
+  const { screenshot: _screenshot, ...context } = body;
+  const reportKey = `${base}.json`;
+  const metadata = {
+    ...context,
+    receivedAt: new Date().toISOString(),
+    screenshot: screenshotKey
+      ? {
+          key: screenshotKey,
+          mime: body.screenshot.mime,
+          width: body.screenshot.width ?? null,
+          height: body.screenshot.height ?? null,
+          bytes: screenshotBytes.length,
+        }
+      : null,
+  };
+  try {
+    await s3Client.send(new PutObjectCommand({
+      Bucket: bucket,
+      Key: reportKey,
+      Body: JSON.stringify(metadata),
+      ContentType: 'application/json',
+    }));
+  } catch (err) {
+    // A retry reuses the same keys; only remove the screenshot when no report
+    // exists yet, so a failed retry cannot orphan an accepted report.
+    if (screenshotKey && !(await bugReportExists(s3Client, bucket, reportKey))) {
+      try { await s3Client.send(new DeleteObjectCommand({ Bucket: bucket, Key: screenshotKey })); } catch { /* best effort */ }
+    }
+    throw err;
+  }
+  return { reportKey, screenshotKey, metadata };
+}
+
 async function postBugReport(event, s3Client = s3, authenticatedPlayerId, createIssue = createGithubIssue) {
   const body = parseBody(event);
   if (authenticatedPlayerId && body && body.online && typeof body.online === 'object' && !Array.isArray(body.online)) {
@@ -738,48 +785,8 @@ async function postBugReport(event, s3Client = s3, authenticatedPlayerId, create
   const reportId = keySegment(body.reportId);
   const base = `${prefix}/${env}/${yyyy}/${mm}/${dd}/${reportId}`;
 
-  let screenshotKey = null;
-  if (screenshotBytes && body.screenshot) {
-    const ext = body.screenshot.mime === 'image/png' ? 'png' : 'jpg';
-    screenshotKey = `${base}.${ext}`;
-    await s3Client.send(new PutObjectCommand({
-      Bucket: bucket,
-      Key: screenshotKey,
-      Body: screenshotBytes,
-      ContentType: body.screenshot.mime,
-    }));
-  }
-
-  const { screenshot: _screenshot, ...context } = body;
-  const reportKey = `${base}.json`;
-  const metadata = {
-    ...context,
-    receivedAt: now.toISOString(),
-    screenshot: screenshotKey
-      ? {
-          key: screenshotKey,
-          mime: body.screenshot.mime,
-          width: body.screenshot.width ?? null,
-          height: body.screenshot.height ?? null,
-          bytes: screenshotBytes.length,
-        }
-      : null,
-  };
-  try {
-    await s3Client.send(new PutObjectCommand({
-      Bucket: bucket,
-      Key: reportKey,
-      Body: JSON.stringify(metadata),
-      ContentType: 'application/json',
-    }));
-  } catch (err) {
-    // A retry reuses the same keys; only remove the screenshot when no report
-    // exists yet, so a failed retry cannot orphan an accepted report.
-    if (screenshotKey && !(await bugReportExists(s3Client, bucket, reportKey))) {
-      try { await s3Client.send(new DeleteObjectCommand({ Bucket: bucket, Key: screenshotKey })); } catch { /* best effort */ }
-    }
-    throw err;
-  }
+  const { reportKey, screenshotKey, metadata } = await persistBugReport(
+    s3Client, { bucket, base, body, screenshotBytes });
 
   console.log(JSON.stringify({
     type: 'bug-report',
