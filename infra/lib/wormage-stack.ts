@@ -189,6 +189,13 @@ export class WormageStack extends cdk.Stack {
       actions: ['s3:PutObject'], resources: [debugLogBucket.arnForObjects('debug-logs/*'), debugLogBucket.arnForObjects('bug-reports/*')],
     }));
     this.handler.addToRolePolicy(new iam.PolicyStatement({ actions: ['s3:DeleteObject', 's3:GetObject'], resources: [debugLogBucket.arnForObjects('bug-reports/*')] }));
+    // HeadObject reports a missing key as 403 without bucket listing, so scope
+    // list access to the bug-report prefix to keep the cleanup probe truthful.
+    this.handler.addToRolePolicy(new iam.PolicyStatement({
+      actions: ['s3:ListBucket'],
+      resources: [debugLogBucket.bucketArn],
+      conditions: { StringLike: { 's3:prefix': ['bug-reports/*'] } },
+    }));
     this.handler.addToRolePolicy(new iam.PolicyStatement({
       actions: ['ssm:GetParameter'],
       resources: [this.formatArn({ service: 'ssm', resource: 'parameter', resourceName: 'wormage/auth/secret' })],

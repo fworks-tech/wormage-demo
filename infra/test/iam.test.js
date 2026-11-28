@@ -58,7 +58,7 @@ test('Lambda DynamoDB access is limited to used actions, the table and both GSIs
 test('Lambda S3 writes are prefix-scoped and deletes are limited to bug reports', () => {
   const stack = template();
   const statements = allowStatements(stack);
-  assert.deepEqual(serviceActions(statements, 's3'), ['s3:DeleteObject', 's3:GetObject', 's3:PutObject']);
+  assert.deepEqual(serviceActions(statements, 's3'), ['s3:DeleteObject', 's3:GetObject', 's3:ListBucket', 's3:PutObject']);
 
   const [bucketId] = Object.keys(stack.findResources('AWS::S3::Bucket'));
   const bucketArn = { 'Fn::GetAtt': [bucketId, 'Arn'] };
@@ -80,6 +80,13 @@ test('Lambda S3 writes are prefix-scoped and deletes are limited to bug reports'
   assert.ok(reads.length > 0, 'missing S3 GetObject allow statement');
   for (const read of reads) {
     assertSameResources(read.Resource, [objectArn('bug-reports/*')]);
+  }
+
+  const lists = statements.filter((entry) => actions(entry).includes('s3:ListBucket'));
+  assert.ok(lists.length > 0, 'missing S3 ListBucket allow statement');
+  for (const list of lists) {
+    assertSameResources(list.Resource, [bucketArn]);
+    assert.deepEqual(list.Condition, { StringLike: { 's3:prefix': ['bug-reports/*'] } });
   }
 });
 
