@@ -74,8 +74,8 @@ const RULES = [
     e2e: ['tests/combat.spec.ts', 'tests/fullscreen.spec.ts', 'tests/jump.spec.ts', 'tests/landscape-gate.spec.ts', 'tests/mobile-hud.spec.ts', 'tests/hud-layout.spec.ts', 'tests/data.spec.ts', 'tests/rope.spec.ts', 'tests/settings.spec.ts', 'tests/bug-report.spec.ts', 'tests/bug-report-real-capture.spec.ts', 'tests/online.spec.ts', 'tests/online-two-browsers.spec.ts'],
   },
   {
-    files: ['src/ui/Hud.tsx'],
-    unit: [],
+    files: ['src/ui/Hud.tsx', 'src/ui/hudTeams.ts'],
+    unit: ['tests/unit/hud.test.ts'],
     e2e: ['tests/combat.spec.ts', 'tests/jump.spec.ts', 'tests/mobile-hud.spec.ts', 'tests/hud-layout.spec.ts', 'tests/rope.spec.ts'],
   },
   {
