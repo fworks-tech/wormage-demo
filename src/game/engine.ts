@@ -935,6 +935,18 @@ export class GameEngine {
       mob.moveLeft = attacked ? 0 : Math.min(mob.speed * MOB.orderSeconds, dist);
       if (attacked) {
         best.w.hp = Math.max(0, best.w.hp - mob.damage);
+        // Surface the hit the same way weapon damage does: without a hurt
+        // event the HUD total moves with no visible cause (reported in #337).
+        // Physics stay untouched; a mob bite must not ragdoll the worm.
+        this.events.push({ type: 'hurt', x: best.w.x, y: best.w.y - 26, amount: mob.damage });
+        this.logDebug('combat.hurt', 'Worm hurt by mob', {
+          wormId: best.w.id,
+          teamId: best.w.teamId,
+          amount: mob.damage,
+          mobId: mob.id,
+          x: Math.round(best.w.x),
+          y: Math.round(best.w.y),
+        }, 'mob', `mob-${mob.id}`);
         if (best.w.hp <= 0) {
           best.w.alive = false;
           this.events.push({ type: 'death', x: best.w.x, y: best.w.y, color: this.teams[best.w.teamId].color });
@@ -1959,25 +1971,28 @@ export class GameEngine {
   snapshot(): GameSnapshot {
     const active = this.activeWorm;
     const teams = this.teams.map((team) => {
-      const hp = team.worms.reduce((sum, w) => sum + (w.alive ? w.hp : 0), 0);
+      // Round each worm once and total the rounded values, so the team HP the
+      // HUD shows always equals the sum of the worm HP it shows next to it.
+      const worms = team.worms.map((w) => ({
+        id: w.id,
+        name: w.name,
+        hp: Math.round(w.hp),
+        maxHp: w.maxHp,
+        alive: w.alive,
+        active: w.id === this.activeWormId,
+        x: w.x,
+        y: w.y,
+      }));
+      const hp = worms.reduce((sum, w, i) => sum + (team.worms[i].alive ? w.hp : 0), 0);
       return {
         id: team.id,
         name: team.name,
         accent: team.accent,
         isAi: team.isAi,
-        hp: Math.round(hp),
+        hp,
         maxHp: team.worms.length * WORM.maxHp,
         ammo: { ...team.ammo },
-        worms: team.worms.map((w) => ({
-          id: w.id,
-          name: w.name,
-          hp: Math.round(w.hp),
-          maxHp: w.maxHp,
-          alive: w.alive,
-          active: w.id === this.activeWormId,
-          x: w.x,
-          y: w.y,
-        })),
+        worms,
       };
     });
     return {

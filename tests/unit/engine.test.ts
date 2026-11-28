@@ -598,4 +598,25 @@ describe('terrain and water share one surface', () => {
     expect(engine.activeWorm?.id).not.toBe(worm.id);
     expect(engine.activeWorm?.alive).toBe(true);
   });
+
+  test('team totals always equal the sum of the displayed worm HP', () => {
+    // Blast falloff leaves fractional HP; rounding the sum instead of summing
+    // the rounded values drifts the total by 1 (reported in #337).
+    const engine = new GameEngine(config({ wormsPerTeam: 2 }));
+    engine.teams[0].worms[0].hp = 60.5;
+    engine.teams[0].worms[1].hp = 30.5;
+    const team = engine.snapshot().teams[0];
+    expect(team.hp).toBe(team.worms[0].hp + team.worms[1].hp);
+  });
+
+  test('a mob hit emits a hurt event so the turn-transition damage is visible', () => {
+    // Mob damage used to mutate HP silently: bars moved with no damage number (#337).
+    const engine = new GameEngine(config());
+    const worm = engine.activeWorm!;
+    engine.mobs[0].x = worm.x;
+    engine.mobs[0].y = worm.y;
+    engine.endTurn();
+    expect(worm.hp).toBeLessThan(worm.maxHp);
+    expect(engine.events.some((e) => e.type === 'hurt')).toBe(true);
+  });
 });
