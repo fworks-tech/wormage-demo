@@ -188,7 +188,7 @@ export class WormageStack extends cdk.Stack {
     this.handler.addToRolePolicy(new iam.PolicyStatement({
       actions: ['s3:PutObject'], resources: [debugLogBucket.arnForObjects('debug-logs/*'), debugLogBucket.arnForObjects('bug-reports/*')],
     }));
-    this.handler.addToRolePolicy(new iam.PolicyStatement({ actions: ['s3:DeleteObject'], resources: [debugLogBucket.arnForObjects('bug-reports/*')] }));
+    this.handler.addToRolePolicy(new iam.PolicyStatement({ actions: ['s3:DeleteObject', 's3:GetObject'], resources: [debugLogBucket.arnForObjects('bug-reports/*')] }));
     this.handler.addToRolePolicy(new iam.PolicyStatement({
       actions: ['ssm:GetParameter'],
       resources: [this.formatArn({ service: 'ssm', resource: 'parameter', resourceName: 'wormage/auth/secret' })],
