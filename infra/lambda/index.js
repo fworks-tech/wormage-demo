@@ -3,7 +3,7 @@
 const crypto = require('crypto');
 const { DynamoDBClient, TransactWriteItemsCommand } = require('@aws-sdk/client-dynamodb');
 const { DynamoDBDocumentClient, GetCommand, PutCommand, QueryCommand, UpdateCommand } = require('@aws-sdk/lib-dynamodb');
-const { S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectCommand } = require('@aws-sdk/client-s3');
+const { S3Client, PutObjectCommand, HeadObjectCommand, DeleteObjectCommand } = require('@aws-sdk/client-s3');
 const { SSMClient, GetParameterCommand } = require('@aws-sdk/client-ssm');
 const { GameEngine, WEAPONS } = require('./engine.cjs');
 const { replayActionLog, sortActions, ENGINE_VERSION } = require('./replay.js');
@@ -804,7 +804,7 @@ async function postBugReport(event, s3Client = s3, authenticatedPlayerId, create
 /** A retry reuses the same report key; an unreadable report is kept, not cleaned. */
 async function bugReportExists(s3Client, bucket, key) {
   try {
-    await s3Client.send(new GetObjectCommand({ Bucket: bucket, Key: key }));
+    await s3Client.send(new HeadObjectCommand({ Bucket: bucket, Key: key }));
     return true;
   } catch (readErr) {
     const code = String((readErr && (readErr.name || readErr.Code || readErr.code
