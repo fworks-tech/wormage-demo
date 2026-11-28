@@ -32,6 +32,36 @@ test('bug reports are enabled by default, debug logs stay disabled', () => {
   assert.deepStrictEqual(env.BUG_REPORTS_ENABLED, { 'Fn::GetAtt': [logicalId('/wormage/bug-reports/enabled'), 'Value'] });
 });
 
+test('GitHub issue creation is disabled by default and scoped to the Wormage repository', () => {
+  const stack = template();
+  const parameters = Object.entries(stack.findResources('AWS::SSM::Parameter'));
+  const defaults = Object.fromEntries(parameters.map(([, parameter]) => [parameter.Properties.Name, parameter.Properties.Value]));
+  assert.equal(defaults['/wormage/github-issues/enabled'], 'false');
+
+  const handler = Object.values(stack.findResources('AWS::Lambda::Function')).find(
+    (f) => f.Properties && f.Properties.Environment && f.Properties.Environment.Variables && f.Properties.Environment.Variables.TABLE_NAME,
+  );
+  const env = handler.Properties.Environment.Variables;
+  const logicalId = parameters.find(([, parameter]) => parameter.Properties.Name === '/wormage/github-issues/enabled')[0];
+  assert.deepStrictEqual(env.GITHUB_ISSUES_ENABLED, { 'Fn::GetAtt': [logicalId, 'Value'] });
+  assert.equal(env.GITHUB_ISSUE_REPO, 'fworks-tech/wormage-demo');
+  assert.equal(env.GITHUB_TOKEN_PARAM, '/wormage/github/bug-report-token');
+});
+
+test('GitHub issue creation can be enabled explicitly with enforced anonymous auth', () => {
+  const stack = template({ githubIssuesEnabled: true, authMode: 'enforce' });
+  const parameter = Object.values(stack.findResources('AWS::SSM::Parameter'))
+    .find((entry) => entry.Properties.Name === '/wormage/github-issues/enabled');
+  assert.equal(parameter.Properties.Value, 'true');
+});
+
+test('GitHub issue creation fails closed without enforced anonymous auth', () => {
+  assert.throws(
+    () => template({ githubIssuesEnabled: true, authMode: 'observe' }),
+    /githubIssuesEnabled requires authMode=enforce/,
+  );
+});
+
 test('alarm topic has an email subscription when configured', () => {
   alarmTemplate.hasResourceProperties('AWS::SNS::Subscription', {
     Protocol: 'email',

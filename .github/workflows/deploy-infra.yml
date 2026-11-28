@@ -31,6 +31,23 @@ jobs:
           aws ssm put-parameter --name "/wormage/auth/secret" --type SecureString --value "$WORMAGE_AUTH_SECRET" --overwrite --tier Standard --region us-east-1
         env:
           WORMAGE_AUTH_SECRET: ${{ secrets.WORMAGE_AUTH_SECRET }}
+      - name: Publish GitHub bug-report token to SSM
+        run: |
+          if [ "$WORMAGE_GITHUB_ISSUES_ENABLED" = "true" ]; then
+            if [ -z "$WORMAGE_GITHUB_TOKEN" ]; then
+              echo "WORMAGE_GITHUB_TOKEN is required when GitHub issue creation is enabled"
+              exit 1
+            fi
+            if [ "$WORMAGE_AUTH_MODE" != "enforce" ]; then
+              echo "WORMAGE_AUTH_MODE=enforce is required when GitHub issue creation is enabled"
+              exit 1
+            fi
+            aws ssm put-parameter --name "/wormage/github/bug-report-token" --type SecureString --value "$WORMAGE_GITHUB_TOKEN" --overwrite --tier Standard --region us-east-1
+          fi
+        env:
+          WORMAGE_GITHUB_TOKEN: ${{ secrets.WORMAGE_GITHUB_TOKEN }}
+          WORMAGE_GITHUB_ISSUES_ENABLED: ${{ vars.WORMAGE_GITHUB_ISSUES_ENABLED }}
+          WORMAGE_AUTH_MODE: ${{ vars.WORMAGE_AUTH_MODE }}
       - name: Install root deps
         run: npm ci
       - name: Install infra deps
@@ -49,6 +66,7 @@ jobs:
           WORMAGE_API_DOMAIN: ${{ vars.WORMAGE_API_DOMAIN }}
           WORMAGE_ALARM_EMAIL: ${{ vars.WORMAGE_ALARM_EMAIL }}
           WORMAGE_AUTH_MODE: ${{ vars.WORMAGE_AUTH_MODE }}
+          WORMAGE_GITHUB_ISSUES_ENABLED: ${{ vars.WORMAGE_GITHUB_ISSUES_ENABLED }}
           WORMAGE_AUTH_SECRET: ${{ secrets.WORMAGE_AUTH_SECRET }}
       - name: Deploy
         working-directory: infra
@@ -60,4 +78,5 @@ jobs:
           WORMAGE_API_DOMAIN: ${{ vars.WORMAGE_API_DOMAIN }}
           WORMAGE_ALARM_EMAIL: ${{ vars.WORMAGE_ALARM_EMAIL }}
           WORMAGE_AUTH_MODE: ${{ vars.WORMAGE_AUTH_MODE }}
+          WORMAGE_GITHUB_ISSUES_ENABLED: ${{ vars.WORMAGE_GITHUB_ISSUES_ENABLED }}
           WORMAGE_AUTH_SECRET: ${{ secrets.WORMAGE_AUTH_SECRET }}

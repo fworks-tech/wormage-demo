@@ -1,6 +1,7 @@
 'use strict';
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const http = require('node:http');
 const { TransactWriteItemsCommand } = require('@aws-sdk/client-dynamodb');
 const { GetCommand, PutCommand, QueryCommand, UpdateCommand } = require('@aws-sdk/lib-dynamodb');
 const { PutObjectCommand, DeleteObjectCommand } = require('@aws-sdk/client-s3');
@@ -179,7 +180,7 @@ function makeMockDdb() {
 
 function ev(method, path, query = {}, body) {
   return {
-    requestContext: { http: { method } },
+    requestContext: { http: { method, sourceIp: '203.0.113.1' } },
     rawPath: path,
     queryStringParameters: query,
     body: body ? JSON.stringify(body) : undefined,
@@ -1301,6 +1302,10 @@ function makeMockS3() {
         store.set(input.Key, { Bucket: input.Bucket, Body: input.Body, ContentType: input.ContentType });
         return {};
       }
+      if (name === 'ListObjectsV2Command') {
+        if (store.has(input.Prefix)) return { Contents: [{ Key: input.Prefix }] };
+        return { Contents: [] };
+      }
       if (name === 'DeleteObjectCommand') {
         store.delete(input.Key);
         return {};
@@ -1393,6 +1398,470 @@ function bugReportBody(overrides = {}) {
     ...overrides,
   };
 }
+
+function restoreEnv(name, value) {
+  if (value === undefined) delete process.env[name];
+  else process.env[name] = value;
+}
+
+function githubMetadata(overrides = {}) {
+  return {
+    reportId: 'report-1',
+    note: '@someone\n```\nworm below the sea',
+    appVersion: '1.2.3',
+    mode: 'online',
+    url: 'https://wormage.flabs.tech/demo?seed=4242#private',
+    engine: { seed: 4242, tick: 12, phase: 'aim', snapshot: { secret: 'secret-snapshot' } },
+    screenshot: { key: 'bug-reports/prod/2026/11/27/report-1.png', data: 'secret-screenshot' },
+    reportKey: 'bug-reports/prod/2026/11/27/report-1.json',
+    sessionId: 'secret-session',
+    online: { playerId: 'secret-player' },
+    actionLog: ['secret-action'],
+    debug: { entries: ['secret-debug'] },
+    token: 'secret-token',
+    ...overrides,
+  };
+}
+
+function githubResponse(status, body) {
+  return { ok: status >= 200 && status < 300, status, json: async () => body };
+}
+
+test('buildGithubIssue publishes only a bounded, redacted summary', () => {
+  const issue = L.buildGithubIssue(githubMetadata());
+
+  assert.ok(issue.title.startsWith('[bug report] @'));
+  assert.ok(!issue.title.includes('@someone'));
+  assert.ok(issue.title.length <= 200);
+  assert.match(issue.marker, /^wormage-report:[a-f0-9]{24}$/);
+  assert.ok(issue.body.includes('https://wormage.flabs.tech/demo'));
+  assert.ok(!issue.body.includes('seed=4242'));
+  assert.ok(!issue.body.includes('#private'));
+  assert.ok(issue.body.includes('App version: 1.2.3'));
+  assert.ok(issue.body.includes('Mode: online'));
+  assert.ok(issue.body.includes('Seed: 4242'));
+  assert.ok(issue.body.includes('Tick: 12'));
+  assert.ok(issue.body.includes('Phase: aim'));
+  assert.ok(issue.body.includes('bug-reports/prod/2026/11/27/report-1.json'));
+  assert.ok(issue.body.includes('bug-reports/prod/2026/11/27/report-1.png'));
+  assert.ok(issue.body.includes('    @someone'));
+  for (const secret of ['secret-session', 'secret-player', 'secret-action', 'secret-debug', 'secret-snapshot', 'secret-screenshot', 'secret-token']) {
+    assert.ok(!issue.body.includes(secret));
+  }
+});
+
+test('buildGithubIssue redacts online match capabilities from the page URL', () => {
+  const issue = L.buildGithubIssue(githubMetadata({
+    url: 'https://wormage.flabs.tech/online/ABC123?join=1#private',
+  }));
+
+  assert.ok(issue.body.includes('Page: https://wormage.flabs.tech/online/[redacted]'));
+  assert.ok(!issue.body.includes('ABC123'));
+  assert.ok(!issue.body.includes('join=1'));
+  assert.ok(!issue.body.includes('#private'));
+});
+
+test('buildGithubIssue bounds untrusted text and rejects unsafe page URLs', () => {
+  const issue = L.buildGithubIssue(githubMetadata({
+    note: 'x'.repeat(3000),
+    appVersion: 'v'.repeat(500),
+    url: 'javascript:alert(1)',
+  }));
+
+  assert.ok(issue.title.length <= 200);
+  assert.ok(issue.body.includes('Page: unavailable'));
+  assert.ok(!issue.body.includes('v'.repeat(500)));
+  assert.ok(issue.body.length < 4000);
+});
+
+test('createGithubIssue searches before creating and returns the created issue', async () => {
+  const metadata = githubMetadata();
+  const expected = L.buildGithubIssue(metadata);
+  const calls = [];
+  const fetchImpl = async (url, options) => {
+    calls.push({ url: String(url), options });
+    if (calls.length === 1) return githubResponse(200, { items: [] });
+    assert.equal(options.method, 'POST');
+    assert.deepEqual(JSON.parse(options.body).labels, ['bug']);
+    assert.equal(JSON.parse(options.body).title, expected.title);
+    assert.equal(JSON.parse(options.body).body, expected.body);
+    return githubResponse(201, { number: 42, html_url: 'https://github.com/fworks-tech/wormage-demo/issues/42' });
+  };
+
+  const result = await L.createGithubIssue(metadata, {
+    repo: 'fworks-tech/wormage-demo',
+    fetchImpl,
+    getToken: async () => 'github-token',
+  });
+
+  assert.deepEqual(result, { number: 42, url: 'https://github.com/fworks-tech/wormage-demo/issues/42' });
+  assert.equal(calls.length, 2);
+  assert.ok(calls[0].url.startsWith('https://api.github.com/search/issues?'));
+  assert.equal(calls[0].options.headers.Authorization, 'Bearer github-token');
+  assert.equal(calls[0].options.headers['User-Agent'], 'wormage-bug-reports');
+  assert.equal(calls[1].url, 'https://api.github.com/repos/fworks-tech/wormage-demo/issues');
+});
+
+test('createGithubIssue returns an existing marked issue without posting', async () => {
+  const metadata = githubMetadata();
+  const marker = L.buildGithubIssue(metadata).marker;
+  const calls = [];
+  const result = await L.createGithubIssue(metadata, {
+    repo: 'fworks-tech/wormage-demo',
+    getToken: async () => 'github-token',
+    fetchImpl: async (url) => {
+      calls.push(String(url));
+      return githubResponse(200, {
+        items: [{ number: 7, html_url: 'https://github.com/fworks-tech/wormage-demo/issues/7', body: `report\n${marker}\n` }],
+      });
+    },
+  });
+
+  assert.deepEqual(result, { number: 7, url: 'https://github.com/fworks-tech/wormage-demo/issues/7' });
+  assert.equal(calls.length, 1);
+});
+
+test('createGithubIssue fails closed when search is rate limited', async () => {
+  let posts = 0;
+  await assert.rejects(() => L.createGithubIssue(githubMetadata(), {
+    repo: 'fworks-tech/wormage-demo',
+    getToken: async () => 'github-token',
+    fetchImpl: async (_url, options) => {
+      if (options.method === 'POST') posts += 1;
+      return githubResponse(429, { message: 'rate limited' });
+    },
+  }), /search failed \(429\)/);
+  assert.equal(posts, 0);
+});
+
+test('createGithubIssue surfaces creation failures without returning a partial issue', async () => {
+  let searches = 0;
+  await assert.rejects(() => L.createGithubIssue(githubMetadata(), {
+    repo: 'fworks-tech/wormage-demo',
+    getToken: async () => 'github-token',
+    fetchImpl: async (_url, options) => {
+      if (options.method !== 'POST') {
+        searches += 1;
+        return githubResponse(200, { items: [] });
+      }
+      return githubResponse(500, { message: 'down' });
+    },
+  }), /create failed \(500\)/);
+  assert.equal(searches, 1);
+});
+
+test('createGithubIssue rejects an invalid repository before using the token', async () => {
+  let tokenCalls = 0;
+  await assert.rejects(() => L.createGithubIssue(githubMetadata(), {
+    repo: 'https://example.com/issues',
+    getToken: async () => { tokenCalls += 1; return 'github-token'; },
+    fetchImpl: async () => { throw new Error('unexpected fetch'); },
+  }), /invalid GitHub repository/);
+  assert.equal(tokenCalls, 0);
+});
+
+test('createGithubIssue requires a token before making network calls', async () => {
+  let fetches = 0;
+  await assert.rejects(() => L.createGithubIssue(githubMetadata(), {
+    repo: 'fworks-tech/wormage-demo',
+    getToken: async () => '',
+    fetchImpl: async () => { fetches += 1; },
+  }), /GitHub token is invalid/);
+  assert.equal(fetches, 0);
+});
+
+test('createGithubIssue propagates network failures without retrying silently', async () => {
+  let fetches = 0;
+  await assert.rejects(() => L.createGithubIssue(githubMetadata(), {
+    repo: 'fworks-tech/wormage-demo',
+    getToken: async () => 'github-token',
+    fetchImpl: async () => { fetches += 1; throw new Error('network down'); },
+  }), /network down/);
+  assert.equal(fetches, 1);
+});
+
+test('createGithubIssue claims a hashed per-IP slot before calling GitHub', async () => {
+  const commands = [];
+  const result = await L.createGithubIssue(githubMetadata(), {
+    repo: 'fworks-tech/wormage-demo',
+    sourceIp: '203.0.113.9',
+    getToken: async () => 'github-token',
+    ddbClient: {
+      async send(command, options) {
+        commands.push({ command, options });
+        return {};
+      },
+    },
+    fetchImpl: async (_url, options) => options.method === 'POST'
+      ? githubResponse(201, { number: 42, html_url: 'https://github.com/fworks-tech/wormage-demo/issues/42' })
+      : githubResponse(200, { items: [] }),
+  });
+
+  assert.deepEqual(result, { number: 42, url: 'https://github.com/fworks-tech/wormage-demo/issues/42' });
+  assert.equal(commands.length, 1);
+  const input = commands[0].command.input;
+  assert.ok(commands[0].options.abortSignal instanceof AbortSignal);
+  assert.match(input.Key.pk, /^BUG_REPORT_ISSUE#[a-f0-9]{64}$/);
+  assert.match(input.Key.sk, /^RATE#\d+$/);
+  assert.equal(input.ExpressionAttributeValues[':limit'], 5);
+  assert.ok(input.UpdateExpression.includes('ADD'));
+  assert.ok(Number.isInteger(input.ExpressionAttributeValues[':expires']));
+  assert.ok(!JSON.stringify(input).includes('203.0.113.9'));
+});
+
+test('createGithubIssue fails closed when the per-IP issue quota is exhausted', async () => {
+  let fetches = 0;
+  await assert.rejects(() => L.createGithubIssue(githubMetadata(), {
+    repo: 'fworks-tech/wormage-demo',
+    sourceIp: '203.0.113.9',
+    getToken: async () => 'github-token',
+    ddbClient: {
+      async send() {
+        const error = new Error('conditional check failed');
+        error.name = 'ConditionalCheckFailedException';
+        throw error;
+      },
+    },
+    fetchImpl: async () => { fetches += 1; },
+  }), /rate limit exceeded/);
+  assert.equal(fetches, 0);
+});
+
+test('createGithubIssue aborts a hanging rate-limit claim before calling GitHub', async () => {
+  let fetches = 0;
+  await assert.rejects(() => L.createGithubIssue(githubMetadata(), {
+    repo: 'fworks-tech/wormage-demo',
+    sourceIp: '203.0.113.9',
+    timeoutMs: 5,
+    getToken: async () => 'github-token',
+    ddbClient: {
+      send(_command, options) {
+        return new Promise((_resolve, reject) => {
+          const fallback = setTimeout(() => reject(new Error('claim timeout')), 50);
+          options.abortSignal.addEventListener('abort', () => {
+            clearTimeout(fallback);
+            reject(options.abortSignal.reason);
+          }, { once: true });
+        });
+      },
+    },
+    fetchImpl: async () => { fetches += 1; },
+  }), /timeout|aborted/i);
+  assert.equal(fetches, 0);
+});
+
+test('createGithubIssue aborts an in-flight GitHub request with real fetch', async () => {
+  const server = http.createServer(() => {});
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const address = server.address();
+  const base = `http://127.0.0.1:${address.port}`;
+  try {
+    await assert.rejects(() => L.createGithubIssue(githubMetadata(), {
+      repo: 'fworks-tech/wormage-demo',
+      getToken: async () => 'github-token',
+      timeoutMs: 100,
+      fetchImpl: (url, options) => {
+        const target = new URL(url);
+        return fetch(`${base}${target.pathname}${target.search}`, options);
+      },
+    }), /aborted|timeout/i);
+  } finally {
+    server.closeAllConnections();
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
+
+test('createGithubIssue applies one deadline to token retrieval and GitHub requests', async () => {
+  let fetches = 0;
+  await assert.rejects(() => L.createGithubIssue(githubMetadata(), {
+    repo: 'fworks-tech/wormage-demo',
+    timeoutMs: 5,
+    getToken: (signal) => new Promise((_resolve, reject) => {
+      const fallback = setTimeout(() => reject(new Error('token timeout')), 50);
+      signal.addEventListener('abort', () => {
+        clearTimeout(fallback);
+        reject(signal.reason);
+      }, { once: true });
+    }),
+    fetchImpl: async () => { fetches += 1; },
+  }), /timeout|aborted/i);
+  assert.equal(fetches, 0);
+});
+
+test('getGithubToken forwards the deadline to SSM and caches the decrypted value', async () => {
+  const previous = process.env.GITHUB_TOKEN_PARAM;
+  process.env.GITHUB_TOKEN_PARAM = '/wormage/github/bug-report-token';
+  L.getGithubToken.reset();
+  const controller = new AbortController();
+  let reads = 0;
+  const client = {
+    async send(_command, options) {
+      reads += 1;
+      assert.equal(options.abortSignal, controller.signal);
+      return { Parameter: { Value: 'github-token' } };
+    },
+  };
+  try {
+    assert.equal(await L.getGithubToken(controller.signal, client), 'github-token');
+    assert.equal(await L.getGithubToken(controller.signal, client), 'github-token');
+    assert.equal(reads, 1);
+  } finally {
+    L.getGithubToken.reset();
+    restoreEnv('GITHUB_TOKEN_PARAM', previous);
+  }
+});
+
+test('createGithubIssue clears a cached token after GitHub rejects it', async () => {
+  const previous = process.env.GITHUB_TOKEN_PARAM;
+  process.env.GITHUB_TOKEN_PARAM = '/wormage/github/bug-report-token';
+  L.getGithubToken.reset();
+  let firstReads = 0;
+  let secondReads = 0;
+  try {
+    await L.getGithubToken(undefined, {
+      async send() { firstReads += 1; return { Parameter: { Value: 'old-token' } }; },
+    });
+    await assert.rejects(() => L.createGithubIssue(githubMetadata(), {
+      repo: 'fworks-tech/wormage-demo',
+      fetchImpl: async (_url, options) => options.method === 'POST'
+        ? githubResponse(401, { message: 'revoked' })
+        : githubResponse(200, { items: [] }),
+    }), /create failed \(401\)/);
+    await L.getGithubToken(undefined, {
+      async send() { secondReads += 1; return { Parameter: { Value: 'new-token' } }; },
+    });
+    assert.equal(firstReads, 1);
+    assert.equal(secondReads, 1);
+  } finally {
+    L.getGithubToken.reset();
+    restoreEnv('GITHUB_TOKEN_PARAM', previous);
+  }
+});
+
+test('postBugReport creates a GitHub issue only after S3 storage succeeds', async () => {
+  const previous = process.env.GITHUB_ISSUES_ENABLED;
+  process.env.GITHUB_ISSUES_ENABLED = 'true';
+  process.env.DEBUG_LOG_BUCKET = 'bucket';
+  process.env.BUG_REPORTS_ENABLED = 'true';
+  const s3 = makeMockS3();
+  let calls = 0;
+  try {
+    const response = await L.postBugReport(
+      ev('POST', '/api/bug-reports', {}, bugReportBody()),
+      s3,
+      undefined,
+      async () => {
+        calls += 1;
+        assert.equal(s3.store.size, 2);
+        return { number: 42, url: 'https://github.com/fworks-tech/wormage-demo/issues/42' };
+      },
+    );
+
+    assert.equal(response.statusCode, 201);
+    assert.deepEqual(JSON.parse(response.body).githubIssue, {
+      number: 42,
+      url: 'https://github.com/fworks-tech/wormage-demo/issues/42',
+    });
+    assert.equal(calls, 1);
+  } finally {
+    restoreEnv('GITHUB_ISSUES_ENABLED', previous);
+  }
+});
+
+test('postBugReport keeps the stored report successful when GitHub fails', async () => {
+  const previous = process.env.GITHUB_ISSUES_ENABLED;
+  const previousWarn = console.warn;
+  const warnings = [];
+  process.env.GITHUB_ISSUES_ENABLED = 'true';
+  process.env.DEBUG_LOG_BUCKET = 'bucket';
+  process.env.BUG_REPORTS_ENABLED = 'true';
+  console.warn = (line) => warnings.push(JSON.parse(line));
+  const s3 = makeMockS3();
+  try {
+    const response = await L.postBugReport(
+      ev('POST', '/api/bug-reports', {}, bugReportBody()),
+      s3,
+      undefined,
+      async () => { throw new Error('GitHub unavailable'); },
+    );
+
+    assert.equal(response.statusCode, 201);
+    assert.equal(JSON.parse(response.body).stored, true);
+    assert.equal(JSON.parse(response.body).githubIssue, undefined);
+    assert.equal(s3.store.size, 2);
+    assert.ok(warnings.some((entry) => entry.type === 'github-issue-failed' && entry.reportId === 'report-1'));
+  } finally {
+    console.warn = previousWarn;
+    restoreEnv('GITHUB_ISSUES_ENABLED', previous);
+  }
+});
+
+test('postBugReport does not call GitHub when issue creation is disabled', async () => {
+  const previous = process.env.GITHUB_ISSUES_ENABLED;
+  process.env.GITHUB_ISSUES_ENABLED = 'false';
+  process.env.DEBUG_LOG_BUCKET = 'bucket';
+  process.env.BUG_REPORTS_ENABLED = 'true';
+  let calls = 0;
+  try {
+    const response = await L.postBugReport(
+      ev('POST', '/api/bug-reports', {}, bugReportBody()),
+      makeMockS3(),
+      undefined,
+      async () => { calls += 1; },
+    );
+    assert.equal(response.statusCode, 201);
+    assert.equal(calls, 0);
+  } finally {
+    restoreEnv('GITHUB_ISSUES_ENABLED', previous);
+  }
+});
+
+test('postBugReport skips GitHub issue creation when the source IP is missing', async () => {
+  const previous = process.env.GITHUB_ISSUES_ENABLED;
+  const previousWarn = console.warn;
+  const warnings = [];
+  process.env.GITHUB_ISSUES_ENABLED = 'true';
+  process.env.DEBUG_LOG_BUCKET = 'bucket';
+  process.env.BUG_REPORTS_ENABLED = 'true';
+  console.warn = (line) => warnings.push(JSON.parse(line));
+  const event = ev('POST', '/api/bug-reports', {}, bugReportBody());
+  delete event.requestContext.http.sourceIp;
+  let calls = 0;
+  try {
+    const response = await L.postBugReport(
+      event,
+      makeMockS3(),
+      undefined,
+      async () => { calls += 1; },
+    );
+    assert.equal(response.statusCode, 201);
+    assert.equal(calls, 0);
+    assert.ok(warnings.some((entry) => entry.type === 'github-issue-failed' && entry.name === 'MissingSourceIpError'));
+  } finally {
+    console.warn = previousWarn;
+    restoreEnv('GITHUB_ISSUES_ENABLED', previous);
+  }
+});
+
+test('postBugReport treats a missing GitHub flag as disabled', async () => {
+  const previous = process.env.GITHUB_ISSUES_ENABLED;
+  delete process.env.GITHUB_ISSUES_ENABLED;
+  process.env.DEBUG_LOG_BUCKET = 'bucket';
+  process.env.BUG_REPORTS_ENABLED = 'true';
+  let calls = 0;
+  try {
+    const response = await L.postBugReport(
+      ev('POST', '/api/bug-reports', {}, bugReportBody()),
+      makeMockS3(),
+      undefined,
+      async () => { calls += 1; },
+    );
+    assert.equal(response.statusCode, 201);
+    assert.equal(calls, 0);
+  } finally {
+    restoreEnv('GITHUB_ISSUES_ENABLED', previous);
+  }
+});
 
 test('postBugReport stores metadata and the png in S3', async () => {
   process.env.DEBUG_LOG_BUCKET = 'bucket';
@@ -1532,10 +2001,13 @@ test('postBugReport requires screenshot width and height', async () => {
   assert.equal(s3.store.size, 0);
 });
 
-test('postBugReport deletes the screenshot if metadata write fails', async () => {
+test('postBugReport deletes the screenshot and skips GitHub if metadata write fails', async () => {
+  const previous = process.env.GITHUB_ISSUES_ENABLED;
+  process.env.GITHUB_ISSUES_ENABLED = 'true';
   process.env.DEBUG_LOG_BUCKET = 'bucket';
   process.env.BUG_REPORTS_ENABLED = 'true';
   let puts = 0;
+  let issueCalls = 0;
   const store = new Map();
   const s3 = {
     store,
@@ -1548,6 +2020,10 @@ test('postBugReport deletes the screenshot if metadata write fails', async () =>
         store.set(input.Key, { Bucket: input.Bucket, Body: input.Body, ContentType: input.ContentType });
         return {};
       }
+      if (name === 'ListObjectsV2Command') {
+        if (store.has(input.Prefix)) return { Contents: [{ Key: input.Prefix }] };
+        return { Contents: [] };
+      }
       if (name === 'DeleteObjectCommand') {
         store.delete(input.Key);
         return {};
@@ -1556,11 +2032,87 @@ test('postBugReport deletes the screenshot if metadata write fails', async () =>
     },
   };
 
-  await assert.rejects(
-    () => L.postBugReport(ev('POST', '/api/bug-reports', {}, bugReportBody()), s3),
-    /s3 down/,
-  );
-  assert.equal(store.size, 0);
+  try {
+    await assert.rejects(
+      () => L.postBugReport(
+        ev('POST', '/api/bug-reports', {}, bugReportBody()),
+        s3,
+        undefined,
+        async () => { issueCalls += 1; },
+      ),
+      /s3 down/,
+    );
+    assert.equal(store.size, 0);
+    assert.equal(issueCalls, 0);
+  } finally {
+    restoreEnv('GITHUB_ISSUES_ENABLED', previous);
+  }
+});
+
+test('postBugReport keeps the accepted screenshot when a retry metadata write fails', async () => {
+  const previousGithub = process.env.GITHUB_ISSUES_ENABLED;
+  const previousBucket = process.env.DEBUG_LOG_BUCKET;
+  const previousEnabled = process.env.BUG_REPORTS_ENABLED;
+  process.env.GITHUB_ISSUES_ENABLED = 'false';
+  process.env.DEBUG_LOG_BUCKET = 'bucket';
+  process.env.BUG_REPORTS_ENABLED = 'true';
+  const store = new Map();
+  let deletes = 0;
+  let jsonPuts = 0;
+  const s3 = {
+    store,
+    async send(cmd) {
+      const input = cmd.input || cmd;
+      const name = cmd && cmd.constructor && cmd.constructor.name;
+      if (name === 'ListObjectsV2Command') {
+        if (store.has(input.Prefix)) return { Contents: [{ Key: input.Prefix }] };
+        return { Contents: [] };
+      }
+      if (name === 'PutObjectCommand') {
+        if (String(input.Key).endsWith('.json')) {
+          jsonPuts += 1;
+          if (jsonPuts === 2) throw new Error('s3 down');
+        }
+        store.set(input.Key, { Bucket: input.Bucket, Body: input.Body, ContentType: input.ContentType });
+        return {};
+      }
+      if (name === 'DeleteObjectCommand') {
+        deletes += 1;
+        store.delete(input.Key);
+        return {};
+      }
+      throw new Error('Unknown command: ' + name);
+    },
+  };
+
+  try {
+    const first = await L.postBugReport(
+      ev('POST', '/api/bug-reports', {}, bugReportBody()),
+      s3,
+      undefined,
+      async () => undefined,
+    );
+    assert.equal(first.statusCode, 201);
+    const keys = JSON.parse(first.body).keys;
+    assert.ok(store.has(keys.report));
+    assert.ok(store.has(keys.screenshot));
+    await assert.rejects(
+      () => L.postBugReport(
+        ev('POST', '/api/bug-reports', {}, bugReportBody()),
+        s3,
+        undefined,
+        async () => undefined,
+      ),
+      /s3 down/,
+    );
+    assert.equal(deletes, 0);
+    assert.ok(store.has(keys.report));
+    assert.ok(store.has(keys.screenshot));
+  } finally {
+    restoreEnv('GITHUB_ISSUES_ENABLED', previousGithub);
+    restoreEnv('DEBUG_LOG_BUCKET', previousBucket);
+    restoreEnv('BUG_REPORTS_ENABLED', previousEnabled);
+  }
 });
 
 test('postOnlineMatch creates a match with a 6-char code and link', async () => {

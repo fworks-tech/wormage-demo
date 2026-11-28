@@ -6,9 +6,10 @@ const cdk = require('aws-cdk-lib');
 const { Template } = require('aws-cdk-lib/assertions');
 const { WormageStack } = require('../dist/lib/wormage-stack');
 
-function template() {
+function template(props = {}) {
   return Template.fromStack(new WormageStack(new cdk.App(), 'TestStack', {
     authSecretValue: 'test-secret-value-padded-to-32-chars-min',
+    ...props,
   }));
 }
 
@@ -57,7 +58,7 @@ test('Lambda DynamoDB access is limited to used actions, the table and both GSIs
 test('Lambda S3 writes are prefix-scoped and deletes are limited to bug reports', () => {
   const stack = template();
   const statements = allowStatements(stack);
-  assert.deepEqual(serviceActions(statements, 's3'), ['s3:DeleteObject', 's3:PutObject']);
+  assert.deepEqual(serviceActions(statements, 's3'), ['s3:DeleteObject', 's3:ListBucket', 's3:PutObject']);
 
   const [bucketId] = Object.keys(stack.findResources('AWS::S3::Bucket'));
   const bucketArn = { 'Fn::GetAtt': [bucketId, 'Arn'] };
@@ -74,26 +75,42 @@ test('Lambda S3 writes are prefix-scoped and deletes are limited to bug reports'
   for (const remove of removes) {
     assertSameResources(remove.Resource, [objectArn('bug-reports/*')]);
   }
+
+  const lists = statements.filter((entry) => actions(entry).includes('s3:ListBucket'));
+  assert.ok(lists.length > 0, 'missing S3 ListBucket allow statement');
+  for (const list of lists) {
+    assertSameResources(list.Resource, [bucketArn]);
+    assert.deepEqual(list.Condition, { StringLike: { 's3:prefix': ['bug-reports/*'] } });
+  }
 });
 
-test('Lambda SSM access remains limited to the auth parameter', () => {
+const ssmResource = (name) => ({
+  'Fn::Join': ['', [
+    'arn:',
+    { Ref: 'AWS::Partition' },
+    ':ssm:',
+    { Ref: 'AWS::Region' },
+    ':',
+    { Ref: 'AWS::AccountId' },
+    `:parameter/${name}`,
+  ]],
+});
+
+test('Lambda SSM access excludes the GitHub token while issue creation is disabled', () => {
   const statements = allowStatements(template());
   assert.deepEqual(serviceActions(statements, 'ssm'), ['ssm:GetParameter']);
-
-  const expectedResource = {
-    'Fn::Join': ['', [
-      'arn:',
-      { Ref: 'AWS::Partition' },
-      ':ssm:',
-      { Ref: 'AWS::Region' },
-      ':',
-      { Ref: 'AWS::AccountId' },
-      ':parameter/wormage/auth/secret',
-    ]],
-  };
   const ssmStatements = statements.filter((entry) => actions(entry).some((action) => action.startsWith('ssm:')));
   assert.ok(ssmStatements.length > 0, 'missing SSM GetParameter allow statement');
   for (const statement of ssmStatements) {
-    assertSameResources(statement.Resource, [expectedResource]);
+    assertSameResources(statement.Resource, [ssmResource('wormage/auth/secret')]);
   }
+});
+
+test('Lambda SSM access includes only the scoped GitHub token when issue creation is enabled', () => {
+  const statements = allowStatements(template({ githubIssuesEnabled: true, authMode: 'enforce' }));
+  assert.deepEqual(serviceActions(statements, 'ssm'), ['ssm:GetParameter']);
+  const expected = [ssmResource('wormage/auth/secret'), ssmResource('wormage/github/bug-report-token')];
+  const ssmStatements = statements.filter((entry) => actions(entry).some((action) => action.startsWith('ssm:')));
+  assert.ok(ssmStatements.length > 0, 'missing SSM GetParameter allow statement');
+  assertSameResources(ssmStatements.flatMap((statement) => asArray(statement.Resource)), expected);
 });

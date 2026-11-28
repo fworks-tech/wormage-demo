@@ -16,6 +16,7 @@ Status values: **Proposed** (under discussion), **Accepted** (the direction), **
 | [0008](0008-anonymous-player-auth.md) | Anonymous HS256 bearer identity without public-playerId trust | Proposed |
 | [0009](0009-pwa-service-worker-scope.md) | One root service worker, owned by the PWA in production | Accepted |
 | [0010](0010-cloud-profile-identity.md) | Cloud profile sync reuses the anonymous player identity | Accepted |
+| [0011](0011-github-bug-report-issues.md) | Best-effort GitHub issues from stored bug reports | Accepted |
 
 ## Template
 

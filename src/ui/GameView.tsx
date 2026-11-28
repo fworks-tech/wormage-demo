@@ -202,13 +202,14 @@ export function GameView({
   }, []);
 
   const sendReport = useCallback(
-    async ({ note, screenshot }: { note: string; screenshot: GameScreenshot | null }) => {
+    async ({ note, screenshot, reportId }: { note: string; screenshot: GameScreenshot | null; reportId: string }) => {
       const engine = engineRef.current;
       if (!engine) throw new Error('No active match');
       return sendBugReport({
         engine,
         note,
         screenshot,
+        reportId,
         online: online && onlineCode && playerId ? { code: onlineCode, playerId } : null,
       });
     },

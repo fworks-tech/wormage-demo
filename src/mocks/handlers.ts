@@ -25,6 +25,16 @@ function authFailure(status: number, message = status === 401 ? 'authentication 
   return HttpResponse.json({ message }, { status });
 }
 
+function loseNextBugReportResponse(): boolean {
+  try {
+    if (sessionStorage.getItem('wormage.bugReportLoseResponse.v1') !== '1') return false;
+    sessionStorage.removeItem('wormage.bugReportLoseResponse.v1');
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export const handlers = [
   http.post('/api/auth/session', async ({ request }) => {
     await delay(latencyMs());
@@ -108,7 +118,9 @@ export const handlers = [
     if (auth.status) return authFailure(auth.status);
     const body = await request.json() as { online?: { playerId?: string } };
     if (body?.online && auth.playerId) body.online.playerId = auth.playerId;
-    return HttpResponse.json(registerBugReport(body), { status: 201 });
+    const result = registerBugReport(body);
+    if (loseNextBugReportResponse()) return HttpResponse.error();
+    return HttpResponse.json(result, { status: 201 });
   }),
 
   http.get('/api/matches/online/:code', async ({ params, request }) => {

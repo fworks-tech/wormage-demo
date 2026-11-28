@@ -3,13 +3,15 @@
 const crypto = require('crypto');
 const { DynamoDBClient, TransactWriteItemsCommand } = require('@aws-sdk/client-dynamodb');
 const { DynamoDBDocumentClient, GetCommand, PutCommand, QueryCommand, UpdateCommand } = require('@aws-sdk/lib-dynamodb');
-const { S3Client, PutObjectCommand, DeleteObjectCommand } = require('@aws-sdk/client-s3');
+const { S3Client, PutObjectCommand, ListObjectsV2Command, DeleteObjectCommand } = require('@aws-sdk/client-s3');
 const { SSMClient, GetParameterCommand } = require('@aws-sdk/client-ssm');
 const { GameEngine, WEAPONS } = require('./engine.cjs');
 const { replayActionLog, sortActions, ENGINE_VERSION } = require('./replay.js');
 
 const TABLE = process.env.TABLE_NAME;
 const ACTION_LOG_VERSION = 2;
+const GITHUB_ISSUE_IP_LIMIT = 5;
+const GITHUB_ISSUE_RATE_WINDOW_SECONDS = 3600;
 // Online retention: DynamoDB TTL needs epoch seconds. Ranking/history
 // (CLIENT#) items never carry expiresAt.
 const ONLINE_TTL_SECONDS = 30 * 24 * 60 * 60;
@@ -25,7 +27,6 @@ const AUTH_SECRET_PARAM = process.env.AUTH_SECRET_PARAM;
 const AUTH_TTL_SECONDS = 180 * 24 * 60 * 60;
 const AUTH_ISSUER = 'wormage';
 const AUTH_AUDIENCE = 'wormage-client';
-let authSecretPromise;
 
 class AuthError extends Error {}
 
@@ -84,22 +85,39 @@ function verifyToken(token, secret, now = Date.now()) {
   }
 }
 
-async function getAuthSecret() {
-  if (!AUTH_SECRET_PARAM) throw new Error('auth secret is not configured');
-  if (!authSecretPromise) {
-    authSecretPromise = ssm.send(new GetParameterCommand({ Name: AUTH_SECRET_PARAM, WithDecryption: true }))
-      .then((result) => {
-        const value = result.Parameter && result.Parameter.Value;
-        if (typeof value !== 'string' || value.length < 32) throw new Error('auth secret is invalid');
-        return value;
-      })
-      .catch((error) => {
-        authSecretPromise = undefined;
-        throw error;
-      });
-  }
-  return authSecretPromise;
+function createSsmSecretReader(getName, validate, label) {
+  let promise;
+  const read = async (signal, client = ssm) => {
+    const name = getName();
+    if (!name) throw new Error(`${label} parameter is not configured`);
+    if (!promise) {
+      promise = client.send(new GetParameterCommand({ Name: name, WithDecryption: true }), { abortSignal: signal })
+        .then((result) => {
+          const value = result.Parameter && result.Parameter.Value;
+          if (!validate(value)) throw new Error(`${label} is invalid`);
+          return value;
+        })
+        .catch((error) => {
+          promise = undefined;
+          throw error;
+        });
+    }
+    return promise;
+  };
+  read.reset = () => { promise = undefined; };
+  return read;
 }
+
+const getAuthSecret = createSsmSecretReader(
+  () => AUTH_SECRET_PARAM,
+  (value) => typeof value === 'string' && value.length >= 32,
+  'auth secret',
+);
+const getGithubToken = createSsmSecretReader(
+  () => process.env.GITHUB_TOKEN_PARAM,
+  (value) => typeof value === 'string' && value.length > 0,
+  'GitHub token',
+);
 
 function bearerToken(event) {
   const headers = (event && event.headers) || {};
@@ -489,7 +507,201 @@ function decodeScreenshot(shot) {
   return bytes;
 }
 
-async function postBugReport(event, s3Client = s3, authenticatedPlayerId) {
+function githubSingleLine(value, max) {
+  return String(value ?? '')
+    .replace(/[\u0000-\u001f\u007f]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, max);
+}
+
+function githubTextBlock(value, max = 2000) {
+  const text = String(value ?? '').replace(/\r\n?/g, '\n').slice(0, max);
+  // Indentation renders player text literally, neutralizing Markdown and mentions.
+  return text.split('\n').map((line) => `    ${line}`).join('\n');
+}
+
+function githubPageUrl(value) {
+  try {
+    const url = new URL(value);
+    if (url.protocol !== 'http:' && url.protocol !== 'https:') return 'unavailable';
+    const path = /^\/online\/[^/]+(?:\/|$)/.test(url.pathname) ? '/online/[redacted]' : url.pathname;
+    return `${url.origin}${path}`.slice(0, 500);
+  } catch {
+    return 'unavailable';
+  }
+}
+
+function githubReportMarker(reportId) {
+  const digest = crypto.createHash('sha256').update(String(reportId ?? '')).digest('hex');
+  return `wormage-report:${digest.slice(0, 24)}`;
+}
+
+function githubContext(metadata) {
+  const version = githubSingleLine(metadata.appVersion, 80) || 'unknown';
+  const screenshotKey = metadata.screenshot && typeof metadata.screenshot.key === 'string'
+    ? githubSingleLine(metadata.screenshot.key, 600)
+    : 'none';
+  return [
+    `Report ID: ${githubSingleLine(metadata.reportId, 128) || 'unknown'}`,
+    `App version: ${version}`,
+    `Mode: ${metadata.mode === 'online' ? 'online' : 'local'}`,
+    `Seed: ${Number.isFinite(metadata.engine?.seed) ? metadata.engine.seed : 'unknown'}`,
+    `Tick: ${Number.isFinite(metadata.engine?.tick) ? metadata.engine.tick : 'unknown'}`,
+    `Phase: ${githubSingleLine(metadata.engine?.phase, 80) || 'unknown'}`,
+    `Page: ${githubPageUrl(metadata.url)}`,
+    `Report key: ${githubSingleLine(metadata.reportKey, 600) || 'unknown'}`,
+    `Screenshot key: ${screenshotKey}`,
+  ];
+}
+
+function buildGithubIssue(metadata) {
+  const version = githubSingleLine(metadata.appVersion, 40) || 'unknown';
+  // Titles trigger @mentions, so break them while keeping the text readable.
+  const summary = (githubSingleLine(metadata.note, 100) || `${version} report`).replace(/@/g, '@\u200b');
+  const marker = githubReportMarker(metadata.reportId);
+  const body = [
+    '### Player note',
+    '',
+    metadata.note ? githubTextBlock(metadata.note) : '_No note provided._',
+    '',
+    '### Context',
+    '',
+    ...githubContext(metadata).map((line) => `    ${line}`),
+    '',
+    marker,
+  ].join('\n');
+  return { title: `[bug report] ${summary}`.slice(0, 200), body, marker };
+}
+
+function githubHeaders(token) {
+  return {
+    Authorization: `Bearer ${token}`,
+    Accept: 'application/vnd.github+json',
+    'X-GitHub-Api-Version': '2022-11-28',
+    'User-Agent': 'wormage-bug-reports',
+  };
+}
+
+function githubApiError(action, status) {
+  const error = new Error(`GitHub ${action} failed (${status})`);
+  error.name = 'GithubApiError';
+  error.status = status;
+  return error;
+}
+
+function githubIssueResult(issue) {
+  if (!issue || !Number.isInteger(issue.number) || typeof issue.html_url !== 'string' || !issue.html_url.startsWith('https://github.com/')) {
+    throw new Error('invalid GitHub issue response');
+  }
+  return { number: issue.number, url: issue.html_url };
+}
+
+async function searchGithubIssue({ repo, marker, headers, signal, fetchImpl }) {
+  const query = new URLSearchParams({ q: `repo:${repo} is:issue in:body "${marker}"`, per_page: '10' });
+  const response = await fetchImpl(`https://api.github.com/search/issues?${query}`, { headers, signal });
+  if (!response.ok) throw githubApiError('search', response.status);
+  const payload = await response.json();
+  const items = Array.isArray(payload.items) ? payload.items : [];
+  const existing = items.find((item) => item && typeof item.body === 'string' && item.body.includes(marker));
+  return existing ? githubIssueResult(existing) : null;
+}
+
+async function postGithubIssue({ repo, issue, headers, signal, fetchImpl }) {
+  const response = await fetchImpl(`https://api.github.com/repos/${repo}/issues`, {
+    method: 'POST',
+    headers: { ...headers, 'content-type': 'application/json' },
+    body: JSON.stringify({ title: issue.title, body: issue.body, labels: ['bug'] }),
+    signal,
+  });
+  if (!response.ok) throw githubApiError('create', response.status);
+  return githubIssueResult(await response.json());
+}
+
+function githubRateLimitError() {
+  const error = new Error('GitHub issue rate limit exceeded');
+  error.name = 'GithubIssueRateLimitError';
+  return error;
+}
+
+async function claimGithubIssueSlot(sourceIp, { signal, client = ddb, now = Date.now } = {}) {
+  if (typeof sourceIp !== 'string' || sourceIp.length === 0 || sourceIp.length > 64) {
+    const error = new Error('source IP is required for GitHub issue creation');
+    error.name = 'MissingSourceIpError';
+    throw error;
+  }
+  const hash = crypto.createHash('sha256').update(sourceIp).digest('hex');
+  const nowSeconds = Math.floor(now() / 1000);
+  const bucket = Math.floor(nowSeconds / GITHUB_ISSUE_RATE_WINDOW_SECONDS);
+  try {
+    await client.send(new UpdateCommand({
+      TableName: TABLE,
+      Key: { pk: `BUG_REPORT_ISSUE#${hash}`, sk: `RATE#${bucket}` },
+      UpdateExpression: 'ADD #count :one SET #expires = :expires',
+      ConditionExpression: 'attribute_not_exists(#count) OR #count < :limit',
+      ExpressionAttributeNames: { '#count': 'count', '#expires': 'expiresAt' },
+      ExpressionAttributeValues: {
+        ':one': 1,
+        ':limit': GITHUB_ISSUE_IP_LIMIT,
+        ':expires': nowSeconds + GITHUB_ISSUE_RATE_WINDOW_SECONDS * 2,
+      },
+    }), { abortSignal: signal });
+  } catch (error) {
+    if (error && error.name === 'ConditionalCheckFailedException') throw githubRateLimitError();
+    throw error;
+  }
+}
+
+async function createGithubIssue(metadata, options = {}) {
+  const fetchImpl = options.fetchImpl ?? globalThis.fetch;
+  const getToken = options.getToken ?? getGithubToken;
+  const repo = options.repo ?? process.env.GITHUB_ISSUE_REPO;
+  const timeoutMs = options.timeoutMs ?? 3000;
+  if (typeof fetchImpl !== 'function') throw new Error('GitHub fetch is not available');
+  if (typeof repo !== 'string' || !/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(repo)) {
+    throw new Error('invalid GitHub repository');
+  }
+  const signal = AbortSignal.timeout(timeoutMs);
+  try {
+    if (options.sourceIp) {
+      await claimGithubIssueSlot(options.sourceIp, { signal, client: options.ddbClient ?? ddb, now: options.now ?? Date.now });
+    }
+    const token = await getToken(signal);
+    if (typeof token !== 'string' || token.length === 0) throw new Error('GitHub token is invalid');
+    const issue = buildGithubIssue(metadata);
+    const headers = githubHeaders(token);
+    const context = { repo, headers, signal, fetchImpl };
+    const existing = await searchGithubIssue({ ...context, marker: issue.marker });
+    return await (existing ?? postGithubIssue({ ...context, issue }));
+  } catch (error) {
+    if (error && error.status === 401) getGithubToken.reset();
+    throw error;
+  }
+}
+
+async function maybeCreateGithubIssue(metadata, reportKey, reportId, { createIssue, sourceIp }) {
+  if (process.env.GITHUB_ISSUES_ENABLED !== 'true') return null;
+  if (!sourceIp) {
+    console.warn(JSON.stringify({ level: 'warn', type: 'github-issue-failed', reportId, name: 'MissingSourceIpError' }));
+    return null;
+  }
+  try {
+    const issue = await createIssue({ ...metadata, reportKey }, { sourceIp });
+    if (issue) console.log(JSON.stringify({ type: 'github-issue-created', reportId, issue }));
+    return issue;
+  } catch (error) {
+    console.warn(JSON.stringify({
+      level: 'warn',
+      type: 'github-issue-failed',
+      reportId,
+      name: error && error.name ? error.name : 'Error',
+      status: error && error.status ? error.status : undefined,
+    }));
+    return null;
+  }
+}
+
+async function postBugReport(event, s3Client = s3, authenticatedPlayerId, createIssue = createGithubIssue) {
   const body = parseBody(event);
   if (authenticatedPlayerId && body && body.online && typeof body.online === 'object' && !Array.isArray(body.online)) {
     body.online.playerId = authenticatedPlayerId;
@@ -561,8 +773,9 @@ async function postBugReport(event, s3Client = s3, authenticatedPlayerId) {
       ContentType: 'application/json',
     }));
   } catch (err) {
-    // Avoid leaving an image object with no report metadata.
-    if (screenshotKey) {
+    // A retry reuses the same keys; only remove the screenshot when no report
+    // exists yet, so a failed retry cannot orphan an accepted report.
+    if (screenshotKey && !(await bugReportExists(s3Client, bucket, reportKey))) {
       try { await s3Client.send(new DeleteObjectCommand({ Bucket: bucket, Key: screenshotKey })); } catch { /* best effort */ }
     }
     throw err;
@@ -577,11 +790,27 @@ async function postBugReport(event, s3Client = s3, authenticatedPlayerId) {
     reportKey,
   }));
 
+  const sourceIp = event.requestContext && event.requestContext.http && event.requestContext.http.sourceIp;
+  const githubIssue = await maybeCreateGithubIssue(metadata, reportKey, body.reportId, { createIssue, sourceIp });
+
   return json(201, {
     stored: true,
     reportId: body.reportId,
     keys: { report: reportKey, screenshot: screenshotKey },
+    ...(githubIssue ? { githubIssue } : {}),
   });
+}
+
+/** A retry reuses the same report key; an unreadable report is kept, not cleaned. */
+/* List by exact prefix: the documented use for the s3:prefix condition. */
+async function bugReportExists(s3Client, bucket, key) {
+  try {
+    const out = await s3Client.send(new ListObjectsV2Command({ Bucket: bucket, Prefix: key, MaxKeys: 1 }));
+    const contents = (out && out.Contents) || [];
+    return contents.some((entry) => entry && entry.Key === key);
+  } catch {
+    return true;
+  }
 }
 
 /** Keep untrusted key segments inside one S3 "folder" and free of separators. */
@@ -1177,6 +1406,9 @@ exports.postDebugLog = postDebugLog;
 exports.validateDebugLogBody = validateDebugLogBody;
 exports.postBugReport = postBugReport;
 exports.validateBugReportBody = validateBugReportBody;
+exports.buildGithubIssue = buildGithubIssue;
+exports.createGithubIssue = createGithubIssue;
+exports.getGithubToken = getGithubToken;
 exports.keyOf = keyOf;
 exports.validateBody = validateBody;
 exports.validateAction = validateAction;
