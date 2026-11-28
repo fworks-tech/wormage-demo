@@ -1302,11 +1302,9 @@ function makeMockS3() {
         store.set(input.Key, { Bucket: input.Bucket, Body: input.Body, ContentType: input.ContentType });
         return {};
       }
-      if (name === 'HeadObjectCommand') {
-        if (store.has(input.Key)) return { Body: store.get(input.Key).Body };
-        const missing = new Error('not found');
-        missing.name = 'NoSuchKey';
-        throw missing;
+      if (name === 'ListObjectsV2Command') {
+        if (store.has(input.Prefix)) return { Contents: [{ Key: input.Prefix }] };
+        return { Contents: [] };
       }
       if (name === 'DeleteObjectCommand') {
         store.delete(input.Key);
@@ -2022,11 +2020,9 @@ test('postBugReport deletes the screenshot and skips GitHub if metadata write fa
         store.set(input.Key, { Bucket: input.Bucket, Body: input.Body, ContentType: input.ContentType });
         return {};
       }
-      if (name === 'HeadObjectCommand') {
-        if (store.has(input.Key)) return { Body: store.get(input.Key).Body };
-        const missing = new Error('not found');
-        missing.name = 'NoSuchKey';
-        throw missing;
+      if (name === 'ListObjectsV2Command') {
+        if (store.has(input.Prefix)) return { Contents: [{ Key: input.Prefix }] };
+        return { Contents: [] };
       }
       if (name === 'DeleteObjectCommand') {
         store.delete(input.Key);
@@ -2068,11 +2064,9 @@ test('postBugReport keeps the accepted screenshot when a retry metadata write fa
     async send(cmd) {
       const input = cmd.input || cmd;
       const name = cmd && cmd.constructor && cmd.constructor.name;
-      if (name === 'HeadObjectCommand') {
-        if (store.has(input.Key)) return { Body: store.get(input.Key).Body };
-        const missing = new Error('not found');
-        missing.name = 'NoSuchKey';
-        throw missing;
+      if (name === 'ListObjectsV2Command') {
+        if (store.has(input.Prefix)) return { Contents: [{ Key: input.Prefix }] };
+        return { Contents: [] };
       }
       if (name === 'PutObjectCommand') {
         if (String(input.Key).endsWith('.json')) {

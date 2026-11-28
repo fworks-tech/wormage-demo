@@ -3,7 +3,7 @@
 const crypto = require('crypto');
 const { DynamoDBClient, TransactWriteItemsCommand } = require('@aws-sdk/client-dynamodb');
 const { DynamoDBDocumentClient, GetCommand, PutCommand, QueryCommand, UpdateCommand } = require('@aws-sdk/lib-dynamodb');
-const { S3Client, PutObjectCommand, HeadObjectCommand, DeleteObjectCommand } = require('@aws-sdk/client-s3');
+const { S3Client, PutObjectCommand, ListObjectsV2Command, DeleteObjectCommand } = require('@aws-sdk/client-s3');
 const { SSMClient, GetParameterCommand } = require('@aws-sdk/client-ssm');
 const { GameEngine, WEAPONS } = require('./engine.cjs');
 const { replayActionLog, sortActions, ENGINE_VERSION } = require('./replay.js');
@@ -802,14 +802,13 @@ async function postBugReport(event, s3Client = s3, authenticatedPlayerId, create
 }
 
 /** A retry reuses the same report key; an unreadable report is kept, not cleaned. */
+/* List by exact prefix: the documented use for the s3:prefix condition. */
 async function bugReportExists(s3Client, bucket, key) {
   try {
-    await s3Client.send(new HeadObjectCommand({ Bucket: bucket, Key: key }));
-    return true;
-  } catch (readErr) {
-    const code = String((readErr && (readErr.name || readErr.Code || readErr.code
-      || (readErr.$metadata && readErr.$metadata.httpStatusCode))) || '');
-    if (/NoSuchKey|NotFound|NoSuchObject|404/.test(code)) return false;
+    const out = await s3Client.send(new ListObjectsV2Command({ Bucket: bucket, Prefix: key, MaxKeys: 1 }));
+    const contents = (out && out.Contents) || [];
+    return contents.some((entry) => entry && entry.Key === key);
+  } catch {
     return true;
   }
 }

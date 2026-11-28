@@ -188,9 +188,10 @@ export class WormageStack extends cdk.Stack {
     this.handler.addToRolePolicy(new iam.PolicyStatement({
       actions: ['s3:PutObject'], resources: [debugLogBucket.arnForObjects('debug-logs/*'), debugLogBucket.arnForObjects('bug-reports/*')],
     }));
-    this.handler.addToRolePolicy(new iam.PolicyStatement({ actions: ['s3:DeleteObject', 's3:GetObject'], resources: [debugLogBucket.arnForObjects('bug-reports/*')] }));
-    // HeadObject reports a missing key as 403 without bucket listing, so scope
-    // list access to the bug-report prefix to keep the cleanup probe truthful.
+    this.handler.addToRolePolicy(new iam.PolicyStatement({ actions: ['s3:DeleteObject'], resources: [debugLogBucket.arnForObjects('bug-reports/*')] }));
+    // The retry-cleanup probe lists by exact key prefix, the documented use
+    // for an s3:prefix ListBucket condition; HeadObject would need unscoped
+    // ListBucket to return 404 instead of 403 for a missing key.
     this.handler.addToRolePolicy(new iam.PolicyStatement({
       actions: ['s3:ListBucket'],
       resources: [debugLogBucket.bucketArn],
