@@ -1552,12 +1552,22 @@ export class GameEngine {
     );
   }
 
+  /** Planner scope: worms plus live mobs inside melee range (#125: target mobs when the closer threat), so the CPU reacts to an adjacent mob instead of idling. -1 is not a real team, so mobs never count as allies. */
+  private aiScopeWorms(worm: Worm) {
+    return [
+      ...this.aliveAiWorms(),
+      ...this.mobs
+        .filter((m) => m.alive && Math.hypot(m.x - worm.x, m.y - worm.y) <= MOB.attackRange)
+        .map((m) => ({ id: `mob-${m.id}`, teamId: -1, x: m.x, y: m.y, hp: m.hp })),
+    ];
+  }
+
   /** Run the planner from the worm's current spot. */
   private buildAiPlan(worm: Worm): AiTurnPlan | null {
     return planAiTurn({
       terrain: this.terrain,
       worm: { id: worm.id, teamId: worm.teamId, x: worm.x, y: worm.y, hp: worm.hp },
-      worms: this.aliveAiWorms(),
+      worms: this.aiScopeWorms(worm),
       ammo: { ...this.teams[this.activeTeam].ammo },
       wind: this.wind,
       timeLeft: this.timeLeft,
@@ -1572,7 +1582,7 @@ export class GameEngine {
     return isUsefulAiShot({
       terrain: this.terrain,
       shooter: { id: worm.id, teamId: worm.teamId, x: worm.x, y: worm.y, hp: worm.hp },
-      worms: this.aliveAiWorms(),
+      worms: this.aiScopeWorms(worm),
       weapon,
       angle: worm.aimAngle,
       power: Math.max(0.12, this.power),
@@ -1590,7 +1600,7 @@ export class GameEngine {
     const shot = planAiShot(
       this.terrain,
       { id: worm.id, teamId: worm.teamId, x: worm.x, y: worm.y, hp: worm.hp },
-      this.aliveAiWorms(),
+      this.aiScopeWorms(worm),
       this.wind,
       DIFFICULTY[this.config.difficulty],
       this.rng,

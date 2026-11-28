@@ -35,11 +35,17 @@ export interface ShotPlan {
 
 export interface AiWorm {
   id: string;
+  /** Real teams are >= 0; -1 marks a blast-only pseudo-target (e.g. a mob). */
   teamId: number;
   x: number;
   y: number;
   /** Current HP; optional for callers that don't carry it. */
   hp?: number;
+}
+
+/** Bodies that stop a simulated shot: real worms only. Mobs take blast damage but never stop a projectile, mirroring stepProjectiles. */
+export function simBodies(worms: AiWorm[], shooter: AiWorm): AiWorm[] {
+  return worms.filter((w) => w.id !== shooter.id && w.teamId >= 0);
 }
 
 export interface AiTurnPlan {
@@ -205,7 +211,7 @@ export function isUsefulAiShot({
     if (!escapeWorms) return false;
     scoringWorms = escapeWorms;
   }
-  const bodies = worms.filter((w) => w.id !== shooter.id);
+  const bodies = simBodies(worms, shooter);
   const impact = def.kind === 'drop'
     ? { x: shooter.x, y: shooter.y - 8, valid: true }
     : simulateShot(
@@ -248,7 +254,7 @@ export function planAiShot(
   if (!target) return null;
   const wormX = shooter.x;
   const wormY = shooter.y;
-  const bodies = worms.filter((w) => w.id !== shooter.id);
+  const bodies = simBodies(worms, shooter);
   const facingLeft = target.x < wormX;
   const base = facingLeft ? -Math.PI : 0;
   // Angles grow from -π (left) to -0.08 (right), so left-facing adds and right-facing subtracts.
@@ -475,7 +481,7 @@ function planProjectile(
   const mirror = facingLeft ? 1 : -1;
   const offsets = [0.22, 0.5, 0.75, 1.0, 1.22, 1.42];
   const retreatX = chooseRetreat(terrain, pos, enemies, null, 0, RETREAT_SECONDS) ?? pos.x;
-  const bodies = worms.filter((w) => w.id !== worm.id);
+  const bodies = simBodies(worms, worm);
   const firingWorm = { ...worm, x: pos.x, y: pos.y };
   const scoringWorms = worms.map((w) => w.id === worm.id ? firingWorm : w);
   let best: Candidate | null = null;
@@ -589,6 +595,16 @@ function collateral(x: number, y: number, weapon: WeaponId, shooter: AiWorm, wor
   return { ally, self };
 }
 
+/** Blast distance to a target: mobs use their center, worms their chest (mirrors blast()). */
+function blastDist(w: AiWorm, x: number, y: number): number {
+  return w.teamId === -1 ? Math.hypot(w.x - x, w.y - y) : Math.hypot(w.x - x, w.y - 13 - y);
+}
+
+/** Blast reach for a target: mobs check against the bare radius (mirrors blast()). */
+function blastReach(w: AiWorm, radius: number): number {
+  return w.teamId === -1 ? radius : radius + WORM.radius;
+}
+
 /** Damage to enemies minus a penalty for friendly and self damage. */
 function damageScore(
   x: number,
@@ -599,7 +615,6 @@ function damageScore(
   revengeFocus: { x: number; y: number } | null = null,
 ): number {
   const def = WEAPONS[weapon];
-  const reach = def.radius + WORM.radius;
   let enemy = 0;
   let ally = 0;
   let self = 0;
@@ -616,17 +631,20 @@ function damageScore(
     // Fallback: nearest enemy to impact.
     let nearestDist = Infinity;
     for (const w of enemies) {
-      const d = Math.hypot(w.x - x, w.y - 13 - y);
+      const d = blastDist(w, x, y);
       if (d < nearestDist) { nearestDist = d; focusTarget = w; }
     }
   }
   let nearestEnemy: AiWorm | null = focusTarget;
-  let nearestDist = focusTarget ? Math.hypot(focusTarget.x - x, focusTarget.y - 13 - y) : Infinity;
+  let nearestDist = focusTarget ? blastDist(focusTarget, x, y) : Infinity;
 
   const allies = worms.filter((w) => w.teamId === shooter.teamId);
 
   for (const w of worms) {
-    const distance = Math.hypot(w.x - x, w.y - 13 - y);
+    // Shotgun pellets only ever hurt worms (no blast); mobs take blast damage only.
+    if (weapon === 'shotgun' && w.teamId === -1) continue;
+    const distance = blastDist(w, x, y);
+    const reach = blastReach(w, def.radius);
     const amount =
       weapon === 'shotgun'
         ? distance < 14 + WORM.radius * 0.4
@@ -645,13 +663,13 @@ function damageScore(
   let score = enemy - ally * 0.9 - self * 0.85;
 
   // Focus fire bonus: reward landing on the nearest enemy (concentrate damage).
-  if (nearestEnemy && nearestDist <= reach) score += AI.focusFireBonus;
+  if (nearestEnemy && nearestDist <= blastReach(nearestEnemy, def.radius)) score += AI.focusFireBonus;
 
   // Threat bonus: reward hitting an enemy that can reach our worms.
   if (allies.length > 0) {
     for (const w of enemies) {
       const toAlly = Math.min(...allies.map((a) => Math.hypot(w.x - a.x, w.y - a.y)));
-      if (toAlly <= AI.threatRadius && Math.hypot(w.x - x, w.y - 13 - y) <= reach) {
+      if (toAlly <= AI.threatRadius && blastDist(w, x, y) <= blastReach(w, def.radius)) {
         score += AI.threatBonus;
         break;
       }

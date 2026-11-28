@@ -103,7 +103,13 @@ test('a recorded match replays to the same final snapshot', () => {
   expect(live.endReason).toBe('wipeout');
   expect(live.log.some((entry) => entry.action.type === 'move')).toBe(true);
   expect(live.events.some((event) => event.type === 'bounce')).toBe(true);
-  expect(live.kills[0] + live.kills[1]).toBeGreaterThan(0);
+  // The CPU engages adjacent mobs when they are the closer threat (#125, #332),
+  // so worm kills are emergent: combat is proven by kills or by blast-killed
+  // mobs (a drowned mob sets alive = false with no combat entry).
+  expect(
+    live.kills[0] + live.kills[1] > 0 ||
+      live.debugLog.some((entry) => entry.category === 'combat.mobDeath'),
+  ).toBe(true);
 
   const replay = new GameEngine(config());
   let cursor = 0;

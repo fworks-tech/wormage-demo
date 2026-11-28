@@ -4,10 +4,12 @@ import {
   chooseRetreat,
   clampAngle,
   firingPositions,
+  isUsefulAiShot,
   planAiShot,
   planAiTurn,
   planRopeClimb,
   previewFlight,
+  simBodies,
   simulateShot,
 } from '../../src/game/ai';
 import { AIM, DIFFICULTY, JUMP_REACH, RETREAT_SECONDS, ROPE, WEAPONS, WORM } from '../../src/game/config';
@@ -479,4 +481,94 @@ test('the reported seeded no-plan stall jumps the crater ahead', () => {
   expect(engine.debugLog.some((entry) => entry.category === 'ai.fallbackWalk')).toBe(true);
   expect(engine.debugLog.some((entry) => entry.category === 'ai.jump')).toBe(true);
   expect(cpu.x).toBeLessThan(startX - 10);
+});
+
+test('a blast outside real mob geometry is not a useful shot', () => {
+  const shooter = { id: 'a', teamId: 0, x: 400, y: 500 };
+  // Dynamite detonates at the shooter's feet: impact (400, 492). The mob
+  // center is 80 px away: outside the 78 px blast (a real miss), but inside
+  // the worm-inflated 78 + 11 px reach with the -13 px chest offset.
+  const mob = { id: 'mob-1', teamId: -1, x: 480, y: 492, hp: 60 };
+  const useful = isUsefulAiShot({
+    terrain: terrain(),
+    shooter,
+    worms: [shooter, mob],
+    weapon: 'dynamite',
+    angle: 0,
+    power: 0,
+    wind: 0,
+    retreatX: 200,
+  });
+  expect(useful).toBe(false);
+});
+
+test('simulated shots pass through mobs but stop at worms', () => {
+  const shooter = { id: 'a', teamId: 0, x: 0, y: 500 };
+  const mob = { id: 'mob-1', teamId: -1, x: 700, y: 500 };
+  const foe = { id: 'b', teamId: 1, x: 900, y: 500 };
+  // The shooter never blocks its own muzzle; mobs take blast damage but never
+  // stop a projectile (stepProjectiles only collides with real worms).
+  expect(simBodies([shooter, mob, foe], shooter)).toEqual([foe]);
+});
+
+test('the CPU shoots an adjacent mob instead of idling (report 1654c9da)', () => {  const config: MatchConfig = {
+    turnSeconds: 20,
+    wind: 'strong',
+    difficulty: 'rookie',
+    seed: 153847014,
+    wormsPerTeam: 1,
+    map: 'island',
+    mode: 'deathmatch',
+    loadout: 'default',
+    hotseat: false,
+    teamCount: 2,
+  };
+  const engine = new GameEngine(config);
+  engine.mobs.splice(0);
+  engine.loot.splice(0);
+  const cpuX = 1500;
+  const cpuGround = engine.terrain.groundY(cpuX, 0, 2000) ?? 500;
+  const cpu = engine.teams[1].worms[0];
+  cpu.x = cpuX;
+  cpu.y = cpuGround - 10;
+  cpu.vx = 0;
+  cpu.vy = 0;
+  cpu.onGround = true;
+  cpu.hp = 100;
+  const foeX = cpuX + 1500;
+  const foeGround = engine.terrain.groundY(foeX, 0, 2000) ?? 500;
+  const foe = engine.teams[0].worms[0];
+  foe.x = foeX;
+  foe.y = foeGround - 10;
+  foe.vx = 0;
+  foe.vy = 0;
+  foe.onGround = true;
+  // Mob at melee range behind the CPU, away from the enemy worm.
+  const mobX = cpuX - 40;
+  const mobGround = engine.terrain.groundY(mobX, 0, 2000) ?? 500;
+  engine.mobs.push({
+    id: 1,
+    x: mobX,
+    y: mobGround - 18,
+    vy: 0,
+    hp: 60,
+    maxHp: 60,
+    damage: 5,
+    speed: 160,
+    radius: 18,
+    alive: true,
+    moveDir: 0,
+    moveLeft: 0,
+  });
+  engine.teams[1].ammo = { bazooka: Infinity, grenade: 3, shotgun: 4, dynamite: 2, medkit: 2, shield: 1 };
+  engine.activeTeam = 1;
+  engine.activeWormId = cpu.id;
+  engine.aiThinking = true;
+  engine.timeLeft = 20;
+
+  for (let i = 0; i < 25 * 60 && engine.activeTeam === 1 && engine.mobs[0].hp >= 60; i += 1) {
+    engine.update(1 / 60);
+  }
+
+  expect(engine.mobs[0].hp).toBeLessThan(60);
 });
