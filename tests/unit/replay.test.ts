@@ -16,12 +16,19 @@ const config = (): MatchConfig => ({
   mode: 'fort',
 });
 
+function replayEngine(): GameEngine {
+  const engine = new GameEngine(config());
+  // Start with bazookas so the CPU does not evaluate every weapon before its first pickup.
+  engine.teams[1].ammo = { bazooka: Infinity, grenade: 0, shotgun: 0, dynamite: 0, medkit: 0, shield: 0 };
+  return engine;
+}
+
 /**
  * Play one match through recorded inputs: a walk, a low grenade that bounces,
  * then bazooka shots planned by the legacy solver until the match ends.
  */
 function recordMatch(): GameEngine {
-  const engine = new GameEngine(config());
+  const engine = replayEngine();
   let lastTurn = -1;
   let plan: { angle: number; power: number } | null = null;
   let grenadeThrown = false;
@@ -111,7 +118,7 @@ test('a recorded match replays to the same final snapshot', () => {
       live.debugLog.some((entry) => entry.category === 'combat.mobDeath'),
   ).toBe(true);
 
-  const replay = new GameEngine(config());
+  const replay = replayEngine();
   let cursor = 0;
   while (replay.phase !== 'gameover' && replay.tick < MAX_TICKS) {
     while (cursor < live.log.length && live.log[cursor].tick === replay.tick) {
