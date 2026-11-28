@@ -1302,6 +1302,12 @@ function makeMockS3() {
         store.set(input.Key, { Bucket: input.Bucket, Body: input.Body, ContentType: input.ContentType });
         return {};
       }
+      if (name === 'GetObjectCommand') {
+        if (store.has(input.Key)) return { Body: store.get(input.Key).Body };
+        const missing = new Error('not found');
+        missing.name = 'NoSuchKey';
+        throw missing;
+      }
       if (name === 'DeleteObjectCommand') {
         store.delete(input.Key);
         return {};
@@ -2016,6 +2022,12 @@ test('postBugReport deletes the screenshot and skips GitHub if metadata write fa
         store.set(input.Key, { Bucket: input.Bucket, Body: input.Body, ContentType: input.ContentType });
         return {};
       }
+      if (name === 'GetObjectCommand') {
+        if (store.has(input.Key)) return { Body: store.get(input.Key).Body };
+        const missing = new Error('not found');
+        missing.name = 'NoSuchKey';
+        throw missing;
+      }
       if (name === 'DeleteObjectCommand') {
         store.delete(input.Key);
         return {};
@@ -2038,6 +2050,74 @@ test('postBugReport deletes the screenshot and skips GitHub if metadata write fa
     assert.equal(issueCalls, 0);
   } finally {
     restoreEnv('GITHUB_ISSUES_ENABLED', previous);
+  }
+});
+
+test('postBugReport keeps the accepted screenshot when a retry metadata write fails', async () => {
+  const previousGithub = process.env.GITHUB_ISSUES_ENABLED;
+  const previousBucket = process.env.DEBUG_LOG_BUCKET;
+  const previousEnabled = process.env.BUG_REPORTS_ENABLED;
+  process.env.GITHUB_ISSUES_ENABLED = 'false';
+  process.env.DEBUG_LOG_BUCKET = 'bucket';
+  process.env.BUG_REPORTS_ENABLED = 'true';
+  const store = new Map();
+  let deletes = 0;
+  let jsonPuts = 0;
+  const s3 = {
+    store,
+    async send(cmd) {
+      const input = cmd.input || cmd;
+      const name = cmd && cmd.constructor && cmd.constructor.name;
+      if (name === 'GetObjectCommand') {
+        if (store.has(input.Key)) return { Body: store.get(input.Key).Body };
+        const missing = new Error('not found');
+        missing.name = 'NoSuchKey';
+        throw missing;
+      }
+      if (name === 'PutObjectCommand') {
+        if (String(input.Key).endsWith('.json')) {
+          jsonPuts += 1;
+          if (jsonPuts === 2) throw new Error('s3 down');
+        }
+        store.set(input.Key, { Bucket: input.Bucket, Body: input.Body, ContentType: input.ContentType });
+        return {};
+      }
+      if (name === 'DeleteObjectCommand') {
+        deletes += 1;
+        store.delete(input.Key);
+        return {};
+      }
+      throw new Error('Unknown command: ' + name);
+    },
+  };
+
+  try {
+    const first = await L.postBugReport(
+      ev('POST', '/api/bug-reports', {}, bugReportBody()),
+      s3,
+      undefined,
+      async () => undefined,
+    );
+    assert.equal(first.statusCode, 201);
+    const keys = JSON.parse(first.body).keys;
+    assert.ok(store.has(keys.report));
+    assert.ok(store.has(keys.screenshot));
+    await assert.rejects(
+      () => L.postBugReport(
+        ev('POST', '/api/bug-reports', {}, bugReportBody()),
+        s3,
+        undefined,
+        async () => undefined,
+      ),
+      /s3 down/,
+    );
+    assert.equal(deletes, 0);
+    assert.ok(store.has(keys.report));
+    assert.ok(store.has(keys.screenshot));
+  } finally {
+    restoreEnv('GITHUB_ISSUES_ENABLED', previousGithub);
+    restoreEnv('DEBUG_LOG_BUCKET', previousBucket);
+    restoreEnv('BUG_REPORTS_ENABLED', previousEnabled);
   }
 });
 
